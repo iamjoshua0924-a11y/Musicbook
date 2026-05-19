@@ -108,6 +108,11 @@
 .row button { padding: 8px 10px; border-radius: 10px; border: 1px solid #ddd; background: #fff; cursor: pointer; }
 .row input[type="range"] { width: 120px; }
 
+/* Bigger touch targets in live mode */
+.live-mode #fab { width: 60px; height: 60px; font-size: 22px; }
+.live-mode #fabPanel { width: 280px; }
+.live-mode .row button { padding: 10px 12px; }
+
 #participantsPanel {
   position: absolute;
   right: 16px;

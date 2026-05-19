@@ -42,6 +42,10 @@ function debounce(fn, ms) {
   };
 }
 
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
+}
+
 // ---- State ------------------------------------------------------------------------
 const state = {
   fileId: getFileIdFromPath(),
@@ -63,6 +67,7 @@ const state = {
   // pageNo -> redo stack: [{json,w,h}]
   redoStack: {},
   tool: 'pen',
+  shape: null, // 'line'|'rect'|'circle' (when tool==='shape')
 
   // view modes
   spreadCount: 1, // 1~4
@@ -321,6 +326,116 @@ function makeView(pageNo) {
     state.activeDrawPageNo = pageNo;
   });
 
+  // --- Shape/Text placement -------------------------------------------------------
+  let isPlacing = false;
+  let placingObj = null;
+  let origin = null;
+  // late-bound (pushUndo/broadcast are declared later)
+  let vPushUndo = () => {};
+  let vBroadcast = () => {};
+
+  const getPointer = (opt) => fabricCanvas.getPointer(opt.e);
+  const commonStyle = () => {
+    const size = Number(document.getElementById('brushSize').value || 3);
+    const color = document.getElementById('colorPicker').value || '#ff2d55';
+    return { stroke: color, fill: 'rgba(0,0,0,0)', strokeWidth: Math.max(1, size) };
+  };
+
+  fabricCanvas.on('mouse:down', (opt) => {
+    state.activeDrawPageNo = pageNo;
+
+    if (state.tool === 'text') {
+      const p = getPointer(opt);
+      const color = document.getElementById('colorPicker').value || '#ff2d55';
+      const it = new fabric.IText('텍스트', {
+        left: p.x,
+        top: p.y,
+        fontSize: 22,
+        fill: color,
+        fontWeight: 700
+      });
+      fabricCanvas.add(it);
+      it.enterEditing();
+      fabricCanvas.setActiveObject(it);
+      vPushUndo();
+      vBroadcast();
+      return;
+    }
+
+    if (state.tool !== 'shape') return;
+    const p = getPointer(opt);
+    origin = { x: p.x, y: p.y };
+    const st = commonStyle();
+
+    if (state.shape === 'line') {
+      placingObj = new fabric.Line([p.x, p.y, p.x, p.y], {
+        stroke: st.stroke,
+        strokeWidth: st.strokeWidth,
+        selectable: false,
+        evented: false
+      });
+    } else if (state.shape === 'rect') {
+      placingObj = new fabric.Rect({
+        left: p.x,
+        top: p.y,
+        width: 1,
+        height: 1,
+        ...st,
+        selectable: false,
+        evented: false
+      });
+    } else if (state.shape === 'circle') {
+      placingObj = new fabric.Ellipse({
+        left: p.x,
+        top: p.y,
+        rx: 1,
+        ry: 1,
+        ...st,
+        selectable: false,
+        evented: false
+      });
+    } else {
+      placingObj = null;
+    }
+
+    if (placingObj) {
+      isPlacing = true;
+      fabricCanvas.add(placingObj);
+    }
+  });
+
+  fabricCanvas.on('mouse:move', (opt) => {
+    if (!isPlacing || !placingObj || !origin) return;
+    const p = getPointer(opt);
+
+    if (placingObj.type === 'line') {
+      placingObj.set({ x2: p.x, y2: p.y });
+    } else if (placingObj.type === 'rect') {
+      const left = Math.min(origin.x, p.x);
+      const top = Math.min(origin.y, p.y);
+      const w = Math.abs(origin.x - p.x);
+      const h = Math.abs(origin.y - p.y);
+      placingObj.set({ left, top, width: w, height: h });
+    } else if (placingObj.type === 'ellipse') {
+      const left = Math.min(origin.x, p.x);
+      const top = Math.min(origin.y, p.y);
+      const rx = Math.abs(origin.x - p.x) / 2;
+      const ry = Math.abs(origin.y - p.y) / 2;
+      placingObj.set({ left, top, rx, ry });
+    }
+    placingObj.setCoords();
+    fabricCanvas.requestRenderAll();
+  });
+
+  fabricCanvas.on('mouse:up', () => {
+    if (!isPlacing) return;
+    isPlacing = false;
+    placingObj = null;
+    origin = null;
+    vPushUndo();
+    vBroadcast();
+  });
+
   // ensure undo/redo init
   state.undoStack[pageNo] ||= [];
   state.redoStack[pageNo] ||= [];
@@ -349,6 +464,9 @@ function makeView(pageNo) {
     }, 200);
   broadcastDebouncedByPage.set(pageNo, broadcast);
 
+  vPushUndo = () => pushUndo();
+  vBroadcast = () => broadcast();
+
   fabricCanvas.on('path:created', () => {
     pushUndo();
     broadcast();
@@ -358,7 +476,7 @@ function makeView(pageNo) {
     broadcast();
   });
 
-  const v = { pageNo, root, pdfCanvas, annoCanvas, fabric: fabricCanvas };
+  const v = { pageNo, root, pdfCanvas, annoCanvas, fabric: fabricCanvas, pushUndo, broadcast };
   viewMap.set(pageNo, v);
   applyToolToAll();
   return v;
@@ -369,11 +487,21 @@ function applyToolToCanvas(fab) {
   const size = Number(document.getElementById('brushSize').value || 3);
   const color = document.getElementById('colorPicker').value || '#ff2d55';
 
+  // selection defaults
+  const makeSelectable = (on) => {
+    fab.selection = on;
+    fab.forEachObject((obj) => {
+      obj.selectable = on;
+      obj.evented = on;
+    });
+  };
+
   if (state.tool === 'pen') {
     fab.isDrawingMode = true;
     fab.freeDrawingBrush = new fabric.PencilBrush(fab);
     fab.freeDrawingBrush.width = size;
     fab.freeDrawingBrush.color = color;
+    makeSelectable(false);
   } else if (state.tool === 'highlighter') {
     fab.isDrawingMode = true;
     fab.freeDrawingBrush = new fabric.PencilBrush(fab);
@@ -383,18 +511,28 @@ function applyToolToCanvas(fab) {
       ? `rgba(${parseInt(color.slice(1,3),16)},${parseInt(color.slice(3,5),16)},${parseInt(color.slice(5,7),16)},0.28)`
       : 'rgba(255, 235, 59, 0.28)';
     fab.freeDrawingBrush.color = rgba;
+    makeSelectable(false);
   } else if (state.tool === 'eraser') {
     if (fabric.EraserBrush) {
       fab.isDrawingMode = true;
       fab.freeDrawingBrush = new fabric.EraserBrush(fab);
       fab.freeDrawingBrush.width = Math.max(6, size * 2);
+      makeSelectable(false);
     } else {
       // fallback: not supported
       fab.isDrawingMode = true;
       fab.freeDrawingBrush = new fabric.PencilBrush(fab);
       fab.freeDrawingBrush.width = Math.max(6, size * 2);
       fab.freeDrawingBrush.color = 'rgba(0,0,0,1)';
+      makeSelectable(false);
     }
+  } else if (state.tool === 'select') {
+    fab.isDrawingMode = false;
+    makeSelectable(true);
+  } else if (state.tool === 'shape' || state.tool === 'text') {
+    // placement happens on mouse events
+    fab.isDrawingMode = false;
+    makeSelectable(false);
   }
 }
 
@@ -519,18 +657,21 @@ ro.observe(els.pdfContainer);
 // Palette tools
 document.getElementById('brushSize').addEventListener('input', () => applyToolToAll());
 document.getElementById('colorPicker').addEventListener('input', () => applyToolToAll());
-document.getElementById('penBtn').addEventListener('click', () => {
-  state.tool = 'pen';
+
+function setTool(tool, shape = null) {
+  state.tool = tool;
+  state.shape = shape;
   applyToolToAll();
-});
-document.getElementById('highlighterBtn').addEventListener('click', () => {
-  state.tool = 'highlighter';
-  applyToolToAll();
-});
-document.getElementById('eraserBtn').addEventListener('click', () => {
-  state.tool = 'eraser';
-  applyToolToAll();
-});
+}
+
+document.getElementById('penBtn').addEventListener('click', () => setTool('pen'));
+document.getElementById('highlighterBtn').addEventListener('click', () => setTool('highlighter'));
+document.getElementById('eraserBtn').addEventListener('click', () => setTool('eraser'));
+document.getElementById('selectBtn').addEventListener('click', () => setTool('select'));
+document.getElementById('lineBtn').addEventListener('click', () => setTool('shape', 'line'));
+document.getElementById('rectBtn').addEventListener('click', () => setTool('shape', 'rect'));
+document.getElementById('circleBtn').addEventListener('click', () => setTool('shape', 'circle'));
+document.getElementById('textBtn').addEventListener('click', () => setTool('text'));
 
 function undoForActivePage() {
   const pageNo = state.activeDrawPageNo || state.pageNo;
@@ -614,6 +755,22 @@ document.getElementById('perfModeBtn').addEventListener('click', () => {
   renderSpread(state.pageNo).catch(() => {});
 });
 
+// Delete key (selection mode)
+window.addEventListener('keydown', (e) => {
+  if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+  if (state.tool !== 'select') return;
+  const pageNo = state.activeDrawPageNo || state.pageNo;
+  const v = viewMap.get(pageNo);
+  if (!v?.fabric) return;
+  const obj = v.fabric.getActiveObject();
+  if (!obj) return;
+  v.fabric.remove(obj);
+  v.fabric.discardActiveObject();
+  v.fabric.requestRenderAll();
+  v.pushUndo?.();
+  v.broadcast?.();
+});
+
 // Live mode (mobile/tablet)
 function updateLiveMode() {
   const isLive = window.matchMedia('(max-width: 980px)').matches || window.matchMedia('(pointer: coarse)').matches;
@@ -621,6 +778,83 @@ function updateLiveMode() {
 }
 updateLiveMode();
 window.addEventListener('resize', updateLiveMode);
+
+// Wheel zoom (Ctrl + wheel)
+els.pdfContainer.addEventListener(
+  'wheel',
+  (e) => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    state.fitMode = false;
+    const dir = e.deltaY < 0 ? 1.08 : 0.92;
+    state.zoom = clamp(state.zoom * dir, 0.5, 3);
+    renderSpread(state.pageNo).catch(() => {});
+  },
+  { passive: false }
+);
+
+// Touch: pinch zoom + swipe page (only when not drawing tools)
+const touch = { mode: null, startX: 0, startY: 0, dx: 0, startDist: 0, startZoom: 1 };
+function dist(t1, t2) {
+  const dx = t1.clientX - t2.clientX;
+  const dy = t1.clientY - t2.clientY;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+els.pdfContainer.addEventListener(
+  'touchstart',
+  (e) => {
+    if (e.touches.length === 2) {
+      touch.mode = 'pinch';
+      touch.startDist = dist(e.touches[0], e.touches[1]);
+      touch.startZoom = state.fitMode ? 1 : state.zoom;
+      state.fitMode = false;
+    } else if (e.touches.length === 1 && (state.tool === 'select' || state.focusMode)) {
+      touch.mode = 'swipe';
+      touch.startX = e.touches[0].clientX;
+      touch.startY = e.touches[0].clientY;
+      touch.dx = 0;
+    } else {
+      touch.mode = null;
+    }
+  },
+  { passive: true }
+);
+els.pdfContainer.addEventListener(
+  'touchmove',
+  (e) => {
+    if (touch.mode === 'pinch' && e.touches.length === 2) {
+      const d = dist(e.touches[0], e.touches[1]);
+      const ratio = d / (touch.startDist || d);
+      state.zoom = clamp(touch.startZoom * ratio, 0.5, 3);
+      renderSpread(state.pageNo).catch(() => {});
+    } else if (touch.mode === 'swipe' && e.touches.length === 1) {
+      touch.dx = e.touches[0].clientX - touch.startX;
+    }
+  },
+  { passive: true }
+);
+els.pdfContainer.addEventListener(
+  'touchend',
+  () => {
+    if (touch.mode === 'swipe') {
+      if (Math.abs(touch.dx) > 80) {
+        if (touch.dx < 0) changePage(state.pageNo + state.spreadCount, 'swipe');
+        else changePage(state.pageNo - state.spreadCount, 'swipe');
+      }
+    }
+    touch.mode = null;
+  },
+  { passive: true }
+);
+
+// FAB auto-close when clicking outside
+document.addEventListener('click', (e) => {
+  const fab = document.getElementById('fab');
+  const panel = document.getElementById('fabPanel');
+  if (panel.classList.contains('hidden')) return;
+  if (panel.contains(e.target) || fab.contains(e.target)) return;
+  panel.classList.add('hidden');
+});
 
 // ---- Socket event handlers ---------------------------------------------------------
 socket.on('session:pageTurner:state', (p) => {

@@ -95,6 +95,29 @@
         </div>
         <pre id="importSongsCsvDetail" class="muted"></pre>
       </div>
+
+      <div class="card" id="csvImportUsersCard" style="display:none;">
+        <div class="title" style="font-size:16px;">CSV 임포트(유저)</div>
+        <div class="muted">유저를 이관합니다. 동일한 값은 스킵하고 변경/비일치 항목만 덮어씁니다. (기존 유저 비밀번호는 기본적으로 변경하지 않습니다.)</div>
+        <div class="row" style="margin-top:10px; gap:10px; flex-wrap:wrap;">
+          <input id="usersCsvFile" type="file" accept=".csv,text/csv" />
+          <label class="muted"><input id="updateUserPwToggle" type="checkbox" /> 기존 유저 비밀번호도 갱신</label>
+          <button id="importUsersCsvBtn">임포트 실행</button>
+          <span class="muted" id="importUsersCsvOut"></span>
+        </div>
+        <pre id="importUsersCsvDetail" class="muted"></pre>
+      </div>
+
+      <div class="card" id="csvImportAvailabilityCard" style="display:none;">
+        <div class="title" style="font-size:16px;">CSV 임포트(가능곡/Availability)</div>
+        <div class="muted">가능곡 데이터를 이관합니다. 동일한 값은 스킵하고 변경된 항목만 덮어씁니다.</div>
+        <div class="row" style="margin-top:10px; gap:10px; flex-wrap:wrap;">
+          <input id="availabilityCsvFile" type="file" accept=".csv,text/csv" />
+          <button id="importAvailabilityCsvBtn">임포트 실행</button>
+          <span class="muted" id="importAvailabilityCsvOut"></span>
+        </div>
+        <pre id="importAvailabilityCsvDetail" class="muted"></pre>
+      </div>
     </div>
 
     <script src="/public/admin/admin.js"></script>

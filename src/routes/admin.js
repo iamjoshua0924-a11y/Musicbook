@@ -7,7 +7,7 @@ const Song = require('../models/Song');
 const { requireLogin, requireAdmin, requireSessionOrAdmin } = require('../middleware/auth');
 const { runDriveSync, stopDriveSync, getDriveRootFolderId } = require('../services/driveSyncRunner');
 const { KEYS, getJson } = require('../services/syncStatus');
-const { importSongsSelective } = require('../services/legacyCsvImport');
+const { importSongsSelective, importUsersSelective, importAvailabilitySelective } = require('../services/legacyCsvImport');
 
 const router = express.Router();
 
@@ -314,6 +314,21 @@ router.post('/admin/import/songs-csv', requireAdmin, async (req, res) => {
   const csvText = String(req.body?.csvText || '');
   if (!csvText.trim()) return res.status(400).json({ ok: false, error: 'CSV_REQUIRED' });
   const r = await importSongsSelective(csvText);
+  res.json({ ok: true, ...r });
+});
+
+router.post('/admin/import/users-csv', requireAdmin, async (req, res) => {
+  const csvText = String(req.body?.csvText || '');
+  const updatePasswordExisting = Boolean(req.body?.updatePasswordExisting);
+  if (!csvText.trim()) return res.status(400).json({ ok: false, error: 'CSV_REQUIRED' });
+  const r = await importUsersSelective(csvText, { updatePasswordExisting });
+  res.json({ ok: true, ...r });
+});
+
+router.post('/admin/import/availability-csv', requireAdmin, async (req, res) => {
+  const csvText = String(req.body?.csvText || '');
+  if (!csvText.trim()) return res.status(400).json({ ok: false, error: 'CSV_REQUIRED' });
+  const r = await importAvailabilitySelective(csvText);
   res.json({ ok: true, ...r });
 });
 

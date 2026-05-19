@@ -312,6 +312,71 @@ async function importUsers(csvText) {
   return { ok: true, imported, generated };
 }
 
+async function importUsersSelective(csvText, { updatePasswordExisting = false } = {}) {
+  if (!csvText) return { ok: true, created: 0, updated: 0, skippedSame: 0, generated: [] };
+  const rows = parseCsv(csvText);
+  const header = rows[0] || [];
+  const idx = (name) => header.findIndex((h) => h.includes(name));
+  const col = {
+    userId: idx('유저 ID'),
+    role: idx('역할'),
+    displayName: idx('표시'),
+    active: idx('활성'),
+    currentPassword: idx('현재 비밀번호'),
+    profilePhoto: idx('프로필사진')
+  };
+
+  let created = 0;
+  let updated = 0;
+  let skippedSame = 0;
+  const generated = [];
+
+  for (const r of rows.slice(1)) {
+    const userId = String(r[col.userId] || '').trim();
+    if (!userId) continue;
+    const role = (String(r[col.role] || 'session').trim().toLowerCase() === 'admin' ? 'admin' : 'session');
+    const displayName = String(r[col.displayName] || userId).trim();
+    const active = col.active >= 0 ? boolFromLegacy(r[col.active]) : true;
+    const profilePhoto = driveToThumb(r[col.profilePhoto] || '', 240);
+    const plain = String(r[col.currentPassword] || '').trim();
+
+    const prev = await User.findOne({ userId }).lean();
+    if (!prev) {
+      let finalPlain = plain;
+      let mustChangePassword = false;
+      if (!finalPlain) {
+        finalPlain = crypto.randomBytes(6).toString('base64url');
+        mustChangePassword = true;
+        generated.push({ userId, password: finalPlain });
+      }
+      const passwordHash = await bcrypt.hash(finalPlain, 10);
+      await User.create({ userId, role, displayName, active, mustChangePassword, passwordHash, profilePhoto });
+      created += 1;
+      continue;
+    }
+
+    const changed = {};
+    if (String(prev.role || '').trim() !== String(role)) changed.role = role;
+    if (String(prev.displayName || '').trim() !== String(displayName)) changed.displayName = displayName;
+    if (Boolean(prev.active) !== Boolean(active)) changed.active = active;
+    if (String(prev.profilePhoto || '').trim() !== String(profilePhoto || '').trim()) changed.profilePhoto = profilePhoto;
+
+    if (updatePasswordExisting && plain) {
+      changed.passwordHash = await bcrypt.hash(plain, 10);
+      changed.mustChangePassword = false;
+    }
+
+    if (!Object.keys(changed).length) {
+      skippedSame += 1;
+      continue;
+    }
+    await User.updateOne({ userId }, { $set: { ...changed, updatedAt: new Date() } });
+    updated += 1;
+  }
+
+  return { ok: true, created, updated, skippedSame, generated };
+}
+
 async function importAvailability(csvText) {
   if (!csvText) return { ok: true, imported: 0, missingSongs: 0 };
   const rows = parseCsv(csvText);
@@ -345,6 +410,75 @@ async function importAvailability(csvText) {
   return { ok: true, imported, missingSongs };
 }
 
+async function importAvailabilitySelective(csvText) {
+  if (!csvText) return { ok: true, created: 0, updated: 0, skippedSame: 0, missingSongs: 0 };
+  const rows = parseCsv(csvText);
+  const header = rows[0] || [];
+  const idx = (name) => header.findIndex((h) => String(h || '').includes(name));
+
+  const col = {
+    legacySongId: idx('곡 ID'),
+    googleFileId: header.findIndex((h) => String(h || '').includes('드라이브 파일 ID')) >= 0 ? header.findIndex((h) => String(h || '').includes('드라이브 파일 ID')) : -1,
+    userId: idx('유저 ID'),
+    available: header.findIndex((h) => String(h || '').includes('가능 여부')) >= 0 ? header.findIndex((h) => String(h || '').includes('가능 여부')) : -1
+  };
+
+  // songId mapping (legacySongId -> googleFileId) in one query
+  let legacyToFile = new Map();
+  if (col.googleFileId < 0 && col.legacySongId >= 0) {
+    const legacyIds = Array.from(new Set(rows.slice(1).map((r) => String(r[col.legacySongId] || '').trim()).filter(Boolean)));
+    const songs = await Song.find({ legacySongId: { $in: legacyIds } }, { legacySongId: 1, googleFileId: 1 }).lean();
+    legacyToFile = new Map((songs || []).map((s) => [String(s.legacySongId), String(s.googleFileId)]));
+  }
+
+  let created = 0;
+  let updated = 0;
+  let skippedSame = 0;
+  let missingSongs = 0;
+
+  const bulk = Availability.collection.initializeUnorderedBulkOp();
+  let bulkCount = 0;
+  const now = new Date();
+
+  for (const r of rows.slice(1)) {
+    const userId = String(r[col.userId] || '').trim();
+    if (!userId) continue;
+    let googleFileId = col.googleFileId >= 0 ? String(r[col.googleFileId] || '').trim() : '';
+    if (!googleFileId && col.legacySongId >= 0) {
+      const legacySongId = String(r[col.legacySongId] || '').trim();
+      googleFileId = legacyToFile.get(legacySongId) || '';
+      if (!googleFileId) {
+        if (legacySongId) missingSongs += 1;
+        continue;
+      }
+    }
+    if (!googleFileId) continue;
+    const available = boolFromLegacy(col.available >= 0 ? r[col.available] : r[r.length - 1]);
+
+    // We can't efficiently diff without reading; do a best-effort diff by upserting with $set and later count.
+    // To honor "동일값은 스킵", do a read for each pair (bounded by typical CSV size).
+    // (Could be optimized later with aggregation, but this is clear and safe.)
+    // eslint-disable-next-line no-await-in-loop
+    const prev = await Availability.findOne({ userId, googleFileId }).lean();
+    if (!prev) {
+      bulk.find({ userId, googleFileId }).upsert().updateOne({ $set: { userId, googleFileId, available, updatedAt: now } });
+      bulkCount += 1;
+      created += 1;
+      continue;
+    }
+    if (Boolean(prev.available) === Boolean(available)) {
+      skippedSame += 1;
+      continue;
+    }
+    bulk.find({ userId, googleFileId }).updateOne({ $set: { available, updatedAt: now } });
+    bulkCount += 1;
+    updated += 1;
+  }
+
+  if (bulkCount) await bulk.execute();
+  return { ok: true, created, updated, skippedSame, missingSongs };
+}
+
 async function importLegacyBundle(bundle) {
   // Order matters
   const result = {};
@@ -359,5 +493,7 @@ async function importLegacyBundle(bundle) {
 module.exports = {
   parseCsv,
   importLegacyBundle,
-  importSongsSelective
+  importSongsSelective,
+  importUsersSelective,
+  importAvailabilitySelective
 };

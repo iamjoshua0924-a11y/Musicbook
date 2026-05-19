@@ -17,7 +17,7 @@ async function apiJson(url, method, body) {
 
 function showAuthed(on) {
   $('loginCard').style.display = on ? 'none' : 'block';
-  ['meCard', 'mainCard', 'syncCard', 'parseErrorCard', 'csvImportCard'].forEach((id) => {
+  ['meCard', 'mainCard', 'syncCard', 'parseErrorCard', 'csvImportCard', 'csvImportUsersCard', 'csvImportAvailabilityCard'].forEach((id) => {
     $(id).style.display = on ? 'block' : 'none';
   });
 }
@@ -192,6 +192,37 @@ function wire() {
     }
     $('importSongsCsvOut').textContent = `완료 · created=${r.created ?? 0} updated=${r.updated ?? 0} skippedSame=${r.skippedSame ?? 0} dupSkipped=${r.duplicatesSkipped ?? 0}`;
     setTimeout(() => ($('importSongsCsvOut').textContent = ''), 2500);
+  };
+
+  $('importUsersCsvBtn').onclick = async () => {
+    const f = $('usersCsvFile')?.files?.[0];
+    if (!f) return alert('CSV 파일을 선택하세요.');
+    $('importUsersCsvOut').textContent = '업로드/임포트 중...';
+    const text = await f.text();
+    const updatePasswordExisting = Boolean($('updateUserPwToggle')?.checked);
+    const r = await apiJson('/api/admin/import/users-csv', 'POST', { csvText: text, updatePasswordExisting });
+    $('importUsersCsvDetail').textContent = JSON.stringify(r, null, 2);
+    if (!r.ok) {
+      $('importUsersCsvOut').textContent = `실패: ${r.error || ''}`;
+      return;
+    }
+    $('importUsersCsvOut').textContent = `완료 · created=${r.created ?? 0} updated=${r.updated ?? 0} skippedSame=${r.skippedSame ?? 0} (generatedPw=${(r.generated || []).length})`;
+    setTimeout(() => ($('importUsersCsvOut').textContent = ''), 2500);
+  };
+
+  $('importAvailabilityCsvBtn').onclick = async () => {
+    const f = $('availabilityCsvFile')?.files?.[0];
+    if (!f) return alert('CSV 파일을 선택하세요.');
+    $('importAvailabilityCsvOut').textContent = '업로드/임포트 중...';
+    const text = await f.text();
+    const r = await apiJson('/api/admin/import/availability-csv', 'POST', { csvText: text });
+    $('importAvailabilityCsvDetail').textContent = JSON.stringify(r, null, 2);
+    if (!r.ok) {
+      $('importAvailabilityCsvOut').textContent = `실패: ${r.error || ''}`;
+      return;
+    }
+    $('importAvailabilityCsvOut').textContent = `완료 · created=${r.created ?? 0} updated=${r.updated ?? 0} skippedSame=${r.skippedSame ?? 0} missingSongs=${r.missingSongs ?? 0}`;
+    setTimeout(() => ($('importAvailabilityCsvOut').textContent = ''), 2500);
   };
 }
 

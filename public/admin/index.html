@@ -36,6 +36,32 @@
         <pre id="bootstrapOut" class="muted"></pre>
       </div>
 
+      <div class="card" id="legacyImportCard">
+        <div class="title" style="font-size:16px;">기존 DB(CSV) 이관</div>
+        <div class="muted">
+          Users/Songs/Availability/MainPage/Settings CSV를 넣으면 MongoDB로 업서트합니다.
+          초기 DB(관리자 없음)인 경우 <span class="kbd">ADMIN_BOOTSTRAP_TOKEN</span>을 같이 넣으면 로그인 없이도 1회 import 가능합니다.
+        </div>
+        <div class="row" style="margin-top:10px">
+          <input id="legacyToken" placeholder="ADMIN_BOOTSTRAP_TOKEN(선택)" />
+        </div>
+        <div class="grid2" style="margin-top:10px">
+          <div><div class="muted">Users.csv</div><input id="usersCsvFile" type="file" accept=".csv" /></div>
+          <div><div class="muted">Songs.csv</div><input id="songsCsvFile" type="file" accept=".csv" /></div>
+        </div>
+        <div class="grid2" style="margin-top:10px">
+          <div><div class="muted">Availability.csv</div><input id="availabilityCsvFile" type="file" accept=".csv" /></div>
+          <div><div class="muted">MainPage.csv</div><input id="mainPageCsvFile" type="file" accept=".csv" /></div>
+        </div>
+        <div class="grid2" style="margin-top:10px">
+          <div><div class="muted">Settings.csv</div><input id="settingsCsvFile" type="file" accept=".csv" /></div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button id="legacyImportBtn">이관 실행</button>
+        </div>
+        <pre id="legacyImportOut" class="muted"></pre>
+      </div>
+
       <div class="card" id="meCard" style="display:none;">
         <div class="row">
           <div>현재 로그인: <span class="kbd" id="meText"></span></div>

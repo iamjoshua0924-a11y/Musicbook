@@ -14,6 +14,16 @@ async function apiJson(url, method, body) {
   return res.json();
 }
 
+function readFileText(file) {
+  return new Promise((resolve, reject) => {
+    if (!file) return resolve('');
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('READ_FAILED'));
+    reader.readAsText(file, 'utf-8');
+  });
+}
+
 function showAuthed(on) {
   $('loginCard').style.display = on ? 'none' : 'block';
   ['meCard', 'mainCard', 'mainImportCard', 'syncCard', 'usersCard', 'availCard'].forEach((id) => {
@@ -300,6 +310,26 @@ function wire() {
       $('loginId').value = payload.userId;
       $('loginPw').value = payload.password;
       alert('생성 완료. 위 로그인으로 바로 로그인하세요.');
+    }
+  };
+
+  $('legacyImportBtn').onclick = async () => {
+    const token = $('legacyToken').value.trim();
+    const usersCsv = await readFileText($('usersCsvFile').files?.[0]);
+    const songsCsv = await readFileText($('songsCsvFile').files?.[0]);
+    const availabilityCsv = await readFileText($('availabilityCsvFile').files?.[0]);
+    const mainPageCsv = await readFileText($('mainPageCsvFile').files?.[0]);
+    const settingsCsv = await readFileText($('settingsCsvFile').files?.[0]);
+
+    const payload = { token, usersCsv, songsCsv, availabilityCsv, mainPageCsv, settingsCsv };
+    const r = await apiJson('/api/admin/import/legacy', 'POST', payload);
+    $('legacyImportOut').textContent = JSON.stringify(r, null, 2);
+    if (r.ok) {
+      alert('이관 완료. / 로 돌아가서 새로고침해 확인하세요.');
+      await loadMain();
+      await loadUsers();
+      await loadAvailUsers();
+      await loadSyncStatus();
     }
   };
 

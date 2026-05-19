@@ -10,6 +10,7 @@ const UserSchema = new mongoose.Schema(
     profilePhoto: { type: String, default: '' },
 
     mustChangePassword: { type: Boolean, default: false },
+    legacyPasswordHash: { type: String, default: '' }, // 기존 GAS 시트의 해시(참조용)
     createdAt: { type: Date, default: () => new Date() },
     updatedAt: { type: Date, default: () => new Date() }
   },
@@ -22,4 +23,3 @@ UserSchema.pre('save', function preSave(next) {
 });
 
 module.exports = mongoose.model('User', UserSchema);
-

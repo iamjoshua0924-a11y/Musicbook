@@ -5,8 +5,22 @@ const { requireLogin, requireAdmin, requireSessionOrAdmin } = require('../middle
 const { driveRootFolderId, adminBootstrapToken } = require('../config/env');
 const { syncDriveFolderTree } = require('../services/driveSync');
 const { KEYS, setJson, getJson } = require('../services/syncStatus');
+const { importLegacyBundle } = require('../services/legacyCsvImport');
 
 const router = express.Router();
+
+function isAdminSession(req) {
+  return Boolean(req.session?.user && req.session.user.role === 'admin');
+}
+
+async function allowBootstrap(req) {
+  if (!adminBootstrapToken) return false;
+  const token = String(req.body?.token || req.query?.token || '');
+  if (!token || token !== adminBootstrapToken) return false;
+  // Allow only when there is no active admin yet
+  const existingAdmin = await User.findOne({ role: 'admin', active: { $ne: false } }).lean();
+  return !existingAdmin;
+}
 
 // One-time bootstrap admin creation (for fresh DB).
 router.post('/admin/bootstrap', async (req, res) => {
@@ -25,6 +39,29 @@ router.post('/admin/bootstrap', async (req, res) => {
   const passwordHash = await bcrypt.hash(password, 10);
   const doc = await User.create({ userId, passwordHash, role: 'admin', displayName, active: true });
   res.json({ ok: true, item: doc.toObject() });
+});
+
+// Legacy CSV import bundle (MainPage/Songs/Users/Availability/Settings).
+// Admin-only, but allow bootstrap token ONLY when no admin exists (fresh DB).
+router.post('/admin/import/legacy', async (req, res) => {
+  const okByAdmin = isAdminSession(req);
+  const okByBootstrap = okByAdmin ? false : await allowBootstrap(req);
+  if (!okByAdmin && !okByBootstrap) return res.status(403).json({ ok: false, error: 'FORBIDDEN' });
+
+  const bundle = {
+    mainPageCsv: String(req.body?.mainPageCsv || ''),
+    songsCsv: String(req.body?.songsCsv || ''),
+    usersCsv: String(req.body?.usersCsv || ''),
+    availabilityCsv: String(req.body?.availabilityCsv || ''),
+    settingsCsv: String(req.body?.settingsCsv || '')
+  };
+
+  try {
+    const result = await importLegacyBundle(bundle);
+    res.json({ ok: true, result });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: String(e.message || 'IMPORT_FAILED') });
+  }
 });
 
 router.get('/admin/me', requireLogin, async (req, res) => {

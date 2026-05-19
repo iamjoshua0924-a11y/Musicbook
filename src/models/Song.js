@@ -11,6 +11,7 @@ const SongSchema = new mongoose.Schema(
     vocal: { type: String, default: '' },
 
     googleFileId: { type: String, required: true, unique: true, index: true },
+    legacySongId: { type: String, default: '', index: true }, // GAS 시트의 "곡 ID"(UUID)
     driveUrl: { type: String, default: '' },
     folderPath: { type: String, default: '' },
     parseError: { type: String, default: '' },

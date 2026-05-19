@@ -138,19 +138,11 @@
                   <option>듀엣</option>
                   <option>그룹곡</option>
                 </select>
-
-                <label class="inline-check">
-                  <input type="checkbox" id="latestOnlyToggle" />
-                  최신곡만
-                </label>
-
-                <select id="availUserFilter" class="select" style="display:none;">
-                  <option value="">가능곡(유저 선택)</option>
+                
+                <select id="availableVocalFilter" class="select">
+                  <option value="">가능보컬 전체</option>
                 </select>
-                <label class="inline-check" id="availOnlyWrap" style="display:none;">
-                  <input type="checkbox" id="availOnlyToggle" />
-                  가능곡만
-                </label>
+                <button id="availabilityEditToggleBtn" class="floating-btn compact-btn" type="button" style="display:none;">가능곡 편집</button>
 
                 <div class="random-controls">
                   <div class="random-actions-row">
@@ -210,22 +202,23 @@
       </div>
     </div>
 
+    <!-- 신청곡 버튼(패널과 분리) -->
+    <div class="request-top-actions" id="requestExternalActions">
+      <button
+        class="floating-btn compact-btn request-top-btn request-top-secondary"
+        id="requestManageToggleBtn"
+        style="display: none"
+        type="button"
+      >
+        상태변경
+      </button>
+      <button class="floating-btn compact-btn request-top-btn black-btn" id="requestOpenBtn" type="button">
+        곡 신청하기
+      </button>
+    </div>
+
     <!-- 신청곡 패널 -->
     <aside id="requestPanel" class="request-panel floating-request-panel">
-      <div class="request-top-actions">
-        <button
-          class="floating-btn compact-btn request-top-btn request-top-secondary"
-          id="requestManageToggleBtn"
-          style="display: none"
-          type="button"
-        >
-          상태변경
-        </button>
-
-        <button class="floating-btn compact-btn request-top-btn black-btn" id="requestOpenBtn" type="button">
-          곡 신청하기
-        </button>
-      </div>
 
       <div class="request-panel-header">
         <div class="request-panel-title">신청곡 현황</div>
@@ -336,8 +329,13 @@
     <div class="modal-overlay" id="randomModal">
       <div class="modal">
         <div class="modal-title">랜덤 추천곡</div>
-        <div class="random-result" id="randomResult">곡 추첨 중...</div>
+        <div class="roulette-wrap">
+          <div class="roulette-pointer"></div>
+          <div class="roulette-wheel" id="rouletteWheel"></div>
+        </div>
+        <div class="random-result" id="randomResult">룰렛을 돌려 곡을 고릅니다...</div>
         <div class="modal-actions">
+          <button class="floating-btn" id="randomOpenBtn" style="display: none" type="button">열기</button>
           <button class="floating-btn" id="randomRerollBtn" style="display: none" type="button">한번 더 뽑기</button>
           <button class="floating-btn black-btn" id="randomCloseBtn" type="button">닫기</button>
         </div>
@@ -386,6 +384,69 @@
         <div class="modal-actions">
           <button class="floating-btn" id="createUserCancelBtn" type="button">취소</button>
           <button class="floating-btn black-btn" id="createUserSubmitBtn" type="button">생성</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Song tag edit modal (관리자 전용) -->
+    <div class="modal-overlay" id="songTagModal">
+      <div class="modal">
+        <div class="modal-title">곡 태그 편집</div>
+        <div class="muted" id="songTagModalSubtitle" style="font-weight:1000;"></div>
+
+        <select id="songKeySelect" class="select">
+          <option value="">조성(비움)</option>
+          <option>Ab</option><option>A</option><option>A#</option><option>Bb</option><option>B</option>
+          <option>Cb</option><option>C</option><option>C#</option><option>Db</option><option>D</option>
+          <option>D#</option><option>Eb</option><option>E</option><option>E#</option><option>Fb</option>
+          <option>F</option><option>F#</option><option>Gb</option><option>G</option><option>G#</option>
+        </select>
+
+        <select id="songGenreSelect" class="select">
+          <option value="">장르(비움)</option>
+          <option>KPOP</option><option>JPOP</option><option>POP</option><option>OST</option><option>기타</option>
+        </select>
+
+        <select id="songMoodSelect" class="select">
+          <option value="">분위기(비움)</option>
+          <option>발라드</option><option>락발라드</option><option>밴드송</option><option>댄스</option><option>뮤지컬</option><option>힙합</option><option>동요</option>
+        </select>
+
+        <select id="songVocalSelect" class="select">
+          <option value="">보컬(비움)</option>
+          <option>남솔로</option><option>여솔로</option><option>듀엣</option><option>그룹곡</option>
+        </select>
+
+        <div class="modal-actions">
+          <button class="floating-btn" id="songTagCancelBtn" type="button">취소</button>
+          <button class="floating-btn black-btn" id="songTagSaveBtn" type="button">저장</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Key select modal (조성 선택) -->
+    <div class="modal-overlay" id="keySelectModal">
+      <div class="modal">
+        <div class="modal-title">키 선택</div>
+        <div class="muted" id="keySelectSubtitle" style="font-weight:1000;"></div>
+        <div class="row" id="keySelectButtons" style="margin-top:14px; gap:10px; flex-wrap:wrap;"></div>
+        <div class="modal-actions">
+          <button class="floating-btn" id="keySelectCancelBtn" type="button">취소</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Song action modal (복사/뷰어) -->
+    <div class="modal-overlay" id="songActionModal">
+      <div class="modal">
+        <div class="modal-title">선택</div>
+        <div class="muted" id="songActionSubtitle" style="font-weight:1000;"></div>
+        <div class="row" style="margin-top:14px; gap:10px; flex-wrap:wrap;">
+          <button class="floating-btn" id="copyDriveLinkBtn" type="button">구글 드라이브 링크 복사하기</button>
+          <button class="floating-btn black-btn" id="openViewerBtn" type="button">세션뷰어에서 보기</button>
+        </div>
+        <div class="modal-actions">
+          <button class="floating-btn" id="songActionCancelBtn" type="button">취소</button>
         </div>
       </div>
     </div>

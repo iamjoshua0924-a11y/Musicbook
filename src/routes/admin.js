@@ -5,16 +5,10 @@ const User = require('../models/User');
 const Setting = require('../models/Setting');
 const Song = require('../models/Song');
 const { requireLogin, requireAdmin, requireSessionOrAdmin } = require('../middleware/auth');
-const { driveRootFolderId } = require('../config/env');
-const { syncDriveFolderTree } = require('../services/driveSync');
-const { KEYS, setJson, getJson } = require('../services/syncStatus');
+const { runDriveSync, getDriveRootFolderId } = require('../services/driveSyncRunner');
+const { KEYS, getJson } = require('../services/syncStatus');
 
 const router = express.Router();
-
-async function getDriveRootFolderId() {
-  const s = await Setting.findOne({ key: 'driveRootFolderId' }).lean();
-  return String(s?.value || driveRootFolderId || '').trim();
-}
 
 router.get('/admin/me', requireLogin, async (req, res) => {
   const user = await User.findById(req.session.user.id).lean();
@@ -170,39 +164,16 @@ router.get('/admin/sync/status', requireSessionOrAdmin, async (req, res) => {
 });
 
 router.post('/admin/sync/drive', requireAdmin, async (req, res) => {
-  const rootFolderId = String(req.body?.rootFolderId || (await getDriveRootFolderId()) || '').trim();
   try {
     const latestDays = Number(req.body?.latestDays || 30);
     const limit = Number(req.body?.limit || 5000);
     const pruneMissing = req.body?.pruneMissing !== undefined ? Boolean(req.body.pruneMissing) : true;
     const incremental = Boolean(req.body?.incremental);
-    const prev = await getJson(KEYS.driveSyncStatus, null);
-    const incrementalSince = incremental ? prev?.endedAt || prev?.startedAt || null : null;
-
-    const startedAt = new Date().toISOString();
-    await setJson(KEYS.driveSyncStatus, { startedAt, running: true, rootFolderId, latestDays, limit, pruneMissing, incremental });
-
-    const result = await syncDriveFolderTree({ rootFolderId, latestDays, limit, incrementalSince, pruneMissing });
-    const endedAt = new Date().toISOString();
-    const status = {
-      startedAt,
-      endedAt,
-      running: false,
-      rootFolderId,
-      latestDays,
-      limit,
-      pruneMissing,
-      incremental,
-      processed: result.processed,
-      skipped: result.skipped,
-      hiddenCount: result.hiddenCount,
-      reachedLimit: result.reachedLimit
-    };
-    await setJson(KEYS.driveSyncStatus, status);
-    res.json({ ok: true, ...status });
+    const rootFolderId = String(req.body?.rootFolderId || '').trim();
+    const r = await runDriveSync({ latestDays, limit, pruneMissing, incremental, rootFolderId });
+    if (!r.ok) return res.status(400).json({ ok: false, error: r.error || 'SYNC_FAILED' });
+    res.json({ ok: true, ...r });
   } catch (e) {
-    const endedAt = new Date().toISOString();
-    await setJson(KEYS.driveSyncStatus, { endedAt, running: false, ok: false, error: String(e.message || 'SYNC_FAILED') });
     res.status(400).json({ ok: false, error: String(e.message || 'SYNC_FAILED') });
   }
 });
@@ -243,21 +214,92 @@ router.get('/admin/songs/parse-errors', requireAdmin, async (req, res) => {
 
 router.patch('/admin/songs/:id', requireAdmin, async (req, res) => {
   const id = String(req.params.id || '').trim();
-  const title = String(req.body?.title || '').trim();
-  const displayTitle = String(req.body?.displayTitle || '').trim();
-  const artist = String(req.body?.artist || '').trim();
+  const title = req.body?.title !== undefined ? String(req.body.title || '').trim() : undefined;
+  const displayTitle = req.body?.displayTitle !== undefined ? String(req.body.displayTitle || '').trim() : undefined;
+  const artist = req.body?.artist !== undefined ? String(req.body.artist || '').trim() : undefined;
+  const key = req.body?.key !== undefined ? String(req.body.key || '').trim() : undefined;
+  const genre = req.body?.genre !== undefined ? String(req.body.genre || '').trim() : undefined;
+  const mood = req.body?.mood !== undefined ? String(req.body.mood || '').trim() : undefined;
+  const vocal = req.body?.vocal !== undefined ? String(req.body.vocal || '').trim() : undefined;
+  const hidden = req.body?.hidden !== undefined ? Boolean(req.body.hidden) : undefined;
   if (!id) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
 
   const update = {};
-  if (title) update.title = title;
+  if (title !== undefined) update.title = title;
   if (displayTitle !== undefined) update.displayTitle = displayTitle;
   if (artist !== undefined) update.artist = artist;
+  if (key !== undefined) update.key = key;
+  if (genre !== undefined) update.genre = genre;
+  if (mood !== undefined) update.mood = mood;
+  if (vocal !== undefined) update.vocal = vocal;
+  if (hidden !== undefined) update.hidden = hidden;
   update.parseError = '';
   update.updatedAt = new Date();
 
+  // keep search index fresh (title/artist/tag 기반)
+  const before = await Song.findById(id).lean();
+  if (!before) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
+  const merged = {
+    title: update.title ?? before.title ?? '',
+    displayTitle: update.displayTitle ?? before.displayTitle ?? '',
+    artist: update.artist ?? before.artist ?? '',
+    genre: update.genre ?? before.genre ?? '',
+    mood: update.mood ?? before.mood ?? '',
+    vocal: update.vocal ?? before.vocal ?? '',
+    key: update.key ?? before.key ?? ''
+  };
+  update.searchText = `${merged.displayTitle} ${merged.title} ${merged.artist} ${merged.genre} ${merged.mood} ${merged.vocal} ${merged.key}`
+    .toLowerCase()
+    .trim();
+
   const doc = await Song.findByIdAndUpdate(id, { $set: update }, { new: true }).lean();
   if (!doc) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
-  res.json({ ok: true, item: { _id: String(doc._id), title: doc.title, displayTitle: doc.displayTitle, artist: doc.artist, parseError: doc.parseError } });
+  res.json({
+    ok: true,
+    item: {
+      _id: String(doc._id),
+      title: doc.title,
+      displayTitle: doc.displayTitle,
+      artist: doc.artist,
+      key: doc.key,
+      genre: doc.genre,
+      mood: doc.mood,
+      vocal: doc.vocal,
+      hidden: Boolean(doc.hidden),
+      searchText: doc.searchText,
+      parseError: doc.parseError
+    }
+  });
+});
+
+// 카드(=title+artist 묶음) 단위 태그 편집: 조성/장르/분위기/보컬은 키 변형별로 동일하게 유지
+router.patch('/admin/song-cards', requireAdmin, async (req, res) => {
+  const title = String(req.body?.title || '').trim();
+  const artist = String(req.body?.artist || '').trim();
+  if (!title) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+
+  const update = {
+    key: req.body?.key !== undefined ? String(req.body.key || '').trim() : undefined,
+    genre: req.body?.genre !== undefined ? String(req.body.genre || '').trim() : undefined,
+    mood: req.body?.mood !== undefined ? String(req.body.mood || '').trim() : undefined,
+    vocal: req.body?.vocal !== undefined ? String(req.body.vocal || '').trim() : undefined
+  };
+
+  const $set = {};
+  Object.entries(update).forEach(([k, v]) => {
+    if (v !== undefined) $set[k] = v;
+  });
+  if (!$set || !Object.keys($set).length) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+
+  $set.updatedAt = new Date();
+  // searchText는 title/artist/tag 기반으로 통일 갱신
+  $set.searchText = `${title} ${artist} ${$set.genre ?? ''} ${$set.mood ?? ''} ${$set.vocal ?? ''} ${$set.key ?? ''}`.toLowerCase().trim();
+
+  const r = await Song.updateMany(
+    { artist, $or: [{ title }, { displayTitle: title }] },
+    { $set }
+  );
+  res.json({ ok: true, matched: r.matchedCount ?? r.n ?? 0, modified: r.modifiedCount ?? r.nModified ?? 0 });
 });
 
 module.exports = router;

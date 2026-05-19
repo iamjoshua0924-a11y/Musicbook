@@ -11,15 +11,14 @@
       <header id="topbar">
         <div class="left">
           <div class="brand">Score Viewer</div>
-          <span id="fileIdBadge" class="muted"></span>
-        </div>
-        <div class="right">
           <div class="inputRow">
             <input id="linkInput" type="text" placeholder="구글드라이브 PDF 링크 또는 fileId" />
             <button id="openBtn" type="button" class="primary">열기</button>
-            <button id="themeBtn" type="button">테마</button>
-            <button id="touchBtn" type="button">터치</button>
           </div>
+        </div>
+        <div class="right">
+          <button id="themeBtn" type="button">테마</button>
+          <button id="touchBtn" type="button">터치</button>
           <span id="sessionBadge" class="badge hidden"></span>
           <span id="turnerBadge" class="badge hidden"></span>
         </div>
@@ -30,6 +29,9 @@
         <button id="toggleLinkBtn" title="링크 입력줄 접기/펼치기">링크칸 접기/열기</button>
         <button id="toggleViewBtn" title="보기/넘김/확대 줄 접기/펼치기">보기옵션 접기/열기</button>
         <button id="toggleToolBtn" title="주석 도구 줄 접기/펼치기">도구반 접기/열기</button>
+        <button id="sessionFloatBtn" title="세션 참여/나가기">세션 참여</button>
+        <button id="createSessionFloatBtn" title="세션 만들기">세션 만들기</button>
+        <button id="lockFloatBtn" title="잠금">잠금</button>
         <button id="fullscreenBtn" type="button">전체화면</button>
       </div>
 
@@ -67,24 +69,12 @@
           </div>
 
           <div class="group">
-            <span class="label">모드</span>
-            <button id="focusModeBtn" type="button" class="mini">포커스</button>
-            <button id="perfModeBtn" type="button" class="mini">연주모드</button>
-            <button id="lockModeBtn" type="button" class="mini">잠금</button>
-          </div>
-
-          <div class="group">
             <span class="label">키</span>
             <button id="bindPrevBtn" type="button" class="mini">이전 키</button>
             <span class="kv" id="bindPrevLabel">ArrowLeft/PageUp</span>
             <button id="bindNextBtn" type="button" class="mini">다음 키</button>
             <span class="kv" id="bindNextLabel">ArrowRight/PageDown/Space</span>
             <button id="bindResetBtn" type="button" class="mini">초기화</button>
-          </div>
-
-          <div class="group">
-            <label class="kv"><input type="checkbox" id="sessionToggle" /> 세션 참여</label>
-            <button id="createSessionBtn" type="button" class="mini">세션 만들기</button>
           </div>
         </div>
 
@@ -104,7 +94,7 @@
             </div>
           </div>
 
-          <div class="group">
+          <div class="group" id="brushGroup">
             <span class="label">굵기</span>
             <input id="brushSize" type="range" min="1" max="20" value="3" />
             <span class="label">색</span>
@@ -117,18 +107,7 @@
             <button id="clearBtn" type="button" class="mini danger">현재 화면 주석 전체삭제</button>
           </div>
 
-          <div class="group">
-            <span class="label">선택 편집</span>
-            <button id="bringFrontBtn" type="button" class="mini">앞으로</button>
-            <button id="sendBackBtn" type="button" class="mini">뒤로</button>
-            <button id="duplicateBtn" type="button" class="mini">복제</button>
-            <button id="deleteBtn" type="button" class="mini danger">삭제</button>
-          </div>
-
-          <div class="group">
-            <span class="label">선</span>
-            <input id="strokeColor" type="color" value="#ff2d55" />
-            <input id="strokeWidth" type="range" min="1" max="20" value="3" />
+          <div class="group" id="textOptionGroup">
             <span class="label">글자</span>
             <input id="fontSize" type="range" min="12" max="60" value="22" />
           </div>
@@ -170,6 +149,18 @@
           <div id="participantsList"></div>
         </aside>
       </main>
+    </div>
+
+    <!-- prompt() 대체: 입력 모달 (닉네임/룸코드) -->
+    <div class="modalOverlay hidden" id="inputModal">
+      <div class="modalBox">
+        <div class="modalTitle" id="inputModalTitle">입력</div>
+        <input id="inputModalField" class="modalInput" />
+        <div class="modalActions">
+          <button id="inputModalCancelBtn" type="button">취소</button>
+          <button id="inputModalOkBtn" type="button" class="primary">확인</button>
+        </div>
+      </div>
     </div>
 
     <!-- pdf.js + fabric.js (CDN, GAS 원본과 동일 계열) -->

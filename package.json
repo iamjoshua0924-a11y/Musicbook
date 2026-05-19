@@ -6,7 +6,7 @@
   "main": "src/server.js",
   "scripts": {
     "dev": "node src/server.js",
-    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
     "smoke": "node smoke-test.mjs"
   },
   "engines": {

@@ -1,6 +1,7 @@
 const express = require('express');
 const Availability = require('../models/Availability');
 const { requireSessionOrAdmin } = require('../middleware/auth');
+const User = require('../models/User');
 
 const router = express.Router();
 
@@ -9,6 +10,26 @@ router.get('/availability', async (req, res) => {
   const userId = String(req.query.userId || '').trim();
   if (!userId) return res.status(400).json({ ok: false, error: 'USER_REQUIRED' });
   const items = await Availability.find({ userId }).lean();
+  res.json({ ok: true, items });
+});
+
+// Public: list "available vocal" users (only users who have at least one available=true)
+router.get('/availability/users', async (_req, res) => {
+  const rows = await Availability.aggregate([
+    { $match: { available: true } },
+    { $group: { _id: '$userId', c: { $sum: 1 } } },
+    { $sort: { c: -1 } },
+    { $limit: 200 }
+  ]);
+  const userIds = rows.map((r) => String(r._id || '')).filter(Boolean);
+  const users = await User.find({ userId: { $in: userIds }, role: { $ne: 'admin' }, active: { $ne: false } }).lean();
+  const map = new Map(users.map((u) => [String(u.userId), u]));
+  const items = userIds
+    .map((id) => {
+      const u = map.get(id);
+      return u ? { userId: u.userId, displayName: u.displayName || u.userId, profilePhoto: u.profilePhoto || '' } : null;
+    })
+    .filter(Boolean);
   res.json({ ok: true, items });
 });
 
@@ -57,4 +78,3 @@ router.post('/availability/bulk', requireSessionOrAdmin, async (req, res) => {
 });
 
 module.exports = router;
-

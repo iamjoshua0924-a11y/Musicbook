@@ -16,13 +16,44 @@ function safeRoomCode(v) {
   return String(v || '').trim().toUpperCase();
 }
 
+// NOTE: preview 환경에서 prompt()가 지원되지 않아 모달 기반으로 입력을 받는다.
 function getOrCreateNickname() {
   const key = 'mb_nickname';
   const existing = localStorage.getItem(key);
   if (existing) return existing;
-  const nick = prompt('닉네임을 입력하세요(익명 가능):', '익명') || '익명';
-  localStorage.setItem(key, nick);
-  return nick;
+  localStorage.setItem(key, '익명');
+  return '익명';
+}
+
+function openInputModal({ title, placeholder = '', value = '' } = {}) {
+  const overlay = document.getElementById('inputModal');
+  const titleEl = document.getElementById('inputModalTitle');
+  const field = document.getElementById('inputModalField');
+  const okBtn = document.getElementById('inputModalOkBtn');
+  const cancelBtn = document.getElementById('inputModalCancelBtn');
+  if (!overlay || !titleEl || !field || !okBtn || !cancelBtn) return Promise.resolve(null);
+
+  titleEl.textContent = String(title || '입력');
+  field.placeholder = String(placeholder || '');
+  field.value = String(value || '');
+  overlay.classList.remove('hidden');
+  setTimeout(() => field.focus(), 0);
+
+  return new Promise((resolve) => {
+    const cleanup = (result) => {
+      overlay.classList.add('hidden');
+      okBtn.onclick = null;
+      cancelBtn.onclick = null;
+      field.onkeydown = null;
+      resolve(result);
+    };
+    okBtn.onclick = () => cleanup(field.value);
+    cancelBtn.onclick = () => cleanup(null);
+    field.onkeydown = (e) => {
+      if (e.key === 'Enter') cleanup(field.value);
+      else if (e.key === 'Escape') cleanup(null);
+    };
+  });
 }
 
 function setText(id, text) {
@@ -142,6 +173,41 @@ function fadeOutAndRemove(canvas, obj, ms = 2000) {
   });
 }
 
+function scheduleFadeOutAndRemove(canvas, obj, holdMs = 2000, fadeMs = 2000) {
+  if (!canvas || !obj) return;
+  setTimeout(() => fadeOutAndRemove(canvas, obj, fadeMs), Math.max(0, Number(holdMs) || 0));
+}
+
+function distPointToRect(px, py, r) {
+  const x = clamp(px, r.left, r.left + r.width);
+  const y = clamp(py, r.top, r.top + r.height);
+  const dx = px - x;
+  const dy = py - y;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function eraseAtPoint(fabricCanvas, p, radius) {
+  if (!fabricCanvas || !p) return 0;
+  const rad = Math.max(4, Number(radius) || 8);
+  const objs = fabricCanvas.getObjects();
+  let removed = 0;
+  // 뒤에서부터(최근 그린 것 우선)
+  for (let i = objs.length - 1; i >= 0; i -= 1) {
+    const obj = objs[i];
+    if (!obj || obj._transient) continue; // 레이저 등 제외
+    const rect = obj.getBoundingRect(true, true);
+    if (distPointToRect(p.x, p.y, rect) <= rad) {
+      fabricCanvas.remove(obj);
+      removed += 1;
+    }
+  }
+  if (removed) {
+    fabricCanvas.discardActiveObject?.();
+    fabricCanvas.requestRenderAll();
+  }
+  return removed;
+}
+
 // ---- State ------------------------------------------------------------------------
 const state = {
   fileId: getFileIdFromPath(),
@@ -167,14 +233,16 @@ const state = {
   shape: null, // 'line'|'rect'|'circle' (when tool==='shape')
 
   // view modes
-  spreadCount: 1, // 1~4
+  spreadCount: 2, // 1~4 (기본 2p)
   fitMode: true,
   zoom: 1,
-  perfMode: false,
-  focusMode: false,
   locked: false,
+  textFontSize: 22,
   activeDrawPageNo: 1
 };
+
+// Initial UI state classes
+document.body.dataset.tool = state.tool;
 
 // ---- Auth context (optional) ------------------------------------------------------
 const authState = { role: 'viewer', displayName: state.nickname, profilePhoto: '' };
@@ -207,7 +275,7 @@ const socket = io({
 function joinSession(roomCode) {
   state.roomCode = safeRoomCode(roomCode);
   state.isInSession = true;
-  document.getElementById('sessionToggle').checked = true;
+  document.getElementById('sessionFloatBtn').textContent = '세션 나가기';
   setHidden('sessionBadge', false);
   setText('sessionBadge', `세션: ${state.roomCode} (연결중...)`);
   setHidden('touchRoomBadge', false);
@@ -242,7 +310,7 @@ function leaveSession() {
   state.roomCode = null;
   state.isInSession = false;
   state.isPageTurner = false;
-  document.getElementById('sessionToggle').checked = false;
+  document.getElementById('sessionFloatBtn').textContent = '세션 참여';
   setHidden('sessionBadge', true);
   setHidden('turnerBadge', true);
   setHidden('touchRoomBadge', true);
@@ -304,7 +372,7 @@ const updateUrlState = debounce(() => {
 }, 120);
 
 // ---- UI wiring --------------------------------------------------------------------
-setText('fileIdBadge', state.fileId ? `fileId: ${state.fileId}` : 'fileId: (없음)');
+// fileIdBadge는 UI에서 숨김(불필요)
 
 // link row collapse (desktop)
 const linkCollapsed = localStorage.getItem('mb_viewer_linkCollapsed') === '1';
@@ -358,25 +426,26 @@ if (overlapRange) {
 // initial spread button active
 [1, 2, 3, 4].forEach((x) => document.getElementById(`spread${x}Btn`)?.classList.toggle('active', x === state.spreadCount));
 
-document.getElementById('sessionToggle').addEventListener('change', (e) => {
-  const on = e.target.checked;
-  if (on) {
-    // If URL already has room, auto join (no modal) - MUST-1.
-    const urlRoom = safeRoomCode(qs('room'));
-    if (urlRoom) return joinSession(urlRoom);
-
-    const roomCode = safeRoomCode(prompt('Room Code를 입력하세요:', ''));
-    if (!roomCode) {
-      e.target.checked = false;
-      return;
-    }
-    joinSession(roomCode);
-  } else {
+document.getElementById('sessionFloatBtn')?.addEventListener('click', async () => {
+  if (state.isInSession) {
     leaveSession();
+    const u = new URL(window.location.href);
+    u.searchParams.delete('room');
+    window.history.replaceState(null, '', `${u.pathname}?${u.searchParams.toString()}`);
+    return;
   }
+
+  // If URL already has room, auto join (no modal) - MUST-1.
+  const urlRoom = safeRoomCode(qs('room'));
+  if (urlRoom) return joinSession(urlRoom);
+
+  const input = await openInputModal({ title: '세션 참여', placeholder: 'Room Code를 입력하세요', value: '' });
+  const roomCode = safeRoomCode(input);
+  if (!roomCode) return;
+  joinSession(roomCode);
 });
 
-document.getElementById('createSessionBtn').addEventListener('click', () => {
+document.getElementById('createSessionFloatBtn')?.addEventListener('click', () => {
   socket.emit('session:create', { nickname: state.nickname }, (ack) => {
     if (!ack?.ok) return alert('세션 생성 실패');
     const roomCode = ack.roomCode;
@@ -530,12 +599,8 @@ document.getElementById('touchMenuBtn')?.addEventListener('click', () => {
 document.getElementById('tapZoneLeft')?.addEventListener('click', () => changePage(state.pageNo - state.spreadCount, 'tap'));
 document.getElementById('tapZoneRight')?.addEventListener('click', () => changePage(state.pageNo + state.spreadCount, 'tap'));
 document.getElementById('tapZoneCenter')?.addEventListener('click', () => {
-  // if not drawing, toggle focus; else toggle palette
-  if (document.body.classList.contains('drawing-active')) {
-    document.getElementById('fab')?.click();
-  } else {
-    document.getElementById('focusModeBtn')?.click();
-  }
+  // 중앙 탭: 옵션/팔레트 토글
+  document.getElementById('fab')?.click();
 });
 
 document.getElementById('fullscreenBtn').addEventListener('click', async () => {
@@ -622,8 +687,7 @@ function computeViewport(page) {
   const scaleW = maxW / base.width;
   const scaleH = maxH / base.height;
   const fitScale = Math.max(0.15, Math.min(scaleW, scaleH));
-  const perfFactor = state.perfMode ? 0.9 : 1;
-  const scale = (state.fitMode ? fitScale : fitScale * state.zoom) * perfFactor;
+  const scale = state.fitMode ? fitScale : fitScale * state.zoom;
   return page.getViewport({ scale });
 }
 
@@ -660,6 +724,9 @@ function makeView(pageNo) {
   let laserPlacing = false;
   let laserObj = null;
   let laserPoints = [];
+  // --- Eraser (delete nearby objects) ---------------------------------------------
+  let erasing = false;
+  let erasedCount = 0;
   // late-bound (pushUndo/broadcast are declared later)
   let vPushUndo = () => {};
   let vBroadcast = () => {};
@@ -674,6 +741,14 @@ function makeView(pageNo) {
   fabricCanvas.on('mouse:down', (opt) => {
     state.activeDrawPageNo = pageNo;
     if (state.locked) return;
+
+    if (state.tool === 'eraser') {
+      const p = getPointer(opt);
+      const size = Number(document.getElementById('brushSize').value || 3);
+      erasing = true;
+      erasedCount += eraseAtPoint(fabricCanvas, p, Math.max(10, size * 2.4));
+      return;
+    }
 
     if (state.tool === 'laser') {
       const p = getPointer(opt);
@@ -691,7 +766,7 @@ function makeView(pageNo) {
       const it = new fabric.IText('텍스트', {
         left: p.x,
         top: p.y,
-        fontSize: 22,
+        fontSize: state.textFontSize || 22,
         fill: color,
         fontWeight: 700
       });
@@ -700,6 +775,8 @@ function makeView(pageNo) {
       fabricCanvas.setActiveObject(it);
       vPushUndo();
       vBroadcast();
+      // 텍스트 1회 생성 후 자연스럽게 선택 도구로 복귀
+      setTimeout(() => setTool('select'), 0);
       return;
     }
 
@@ -747,6 +824,12 @@ function makeView(pageNo) {
 
   fabricCanvas.on('mouse:move', (opt) => {
     if (state.locked) return;
+    if (erasing) {
+      const p = getPointer(opt);
+      const size = Number(document.getElementById('brushSize').value || 3);
+      erasedCount += eraseAtPoint(fabricCanvas, p, Math.max(10, size * 2.4));
+      return;
+    }
     if (laserPlacing && laserObj) {
       const p = getPointer(opt);
       laserPoints.push({ x: p.x, y: p.y });
@@ -780,6 +863,15 @@ function makeView(pageNo) {
 
   fabricCanvas.on('mouse:up', () => {
     if (state.locked) return;
+    if (erasing) {
+      erasing = false;
+      if (erasedCount > 0) {
+        erasedCount = 0;
+        vPushUndo();
+        vBroadcast();
+      }
+      return;
+    }
     if (laserPlacing) {
       laserPlacing = false;
       const lo = laserObj;
@@ -799,8 +891,8 @@ function makeView(pageNo) {
         });
       }
 
-      // fade out & remove (2s)
-      if (lo) fadeOutAndRemove(fabricCanvas, lo, 2000);
+      // 2초 유지 후 2초간 페이드아웃
+      if (lo) scheduleFadeOutAndRemove(fabricCanvas, lo, 2000, 2000);
       return;
     }
     if (!isPlacing) return;
@@ -861,11 +953,8 @@ function makeView(pageNo) {
   const syncSelectionUI = () => {
     const active = fabricCanvas.getActiveObject?.();
     if (!active) return;
-    if (active.stroke) document.getElementById('strokeColor').value = active.stroke;
-    if (active.strokeWidth) document.getElementById('strokeWidth').value = String(active.strokeWidth);
     if (active.type === 'i-text') {
       document.getElementById('fontSize').value = String(active.fontSize || 22);
-      document.getElementById('strokeColor').value = active.fill || document.getElementById('strokeColor').value;
     }
   };
   fabricCanvas.on('selection:created', syncSelectionUI);
@@ -910,19 +999,9 @@ function applyToolToCanvas(fab) {
     fab.freeDrawingBrush.color = rgba;
     makeSelectable(false);
   } else if (state.tool === 'eraser') {
-    if (fabric.EraserBrush) {
-      fab.isDrawingMode = true;
-      fab.freeDrawingBrush = new fabric.EraserBrush(fab);
-      fab.freeDrawingBrush.width = Math.max(6, size * 2);
-      makeSelectable(false);
-    } else {
-      // fallback: not supported
-      fab.isDrawingMode = true;
-      fab.freeDrawingBrush = new fabric.PencilBrush(fab);
-      fab.freeDrawingBrush.width = Math.max(6, size * 2);
-      fab.freeDrawingBrush.color = 'rgba(0,0,0,1)';
-      makeSelectable(false);
-    }
+    // 커스텀 지우개: "근처 오브젝트 삭제" 방식(검정펜 fallback 금지)
+    fab.isDrawingMode = false;
+    makeSelectable(false);
   } else if (state.tool === 'select') {
     fab.isDrawingMode = false;
     makeSelectable(true);
@@ -1073,6 +1152,8 @@ document.getElementById('colorPicker').addEventListener('input', () => applyTool
 function setTool(tool, shape = null) {
   state.tool = tool;
   state.shape = shape;
+  document.body.dataset.tool = tool;
+  document.body.classList.toggle('tool-text', tool === 'text');
   applyToolToAll();
 }
 
@@ -1145,7 +1226,6 @@ function emitViewerSettings(reason = '') {
       spreadCount: state.spreadCount,
       fitMode: state.fitMode,
       zoom: state.zoom,
-      perfMode: state.perfMode,
       overlapPx: state.overlapPx
     }
   });
@@ -1186,99 +1266,32 @@ document.getElementById('fitBtn').addEventListener('click', () => {
   updateUrlState();
 });
 
-document.getElementById('focusModeBtn').addEventListener('click', () => {
-  state.focusMode = !state.focusMode;
-  document.body.classList.toggle('focus-mode', state.focusMode);
-});
-document.getElementById('perfModeBtn').addEventListener('click', () => {
-  state.perfMode = !state.perfMode;
-  document.body.classList.toggle('perf-mode', state.perfMode);
-  renderSpread(state.pageNo).catch(() => {});
-  emitViewerSettings('perf');
-  updateUrlState();
-});
-
-document.getElementById('lockModeBtn').addEventListener('click', () => {
+function toggleLock() {
   state.locked = !state.locked;
-  document.getElementById('lockModeBtn').textContent = state.locked ? '잠금해제' : '잠금';
+  document.getElementById('lockFloatBtn').textContent = state.locked ? '잠금해제' : '잠금';
+  document.getElementById('lockFloatBtn').classList.toggle('active', state.locked);
   applyToolToAll();
-});
+}
+
+document.getElementById('lockFloatBtn')?.addEventListener('click', toggleLock);
 
 function getActiveView() {
   const pageNo = state.activeDrawPageNo || state.pageNo;
   return viewMap.get(pageNo);
 }
 
-function applyToActiveObject(mutator) {
+// Text size option: when text tool is enabled, change default + selected text (if any)
+document.getElementById('fontSize')?.addEventListener('input', (e) => {
+  const fs = Number(e.target.value || 22);
+  state.textFontSize = clamp(fs, 12, 60);
   const v = getActiveView();
   const obj = v?.fabric?.getActiveObject?.();
-  if (!v?.fabric || !obj) return;
-  mutator(obj, v.fabric);
-  v.fabric.requestRenderAll();
-  v.pushUndo?.();
-  v.broadcast?.();
-}
-
-// Selection edit controls
-document.getElementById('bringFrontBtn').addEventListener('click', () => {
-  applyToActiveObject((obj, c) => c.bringToFront(obj));
+  if (v?.fabric && obj?.type === 'i-text') {
+    obj.set('fontSize', state.textFontSize);
+    v.fabric.requestRenderAll();
+  }
 });
-document.getElementById('sendBackBtn').addEventListener('click', () => {
-  applyToActiveObject((obj, c) => c.sendToBack(obj));
-});
-document.getElementById('deleteBtn').addEventListener('click', () => {
-  const v = getActiveView();
-  const obj = v?.fabric?.getActiveObject?.();
-  if (!v?.fabric || !obj) return;
-  v.fabric.remove(obj);
-  v.fabric.discardActiveObject();
-  v.fabric.requestRenderAll();
-  v.pushUndo?.();
-  v.broadcast?.();
-});
-document.getElementById('duplicateBtn').addEventListener('click', () => {
-  applyToActiveObject((obj, c) => {
-    obj.clone((cloned) => {
-      cloned.left = (cloned.left || 0) + 16;
-      cloned.top = (cloned.top || 0) + 16;
-      c.add(cloned);
-      c.setActiveObject(cloned);
-    });
-  });
-});
-
-document.getElementById('strokeColor').addEventListener('input', (e) => {
-  const v = getActiveView();
-  const obj = v?.fabric?.getActiveObject?.();
-  if (!obj) return;
-  const col = e.target.value;
-  if (obj.stroke !== undefined) obj.set('stroke', col);
-  if (obj.fill !== undefined && obj.type === 'i-text') obj.set('fill', col);
-  v.fabric.requestRenderAll();
-  v.pushUndo?.();
-  v.broadcast?.();
-});
-document.getElementById('strokeWidth').addEventListener('input', (e) => {
-  const v = getActiveView();
-  const obj = v?.fabric?.getActiveObject?.();
-  if (!obj) return;
-  const w = Number(e.target.value || 3);
-  if (obj.strokeWidth !== undefined) obj.set('strokeWidth', w);
-  v.fabric.requestRenderAll();
-});
-document.getElementById('strokeWidth').addEventListener('change', () => {
-  const v = getActiveView();
-  v?.pushUndo?.();
-  v?.broadcast?.();
-});
-document.getElementById('fontSize').addEventListener('input', (e) => {
-  const v = getActiveView();
-  const obj = v?.fabric?.getActiveObject?.();
-  if (!obj || obj.type !== 'i-text') return;
-  obj.set('fontSize', Number(e.target.value || 22));
-  v.fabric.requestRenderAll();
-});
-document.getElementById('fontSize').addEventListener('change', () => {
+document.getElementById('fontSize')?.addEventListener('change', () => {
   const v = getActiveView();
   v?.pushUndo?.();
   v?.broadcast?.();
@@ -1354,7 +1367,7 @@ els.pdfContainer.addEventListener(
       touch.startDist = dist(e.touches[0], e.touches[1]);
       touch.startZoom = state.fitMode ? 1 : state.zoom;
       state.fitMode = false;
-    } else if (e.touches.length === 1 && (state.tool === 'select' || state.focusMode)) {
+    } else if (e.touches.length === 1 && state.tool === 'select') {
       touch.mode = 'swipe';
       touch.startX = e.touches[0].clientX;
       touch.startY = e.touches[0].clientY;
@@ -1483,7 +1496,6 @@ socket.on('viewer:settings', (p) => {
   if (typeof s.spreadCount === 'number') state.spreadCount = clamp(s.spreadCount, 1, 4);
   if (typeof s.fitMode === 'boolean') state.fitMode = s.fitMode;
   if (typeof s.zoom === 'number') state.zoom = clamp(s.zoom, 0.5, 3);
-  if (typeof s.perfMode === 'boolean') state.perfMode = s.perfMode;
   if (typeof s.overlapPx === 'number') setSpreadOverlapPx(s.overlapPx);
   [1, 2, 3, 4].forEach((x) => document.getElementById(`spread${x}Btn`)?.classList.toggle('active', x === state.spreadCount));
   renderSpread(state.pageNo).catch(() => {});
@@ -1507,7 +1519,7 @@ socket.on('viewer:laser', (p) => {
   const obj = makeLaserGroup(pts);
   v.fabric.add(obj);
   v.fabric.requestRenderAll();
-  fadeOutAndRemove(v.fabric, obj, 2000);
+  scheduleFadeOutAndRemove(v.fabric, obj, 2000, 2000);
 });
 
 socket.on('session:follow:file', (p) => {
@@ -1554,7 +1566,6 @@ async function init() {
 
   // Personal entry without fileId: show prompt to open from link
   if (!state.fileId) {
-    setText('fileIdBadge', 'fileId: (없음) — Drive 링크로 열기');
     setHidden('pageHud', false);
     setText('pageHud', 'Drive 링크로 악보를 열어주세요');
     // focus input

@@ -5,13 +5,16 @@ const state = {
   role: 'viewer', // viewer | session | admin
   displayName: '방문자',
   main: null,
-  songsAll: [],
-  songsFiltered: [],
+  songCardsAll: [],
+  songCardsFiltered: [],
+  songFilesAll: [], // fileId 단위(세션 팔로우/가능곡 편집 등에서 사용)
+  songFilesFiltered: [],
   requests: [],
   requestManageMode: false,
   selectedRequestIds: new Set(),
-  availabilityUserId: '',
-  availabilitySet: null,
+  availableVocalUserId: '',
+  availableVocalSet: null, // Set<googleFileId>
+  availabilityEditMode: false,
 
   sessionRoomCode: '',
   isPageTurner: false,
@@ -21,7 +24,12 @@ const state = {
   sortField: 'createdAt',
   sortDir: 'desc',
   page: 1,
-  pageSize: 100
+  pageSize: 100,
+
+  // card click selection
+  _pendingCard: null,
+  _pendingVariant: null,
+  _rouletteCard: null
 };
 
 // ---- DOM helpers -----------------------------------------------------------------
@@ -110,13 +118,36 @@ async function loadMainPage() {
 }
 
 async function loadSongs(force = false) {
-  if (!force && state.songsAll.length) return;
-  const data = await apiGet('/api/songs?limit=5000');
+  if (!force && state.songCardsAll.length) return;
+  const data = await apiGet('/api/songs/cards');
   if (!data.ok) throw new Error('songs load failed');
-  state.songsAll = data.items || [];
-  if (!state.songsAll.length) {
+  state.songCardsAll = (data.items || []).map((c) => ({
+    ...c,
+    keyLabel: (c.keys || []).filter(Boolean).join('/') || '-'
+  }));
+  if (!state.songCardsAll.length) {
     $('resultCount').textContent = '곡 데이터가 없습니다. /admin에서 Drive 동기화를 실행해 주세요.';
   }
+}
+
+async function loadSongFiles(force = false) {
+  if (!force && state.songFilesAll.length) return;
+  const data = await apiGet('/api/songs?limit=5000');
+  if (!data.ok) throw new Error('songs load failed');
+  state.songFilesAll = data.items || [];
+}
+
+async function loadAvailableVocalSet(userId) {
+  state.availableVocalUserId = userId || '';
+  state.availableVocalSet = null;
+  if (!userId) return;
+  const data = await apiGet(`/api/availability?userId=${encodeURIComponent(userId)}`);
+  if (!data.ok) return;
+  const set = new Set();
+  (data.items || []).forEach((a) => {
+    if (a.available) set.add(a.googleFileId);
+  });
+  state.availableVocalSet = set;
 }
 
 function applySongFilters() {
@@ -124,39 +155,54 @@ function applySongFilters() {
   const genre = $('genreFilter').value;
   const mood = $('moodFilter').value;
   const vocal = $('vocalFilter').value;
-  const latestOnly = $('latestOnlyToggle').checked;
-  const availUserId = $('availUserFilter')?.value || '';
-  const availOnly = $('availOnlyToggle')?.checked;
+  const availableVocalUserId = $('availableVocalFilter')?.value || '';
 
   const hideTags = $('hideTagsToggle').checked;
 
-  let list = state.songsAll.slice();
+  if (state.availabilityEditMode) {
+    let list = state.songFilesAll.slice().filter((s) => !s.hidden);
+    if (genre) list = list.filter((s) => s.genre === genre);
+    if (mood) list = list.filter((s) => s.mood === mood);
+    if (vocal) list = list.filter((s) => s.vocal === vocal);
+    if (q) list = list.filter((s) => (s.searchText || '').includes(q) || (s.title || '').toLowerCase().includes(q));
 
-  list = list.filter((s) => !s.hidden);
-  if (latestOnly) list = list.filter((s) => s.isLatest);
-  if (genre) list = list.filter((s) => s.genre === genre);
-  if (mood) list = list.filter((s) => s.mood === mood);
-  if (vocal) list = list.filter((s) => s.vocal === vocal);
-  if (q) {
-    list = list.filter((s) => (s.searchText || '').includes(q) || (s.title || '').toLowerCase().includes(q) || (s.artist || '').toLowerCase().includes(q));
+    const f = state.sortField;
+    const dir = state.sortDir === 'asc' ? 1 : -1;
+    list.sort((a, b) => {
+      const av = a?.[f] ?? '';
+      const bv = b?.[f] ?? '';
+      if (av === bv) return 0;
+      return av > bv ? dir : -dir;
+    });
+
+    state.songFilesFiltered = list;
+    $('resultCount').textContent = `검색 결과: ${list.length}개(파일 단위)`;
+    renderAvailabilityEditCards(hideTags);
+    renderPager();
+    return;
   }
 
-  // Availability filter (optional; session/admin oriented)
-  if (availUserId && state.availabilityUserId === availUserId && state.availabilitySet) {
-    if (availOnly) list = list.filter((s) => state.availabilitySet.has(s.googleFileId));
+  let list = state.songCardsAll.slice();
+  if (genre) list = list.filter((c) => c.genre === genre);
+  if (mood) list = list.filter((c) => c.mood === mood);
+  if (vocal) list = list.filter((c) => c.vocal === vocal);
+  if (q) list = list.filter((c) => (c.searchText || '').includes(q));
+
+  // 가능보컬 필터: variants 중 하나라도 해당 유저가 available이면 노출
+  if (availableVocalUserId && state.availableVocalUserId === availableVocalUserId && state.availableVocalSet) {
+    list = list.filter((c) => (c.variants || []).some((v) => state.availableVocalSet.has(v.googleFileId)));
   }
 
-  // sort
   const f = state.sortField;
   const dir = state.sortDir === 'asc' ? 1 : -1;
   list.sort((a, b) => {
-    const av = a?.[f] ?? '';
-    const bv = b?.[f] ?? '';
+    const av = f === 'key' ? a?.keyLabel ?? '' : a?.[f] ?? '';
+    const bv = f === 'key' ? b?.keyLabel ?? '' : b?.[f] ?? '';
     if (av === bv) return 0;
     return av > bv ? dir : -dir;
   });
 
-  state.songsFiltered = list;
+  state.songCardsFiltered = list;
   $('resultCount').textContent = `검색 결과: ${list.length}곡`;
   renderSongCards(hideTags);
   renderPager();
@@ -166,24 +212,76 @@ function renderSongCards(hideTags) {
   const wrap = $('songCardList');
   wrap.innerHTML = '';
 
-  const totalPages = Math.max(1, Math.ceil(state.songsFiltered.length / state.pageSize));
+  const totalPages = Math.max(1, Math.ceil(state.songCardsFiltered.length / state.pageSize));
   state.page = Math.min(state.page, totalPages);
   const start = (state.page - 1) * state.pageSize;
-  const items = state.songsFiltered.slice(start, start + state.pageSize);
+  const items = state.songCardsFiltered.slice(start, start + state.pageSize);
+
+  items.forEach((c) => {
+    const el = document.createElement('div');
+    el.className = 'song-card clickable';
+    const title = c.title || '(제목없음)';
+    const keyLabel = c.keyLabel || '-';
+
+    const isAdmin = state.role === 'admin';
+    // 카드 레이아웃: 제목(강조) 위, 가수(보조) 아래
+    el.innerHTML = `
+      <div class="song-card-header">
+        <div>
+          <div class="song-card-title">${esc(title)}</div>
+          <div class="song-card-artist">${esc(c.artist || '')}</div>
+        </div>
+        <div class="song-card-right">
+          ${isAdmin ? `<span class="chip edit-chip" data-action="editSong">편집</span>` : ''}
+        </div>
+      </div>
+      ${hideTags ? '' : `
+        <div class="song-chips">
+          <span class="chip">${esc(keyLabel)}</span>
+          <span class="chip">${esc(c.genre || '-')}</span>
+          <span class="chip">${esc(c.mood || '-')}</span>
+          <span class="chip">${esc(c.vocal || '-')}</span>
+        </div>
+      `}
+    `;
+    el.querySelector('[data-action="editSong"]')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openSongTagModal(c);
+    });
+    el.onclick = () => {
+      openCardFlow(c);
+    };
+    wrap.appendChild(el);
+  });
+}
+
+async function toggleAvailabilityForFile(userId, googleFileId, next) {
+  if (!userId) return toast('가능보컬을 먼저 선택해 주세요.');
+  const res = await apiJson('/api/availability', 'PUT', { userId, googleFileId, available: Boolean(next) });
+  if (!res.ok) return toast('저장 실패');
+  if (!state.availableVocalSet) state.availableVocalSet = new Set();
+  if (next) state.availableVocalSet.add(googleFileId);
+  else state.availableVocalSet.delete(googleFileId);
+}
+
+function renderAvailabilityEditCards(hideTags) {
+  const wrap = $('songCardList');
+  wrap.innerHTML = '';
+
+  const totalPages = Math.max(1, Math.ceil(state.songFilesFiltered.length / state.pageSize));
+  state.page = Math.min(state.page, totalPages);
+  const start = (state.page - 1) * state.pageSize;
+  const items = state.songFilesFiltered.slice(start, start + state.pageSize);
+
+  const userId = $('availableVocalFilter')?.value || '';
+  const set = state.availableVocalSet;
 
   items.forEach((s) => {
     const el = document.createElement('div');
-    el.className = 'song-card clickable';
+    el.className = 'song-card';
     const title = s.displayTitle || s.title || '(제목없음)';
-    const availUserId = $('availUserFilter')?.value || '';
-    const availText =
-      availUserId && state.availabilityUserId === availUserId && state.availabilitySet
-        ? state.availabilitySet.has(s.googleFileId)
-          ? `가능`
-          : `불가`
-        : '';
-
-    // 카드 레이아웃: 제목(강조) 위, 가수(보조) 아래
+    const checked = !!(set && set.has(s.googleFileId));
     el.innerHTML = `
       <div class="song-card-header">
         <div>
@@ -191,50 +289,162 @@ function renderSongCards(hideTags) {
           <div class="song-card-artist">${esc(s.artist || '')}</div>
         </div>
         <div class="song-card-right">
-          ${s.isLatest ? `<span class="new-badge">NEW</span>` : ''}
-          ${availText ? `<span class="avail-box">${esc(availText)}</span>` : ''}
+          <label class="inline-check" style="gap:8px;">
+            <input type="checkbox" ${checked ? 'checked' : ''} />
+            가능
+          </label>
         </div>
       </div>
       ${hideTags ? '' : `
         <div class="song-chips">
-          ${s.key ? `<span class="chip">Key ${esc(s.key)}</span>` : ''}
-          ${s.genre ? `<span class="chip">${esc(s.genre)}</span>` : ''}
-          ${s.mood ? `<span class="chip">${esc(s.mood)}</span>` : ''}
-          ${s.vocal ? `<span class="chip">${esc(s.vocal)}</span>` : ''}
+          <span class="chip">${esc(s.key || '-')}</span>
+          <span class="chip">${esc(s.genre || '-')}</span>
+          <span class="chip">${esc(s.mood || '-')}</span>
+          <span class="chip">${esc(s.vocal || '-')}</span>
         </div>
       `}
     `;
-    el.onclick = () => {
-      if (!s.googleFileId) return;
-      // If joined in a live session and this user is page turner, broadcast follow-file.
-      const roomCode = state.sessionRoomCode;
-      if (roomCode && state.isPageTurner) {
-        state._socket?.emit?.('session:follow:file', { roomCode, fileId: s.googleFileId, originalLink: s.driveUrl || '' }, () => {
-          window.location.href = `/viewer/${encodeURIComponent(s.googleFileId)}?room=${encodeURIComponent(roomCode)}`;
-        });
-      } else if (roomCode) {
-        window.location.href = `/viewer/${encodeURIComponent(s.googleFileId)}?room=${encodeURIComponent(roomCode)}`;
-      } else {
-        window.location.href = `/viewer/${encodeURIComponent(s.googleFileId)}`;
-      }
+    const chk = el.querySelector('input[type="checkbox"]');
+    chk.onchange = async () => {
+      const next = chk.checked;
+      await toggleAvailabilityForFile(userId, s.googleFileId, next);
     };
     wrap.appendChild(el);
   });
 }
 
+// ---- Song tag edit (admin only) ---------------------------------------------------
+let _editCard = null;
+function openSongTagModal(card) {
+  if (state.role !== 'admin') return toast('관리자 권한이 필요합니다.');
+  _editCard = card;
+  $('songTagModalSubtitle').textContent = `${card.title || '(제목없음)'} · ${card.artist || ''}`;
+  // 조성(key)은 카드(키 통합) 개념과 충돌하므로 여기서는 비활성화
+  $('songKeySelect').value = '';
+  $('songKeySelect').disabled = true;
+  $('songGenreSelect').value = card.genre || '';
+  $('songMoodSelect').value = card.mood || '';
+  $('songVocalSelect').value = card.vocal || '';
+  openModal('songTagModal');
+}
+
+async function saveSongTagModal() {
+  if (!_editCard) return;
+  const payload = {
+    genre: $('songGenreSelect').value || '',
+    mood: $('songMoodSelect').value || '',
+    vocal: $('songVocalSelect').value || ''
+  };
+  const res = await apiJson(`/api/admin/song-cards`, 'PATCH', { title: _editCard.title, artist: _editCard.artist, ...payload });
+  if (!res.ok) return toast(`저장 실패: ${res.error || ''}`);
+  // 갱신은 서버 재조회로 일관성 확보
+  await loadSongs(true);
+  closeModal('songTagModal');
+  _editCard = null;
+  $('songKeySelect').disabled = false;
+  applySongFilters();
+  toast('저장 완료');
+}
+
+// ---- Card flow (키 선택 -> 액션 선택) ---------------------------------------------
+function openCardFlow(card) {
+  if (!card?.variants?.length) return;
+  const keys = (card.keys || []).filter((x) => x !== undefined);
+  if (keys.length > 1) return openKeySelectModal(card);
+  return openSongActionModal(card, card.variants[0]);
+}
+
+function openKeySelectModal(card) {
+  state._pendingCard = card;
+  state._pendingVariant = null;
+  $('keySelectSubtitle').textContent = `${card.title || ''} - ${card.artist || ''}`.trim();
+  const wrap = $('keySelectButtons');
+  wrap.innerHTML = '';
+  (card.variants || []).forEach((v) => {
+    const btn = document.createElement('button');
+    btn.className = 'floating-btn compact-btn';
+    btn.type = 'button';
+    btn.textContent = v.key ? v.key : '-';
+    btn.onclick = () => {
+      closeModal('keySelectModal');
+      openSongActionModal(card, v);
+    };
+    wrap.appendChild(btn);
+  });
+  openModal('keySelectModal');
+}
+
+function openSongActionModal(card, variant) {
+  state._pendingCard = card;
+  state._pendingVariant = variant;
+  const k = variant?.key ? ` (${variant.key})` : '';
+  $('songActionSubtitle').textContent = `${card.title || ''} - ${card.artist || ''}${k}`.trim();
+  openModal('songActionModal');
+}
+
+async function copyDriveLink() {
+  const v = state._pendingVariant;
+  const url = String(v?.driveUrl || '').trim();
+  if (!url) return toast('링크가 없습니다.');
+  try {
+    await navigator.clipboard.writeText(url);
+    toast('드라이브 링크 복사됨');
+  } catch {
+    toast('복사 실패(브라우저 권한 확인)');
+  }
+}
+
+function openInViewer() {
+  const v = state._pendingVariant;
+  if (!v?.googleFileId) return;
+  const roomCode = state.sessionRoomCode;
+  const targetUrl = roomCode ? `/viewer/${encodeURIComponent(v.googleFileId)}?room=${encodeURIComponent(roomCode)}` : `/viewer/${encodeURIComponent(v.googleFileId)}`;
+  if (roomCode && state.isPageTurner) {
+    state._socket?.emit?.('session:follow:file', { roomCode, fileId: v.googleFileId, originalLink: v.driveUrl || '' }, () => {
+      window.location.href = targetUrl;
+    });
+  } else {
+    window.location.href = targetUrl;
+  }
+}
+
 function renderPager() {
-  const totalPages = Math.max(1, Math.ceil(state.songsFiltered.length / state.pageSize));
+  const total = state.availabilityEditMode ? state.songFilesFiltered.length : state.songCardsFiltered.length;
+  const totalPages = Math.max(1, Math.ceil(total / state.pageSize));
   $('pageInfo').textContent = `${state.page} / ${totalPages}`;
   $('prevPageBtn').disabled = state.page <= 1;
   $('nextPageBtn').disabled = state.page >= totalPages;
 }
 
-function pickRandomSong() {
-  if (!state.songsFiltered.length) return toast('랜덤 대상 곡이 없습니다.');
-  const s = state.songsFiltered[Math.floor(Math.random() * state.songsFiltered.length)];
-  $('randomResult').innerHTML = `<div><b>${esc(s.displayTitle || s.title)}</b></div><div style="opacity:.75;margin-top:4px">${esc(s.artist || '')}</div>`;
-  $('randomRerollBtn').style.display = 'inline-flex';
-  openModal('randomModal');
+// (룰렛 애니메이션은 후속 단계에서 교체)
+function spinRoulette() {
+  if (!state.songCardsFiltered.length) return toast('랜덤 대상 곡이 없습니다.');
+  const wheel = $('rouletteWheel');
+  const openBtn = $('randomOpenBtn');
+  const rerollBtn = $('randomRerollBtn');
+  openBtn.style.display = 'none';
+  rerollBtn.style.display = 'none';
+  $('randomResult').textContent = '룰렛을 돌려 곡을 고릅니다...';
+
+  const card = state.songCardsFiltered[Math.floor(Math.random() * state.songCardsFiltered.length)];
+  state._rouletteCard = card;
+
+  // reset rotation (no transition)
+  wheel.style.transition = 'none';
+  wheel.style.transform = 'rotate(0deg)';
+  // spin
+  const extraTurns = 5 + Math.floor(Math.random() * 3); // 5~7
+  const offset = Math.floor(Math.random() * 360);
+  requestAnimationFrame(() => {
+    wheel.style.transition = 'transform 3.2s cubic-bezier(0.12, 0.86, 0.10, 1)';
+    wheel.style.transform = `rotate(${extraTurns * 360 + offset}deg)`;
+  });
+
+  setTimeout(() => {
+    $('randomResult').innerHTML = `<div><b>${esc(card.title || '')}</b></div><div style="opacity:.75;margin-top:4px">${esc(card.artist || '')}</div>`;
+    openBtn.style.display = 'inline-flex';
+    rerollBtn.style.display = 'inline-flex';
+  }, 3300);
 }
 
 // ---- Requests --------------------------------------------------------------------
@@ -346,16 +556,13 @@ function applyRoleUI() {
 
   $('adminToggleBtn').style.display = isAdmin ? 'inline-flex' : 'none';
   $('profileButton').style.display = isPriv ? 'inline-flex' : 'none';
-  $('requestManageToggleBtn').style.display = isPriv ? 'inline-flex' : 'none';
+  $('requestManageToggleBtn').style.display = isAdmin ? 'inline-flex' : 'none';
+  $('availabilityEditToggleBtn').style.display = isPriv ? 'inline-flex' : 'none';
 
   $('clearRequestsBtn').style.display = isAdmin ? 'inline-flex' : 'none';
 
   $('authButton').textContent = state.role === 'viewer' ? '세션 / 관리자 로그인' : '로그아웃';
-
-  // Availability filter visibility: only for session/admin
-  const showAvail = isPriv;
-  $('availUserFilter').style.display = showAvail ? 'inline-flex' : 'none';
-  $('availOnlyWrap').style.display = showAvail ? 'inline-flex' : 'none';
+  if (!isAdmin) state.requestManageMode = false;
 }
 
 function openCreateUserModal() {
@@ -554,16 +761,41 @@ function wireEvents() {
   $('editCancelBtn').onclick = () => closeModal('editModal');
   $('editSaveBtn').onclick = () => saveEditModal().catch(() => {});
 
-  $('randomPickBtn').onclick = () => pickRandomSong();
+  $('songTagCancelBtn').onclick = () => closeModal('songTagModal');
+  $('songTagSaveBtn').onclick = () => saveSongTagModal().catch(() => {});
+
+  $('randomPickBtn').onclick = () => {
+    openModal('randomModal');
+    spinRoulette();
+  };
+  $('randomOpenBtn').onclick = () => {
+    closeModal('randomModal');
+    if (state._rouletteCard) openCardFlow(state._rouletteCard);
+  };
   $('randomCloseBtn').onclick = () => closeModal('randomModal');
-  $('randomRerollBtn').onclick = () => pickRandomSong();
+  $('randomRerollBtn').onclick = () => spinRoulette();
 
   $('resetFiltersBtn').onclick = () => {
     $('searchInput').value = '';
     $('genreFilter').value = '';
     $('moodFilter').value = '';
     $('vocalFilter').value = '';
-    $('latestOnlyToggle').checked = false;
+    $('availableVocalFilter').value = '';
+    state.availableVocalUserId = '';
+    state.availableVocalSet = null;
+    state.page = 1;
+    applySongFilters();
+  };
+
+  $('availabilityEditToggleBtn').onclick = async () => {
+    if (state.role === 'viewer') return;
+    const userId = $('availableVocalFilter').value;
+    if (!userId && !state.availabilityEditMode) return toast('가능보컬을 먼저 선택해 주세요.');
+    state.availabilityEditMode = !state.availabilityEditMode;
+    $('availabilityEditToggleBtn').textContent = state.availabilityEditMode ? '편집 종료' : '가능곡 편집';
+    // 편집 모드 진입 시 파일 단위 목록 + availability 로드
+    await loadSongFiles(true);
+    if (userId) await loadAvailableVocalSet(userId);
     state.page = 1;
     applySongFilters();
   };
@@ -579,7 +811,6 @@ function wireEvents() {
     };
   })();
   ['searchInput', 'genreFilter', 'moodFilter', 'vocalFilter'].forEach((id) => $(id).addEventListener('input', debouncedFilter));
-  $('latestOnlyToggle').addEventListener('change', debouncedFilter);
   $('hideTagsToggle').addEventListener('change', () => applySongFilters());
 
   $('pageSizeSelect').onchange = () => {
@@ -653,9 +884,19 @@ function wireEvents() {
     }
   };
 
-  // availability filter
-  $('availUserFilter').onchange = () => loadAvailability().catch(() => {});
-  $('availOnlyToggle').onchange = () => applySongFilters();
+  // 가능보컬 필터
+  $('availableVocalFilter').onchange = async () => {
+    const userId = $('availableVocalFilter').value;
+    await loadAvailableVocalSet(userId);
+    state.page = 1;
+    applySongFilters();
+  };
+
+  // action modals
+  $('keySelectCancelBtn').onclick = () => closeModal('keySelectModal');
+  $('songActionCancelBtn').onclick = () => closeModal('songActionModal');
+  $('copyDriveLinkBtn').onclick = () => copyDriveLink().catch(() => {});
+  $('openViewerBtn').onclick = () => openInViewer();
 }
 
 function attachSockets() {
@@ -737,7 +978,7 @@ function renderSessionStatus() {
   const pageNo = state.sessionCurrentPageNo;
   let label = `세션: ${state.sessionRoomCode}`;
   if (fileId) {
-    const song = state.songsAll.find((s) => s.googleFileId === fileId);
+    const song = state.songFilesAll.find((s) => s.googleFileId === fileId);
     const title = song?.displayTitle || song?.title || '';
     label += ` · ${title ? title : fileId.slice(0, 8) + '...'} · p.${pageNo}`;
   }
@@ -860,43 +1101,18 @@ function renderSessionMembers(members) {
   });
 }
 
-async function loadAvailability() {
-  const userId = $('availUserFilter').value;
-  state.availabilityUserId = userId;
-  state.availabilitySet = null;
-  if (!userId) {
-    applySongFilters();
-    return;
-  }
-  const data = await apiGet(`/api/availability?userId=${encodeURIComponent(userId)}`);
-  if (!data.ok) {
-    toast('가능곡 로드 실패');
-    return;
-  }
-  const set = new Set();
-  (data.items || []).forEach((a) => {
-    if (a.available) set.add(a.googleFileId);
-  });
-  state.availabilitySet = set;
-  applySongFilters();
-}
-
-async function loadAvailabilityUsersIfNeeded() {
-  // session/admin only: build dropdown from /api/admin/users
-  if (state.role === 'viewer') return;
-  const r = await apiGet('/api/admin/users');
+async function loadAvailableVocalUsers() {
+  const r = await apiGet('/api/availability/users');
   if (!r.ok) return;
-  const sel = $('availUserFilter');
+  const sel = $('availableVocalFilter');
   const current = sel.value;
-  sel.innerHTML = `<option value="">가능곡(유저 선택)</option>`;
-  (r.items || [])
-    .filter((u) => u.role === 'session' || u.role === 'admin')
-    .forEach((u) => {
-      const opt = document.createElement('option');
-      opt.value = u.userId;
-      opt.textContent = `${u.userId} (${u.role})`;
-      sel.appendChild(opt);
-    });
+  sel.innerHTML = `<option value="">가능보컬 전체</option>`;
+  (r.items || []).forEach((u) => {
+    const opt = document.createElement('option');
+    opt.value = u.userId;
+    opt.textContent = u.displayName || u.userId;
+    sel.appendChild(opt);
+  });
   if (current) sel.value = current;
 }
 
@@ -911,9 +1127,10 @@ async function bootstrap() {
     } catch {}
     attachSockets();
     await refreshSession();
-    await loadAvailabilityUsersIfNeeded();
     await loadMainPage();
     await loadSongs(true);
+    await loadSongFiles(true);
+    await loadAvailableVocalUsers();
     applySongFilters();
     await loadRequests(true);
 

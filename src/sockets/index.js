@@ -156,7 +156,7 @@ function attachSockets(io) {
 
       // If room has a current file, auto-follow for late joiners.
       if (room.currentFileId) {
-        socket.emit('session:follow:file', { fileId: room.currentFileId });
+        socket.emit('session:follow:file', { fileId: room.currentFileId, originalLink: room.currentOriginalLink || '' });
         socket.emit('viewer:page_change', { fileId: room.currentFileId, pageNo: room.currentPageNo });
         if (room.viewerSettings) socket.emit('viewer:settings', { fileId: room.currentFileId, settings: room.viewerSettings });
       }
@@ -299,15 +299,17 @@ function attachSockets(io) {
     socket.on('session:follow:file', async (payload, ack) => {
       const roomCode = String(payload?.roomCode || '').trim().toUpperCase();
       const fileId = String(payload?.fileId || '').trim();
+      const originalLink = String(payload?.originalLink || '').trim();
       const room = store.rooms.get(roomCode);
       if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
       if (room.pageTurnerSocketId !== socket.id) return ack?.({ ok: false, error: 'FORBIDDEN' });
       if (!fileId) return ack?.({ ok: false, error: 'FILE_REQUIRED' });
 
       room.currentFileId = fileId;
+      room.currentOriginalLink = originalLink;
       room.currentPageNo = 1;
 
-      io.to(toSessionRoomName(roomCode)).emit('session:follow:file', { fileId });
+      io.to(toSessionRoomName(roomCode)).emit('session:follow:file', { fileId, originalLink });
       io.to(toSessionRoomName(roomCode)).emit('viewer:page_change', { fileId, pageNo: 1 });
       io.to(toSessionRoomName(roomCode)).emit('session:state', { roomCode, currentFileId: fileId, currentPageNo: 1 });
 

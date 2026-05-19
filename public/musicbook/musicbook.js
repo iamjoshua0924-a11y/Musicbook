@@ -183,12 +183,12 @@ function renderSongCards(hideTags) {
           : `불가`
         : '';
 
-    // GAS 원본 카드 레이아웃: 제목 위, 아티스트 아래, 우측에 NEW/가능 표시
+    // 카드 레이아웃: 가수(강조) 위, 제목 아래
     el.innerHTML = `
       <div class="song-card-header">
         <div>
-          <div class="song-card-title">${esc(title)}</div>
           <div class="song-card-artist">${esc(s.artist || '')}</div>
+          <div class="song-card-title">${esc(title)}</div>
         </div>
         <div class="song-card-right">
           ${s.isLatest ? `<span class="new-badge">NEW</span>` : ''}
@@ -209,7 +209,7 @@ function renderSongCards(hideTags) {
       // If joined in a live session and this user is page turner, broadcast follow-file.
       const roomCode = state.sessionRoomCode;
       if (roomCode && state.isPageTurner) {
-        state._socket?.emit?.('session:follow:file', { roomCode, fileId: s.googleFileId }, () => {
+        state._socket?.emit?.('session:follow:file', { roomCode, fileId: s.googleFileId, originalLink: s.driveUrl || '' }, () => {
           window.location.href = `/viewer/${encodeURIComponent(s.googleFileId)}?room=${encodeURIComponent(roomCode)}`;
         });
       } else if (roomCode) {

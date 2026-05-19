@@ -116,6 +116,8 @@ function joinSession(roomCode) {
   document.getElementById('sessionToggle').checked = true;
   setHidden('sessionBadge', false);
   setText('sessionBadge', `세션: ${state.roomCode} (연결중...)`);
+  setHidden('touchRoomBadge', false);
+  setText('touchRoomBadge', `ROOM ${state.roomCode}`);
 
   socket.emit(
     'session:join',
@@ -133,6 +135,7 @@ function joinSession(roomCode) {
       return;
     }
     setText('sessionBadge', `세션: ${state.roomCode}`);
+    setText('touchRoomBadge', `ROOM ${state.roomCode}`);
     setHidden('participantsPanel', false);
     // request initial annotations
     if (state.fileId) socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId: state.fileId });
@@ -148,6 +151,8 @@ function leaveSession() {
   document.getElementById('sessionToggle').checked = false;
   setHidden('sessionBadge', true);
   setHidden('turnerBadge', true);
+  setHidden('touchRoomBadge', true);
+  setHidden('touchTurnerBadge', true);
   setHidden('participantsPanel', true);
   if (roomCode) socket.emit('session:leave', { roomCode });
 }
@@ -157,6 +162,52 @@ const initialRoom = safeRoomCode(qs('room'));
 if (initialRoom) {
   joinSession(initialRoom);
 }
+
+// ---- URL state restore (바이블: p/s/fit/z/po/ps/py) --------------------------------
+function setPreviewYOffsetPx(px) {
+  const v = Math.max(-300, Math.min(300, Number(px) || 0));
+  document.documentElement.style.setProperty('--previewYOffsetPx', `${v}px`);
+}
+
+function applyStateFromUrl() {
+  const p = Number(qs('p') || '');
+  const s = Number(qs('s') || '');
+  const z = Number(qs('z') || '');
+  const fit = String(qs('fit') || '').trim().toLowerCase();
+  const po = Number(qs('po') || '');
+  const py = Number(qs('py') || '');
+
+  if (Number.isFinite(p) && p > 0) state.pageNo = Math.floor(p);
+  if (Number.isFinite(s) && s >= 1) state.spreadCount = clamp(Math.floor(s), 1, 4);
+  if (fit) state.fitMode = true; // (현 구현은 page/width 구분 없이 fitScale 사용)
+  if (Number.isFinite(z) && z > 0) {
+    state.fitMode = false;
+    state.zoom = clamp(z, 0.5, 3);
+  }
+  if (Number.isFinite(po)) state.overlapPx = clamp(po, 0, 40);
+  if (Number.isFinite(py)) setPreviewYOffsetPx(py);
+}
+applyStateFromUrl();
+
+const updateUrlState = debounce(() => {
+  const u = new URL(window.location.href);
+  // keep room
+  const room = safeRoomCode(qs('room'));
+  if (room) u.searchParams.set('room', room);
+  else u.searchParams.delete('room');
+
+  u.searchParams.set('p', String(state.pageNo || 1));
+  u.searchParams.set('s', String(state.spreadCount || 1));
+  if (state.fitMode) {
+    u.searchParams.set('fit', 'page');
+    u.searchParams.delete('z');
+  } else {
+    u.searchParams.delete('fit');
+    u.searchParams.set('z', String(state.zoom || 1));
+  }
+  u.searchParams.set('po', String(state.overlapPx || 0));
+  window.history.replaceState(null, '', `${u.pathname}?${u.searchParams.toString()}`);
+}, 120);
 
 // ---- UI wiring --------------------------------------------------------------------
 setText('fileIdBadge', state.fileId ? `fileId: ${state.fileId}` : 'fileId: (없음)');
@@ -195,15 +246,19 @@ function setSpreadOverlapPx(px) {
   localStorage.setItem('mb_viewer_overlap', String(v));
 }
 const savedOverlap = Number(localStorage.getItem('mb_viewer_overlap') || '0');
-setSpreadOverlapPx(savedOverlap);
+setSpreadOverlapPx(Number.isFinite(state.overlapPx) ? state.overlapPx : savedOverlap);
 const overlapRange = document.getElementById('overlapRange');
 if (overlapRange) {
-  overlapRange.value = String(savedOverlap);
+  overlapRange.value = String(Number.isFinite(state.overlapPx) ? state.overlapPx : savedOverlap);
   overlapRange.addEventListener('input', (e) => {
     setSpreadOverlapPx(e.target.value);
     emitViewerSettings('overlap');
+    updateUrlState();
   });
 }
+
+// initial spread button active
+[1, 2, 3, 4].forEach((x) => document.getElementById(`spread${x}Btn`)?.classList.toggle('active', x === state.spreadCount));
 
 document.getElementById('sessionToggle').addEventListener('change', (e) => {
   const on = e.target.checked;
@@ -259,7 +314,7 @@ function openByInput(input) {
 
   const roomCode = state.roomCode;
   if (state.isInSession && state.isPageTurner && roomCode) {
-    socket.emit('session:follow:file', { roomCode, fileId }, (ack) => {
+    socket.emit('session:follow:file', { roomCode, fileId, originalLink: String(input || '').trim() }, (ack) => {
       if (!ack?.ok) alert('세션 곡 전환 브로드캐스트 실패(권한 확인)');
       window.location.href = `${window.location.origin}/viewer/${fileId}?room=${roomCode}`;
     });
@@ -278,17 +333,96 @@ document.getElementById('linkInput')?.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') document.getElementById('openBtn')?.click();
 });
 
+// ---- Key bindings (바이블: 기본 매핑 + 사용자 지정) ---------------------------------
+const DEFAULT_NEXT_KEYS = ['ArrowRight', 'PageDown', ' ']; // Space는 e.key === ' '
+const DEFAULT_PREV_KEYS = ['ArrowLeft', 'PageUp'];
+const KEY_STORAGE = { next: 'mb_viewer_key_next', prev: 'mb_viewer_key_prev' };
+let captureKeyMode = null; // 'next' | 'prev'
+
+function loadBoundKeys() {
+  const prev = (localStorage.getItem(KEY_STORAGE.prev) || '').split(',').map((x) => x.trim()).filter(Boolean);
+  const next = (localStorage.getItem(KEY_STORAGE.next) || '').split(',').map((x) => x.trim()).filter(Boolean);
+  return {
+    prev: prev.length ? prev : DEFAULT_PREV_KEYS,
+    next: next.length ? next : DEFAULT_NEXT_KEYS
+  };
+}
+
+function saveBoundKey(which, key) {
+  localStorage.setItem(KEY_STORAGE[which], key);
+}
+
+function setBindLabels() {
+  const keys = loadBoundKeys();
+  setText('bindPrevLabel', keys.prev.map((k) => (k === ' ' ? 'Space' : k)).join('/'));
+  setText('bindNextLabel', keys.next.map((k) => (k === ' ' ? 'Space' : k)).join('/'));
+}
+setBindLabels();
+
+document.getElementById('bindPrevBtn')?.addEventListener('click', () => {
+  captureKeyMode = 'prev';
+  setHidden('pageHud', false);
+  setText('pageHud', '이전 키를 누르세요(ESC 취소)');
+});
+document.getElementById('bindNextBtn')?.addEventListener('click', () => {
+  captureKeyMode = 'next';
+  setHidden('pageHud', false);
+  setText('pageHud', '다음 키를 누르세요(ESC 취소)');
+});
+document.getElementById('bindResetBtn')?.addEventListener('click', () => {
+  localStorage.removeItem(KEY_STORAGE.prev);
+  localStorage.removeItem(KEY_STORAGE.next);
+  setBindLabels();
+  setHidden('pageHud', false);
+  setText('pageHud', '키 바인딩 초기화 완료');
+});
+
 // Pedal/keyboard mapping (requirement). Only page turner broadcasts.
 window.addEventListener('keydown', (e) => {
-  const nextKeys = ['ArrowRight', 'PageDown', ' '];
-  const prevKeys = ['ArrowLeft', 'PageUp'];
-  if (nextKeys.includes(e.key)) changePage(state.pageNo + state.spreadCount, 'kbd');
-  if (prevKeys.includes(e.key)) changePage(state.pageNo - state.spreadCount, 'kbd');
+  if (captureKeyMode) {
+    if (e.key === 'Escape') {
+      captureKeyMode = null;
+      setText('pageHud', '취소됨');
+      return;
+    }
+    // store single key (원본도 단일 지정 UI)
+    saveBoundKey(captureKeyMode, e.key);
+    captureKeyMode = null;
+    setBindLabels();
+    setHidden('pageHud', false);
+    setText('pageHud', '저장됨');
+    e.preventDefault();
+    return;
+  }
+
+  const { prev, next } = loadBoundKeys();
+  if (next.includes(e.key)) {
+    if (e.key === ' ') e.preventDefault();
+    changePage(state.pageNo + state.spreadCount, 'kbd');
+    updateUrlState();
+  }
+  if (prev.includes(e.key)) {
+    changePage(state.pageNo - state.spreadCount, 'kbd');
+    updateUrlState();
+  }
 });
 
 // Mobile-only floating menu button: touch-mode에서만 하단 패널(간단 시트) 토글
 document.getElementById('fab')?.addEventListener('click', () => {
   document.body.classList.toggle('sheet-open');
+});
+
+// touch bottom buttons (원본)
+document.getElementById('touchPrevBtn')?.addEventListener('click', () => {
+  changePage(state.pageNo - state.spreadCount, 'touch');
+  updateUrlState();
+});
+document.getElementById('touchNextBtn')?.addEventListener('click', () => {
+  changePage(state.pageNo + state.spreadCount, 'touch');
+  updateUrlState();
+});
+document.getElementById('touchMenuBtn')?.addEventListener('click', () => {
+  document.getElementById('fab')?.click();
 });
 
 // Tap zones (GAS style): left=prev, right=next, center=toggle palette
@@ -322,6 +456,7 @@ function changePage(next, source) {
   state.activeDrawPageNo = pageNo;
   updatePageLabels();
   renderSpread(pageNo).catch(() => {});
+  updateUrlState();
 
   // Only pageTurner broadcasts page change (requirement).
   if (state.isInSession && state.isPageTurner) {
@@ -363,6 +498,7 @@ function updatePageLabels() {
   setHidden('pageHud', false);
   const hud = `${range} / ${state.totalPages}${state.isPageTurner ? ' · 터너' : ''}`;
   els.pageHud.textContent = hud;
+  setText('touchPageInfo', `${range}/${state.totalPages}`);
 }
 
 function clearViews() {
@@ -940,6 +1076,7 @@ function setSpread(n) {
   [1, 2, 3, 4].forEach((x) => document.getElementById(`spread${x}Btn`)?.classList.toggle('active', x === n));
   changePage(state.pageNo, 'spread');
   emitViewerSettings('spread');
+  updateUrlState();
 }
 document.getElementById('spread1Btn').addEventListener('click', () => setSpread(1));
 document.getElementById('spread2Btn').addEventListener('click', () => setSpread(2));
@@ -951,18 +1088,21 @@ document.getElementById('zoomInBtn').addEventListener('click', () => {
   state.zoom = Math.min(3, state.zoom * 1.15);
   renderSpread(state.pageNo).catch(() => {});
   emitViewerSettings('zoom');
+  updateUrlState();
 });
 document.getElementById('zoomOutBtn').addEventListener('click', () => {
   state.fitMode = false;
   state.zoom = Math.max(0.5, state.zoom / 1.15);
   renderSpread(state.pageNo).catch(() => {});
   emitViewerSettings('zoom');
+  updateUrlState();
 });
 document.getElementById('fitBtn').addEventListener('click', () => {
   state.fitMode = true;
   state.zoom = 1;
   renderSpread(state.pageNo).catch(() => {});
   emitViewerSettings('fit');
+  updateUrlState();
 });
 
 document.getElementById('focusModeBtn').addEventListener('click', () => {
@@ -971,8 +1111,10 @@ document.getElementById('focusModeBtn').addEventListener('click', () => {
 });
 document.getElementById('perfModeBtn').addEventListener('click', () => {
   state.perfMode = !state.perfMode;
+  document.body.classList.toggle('perf-mode', state.perfMode);
   renderSpread(state.pageNo).catch(() => {});
   emitViewerSettings('perf');
+  updateUrlState();
 });
 
 document.getElementById('lockModeBtn').addEventListener('click', () => {
@@ -1182,10 +1324,13 @@ socket.on('session:pageTurner:state', (p) => {
   if (state.isPageTurner) {
     setHidden('turnerBadge', false);
     setText('turnerBadge', '현재 당신이 페이지터너입니다');
+    setHidden('touchTurnerBadge', false);
+    setText('touchTurnerBadge', 'TURNER');
     // 턴너가 된 순간 현재 보기설정도 동기화(요구사항)
     emitViewerSettings('turner_state');
   } else {
     setHidden('turnerBadge', true);
+    setHidden('touchTurnerBadge', true);
   }
   updatePageLabels();
 });
@@ -1300,7 +1445,11 @@ socket.on('session:follow:file', (p) => {
   if (!state.isInSession) return;
   const fileId = p?.fileId;
   if (!fileId) return;
-  // Navigate to keep URL canonical, preserving room param (requirement).
+  // 바이블(D): originalLink가 있으면 링크 기반 오픈으로 preview 폴백까지 최대한 동일하게 재현
+  const originalLink = String(p?.originalLink || '').trim();
+  if (originalLink) return openByInput(originalLink);
+
+  // fallback: Navigate to keep URL canonical, preserving room param (requirement).
   const nextUrl = `${window.location.origin}/viewer/${fileId}?room=${state.roomCode}`;
   if (fileId !== state.fileId) window.location.href = nextUrl;
 });

@@ -3,6 +3,7 @@ const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const User = require('../models/User');
 const Setting = require('../models/Setting');
+const Song = require('../models/Song');
 const { requireLogin, requireAdmin, requireSessionOrAdmin } = require('../middleware/auth');
 const { driveRootFolderId } = require('../config/env');
 const { syncDriveFolderTree } = require('../services/driveSync');
@@ -216,6 +217,47 @@ router.patch('/admin/drive-root', requireAdmin, async (req, res) => {
   const value = String(req.body?.rootFolderId || '').trim();
   await Setting.findOneAndUpdate({ key: 'driveRootFolderId' }, { $set: { key: 'driveRootFolderId', value } }, { upsert: true });
   res.json({ ok: true, rootFolderId: value });
+});
+
+// Parse error fixing (filename parse 실패 보정용)
+router.get('/admin/songs/parse-errors', requireAdmin, async (req, res) => {
+  const limit = Math.max(1, Math.min(500, Number(req.query?.limit || 100)));
+  const items = await Song.find({ parseError: { $ne: '' } })
+    .sort({ updatedAt: -1 })
+    .limit(limit)
+    .lean();
+  res.json({
+    ok: true,
+    items: items.map((s) => ({
+      _id: String(s._id),
+      googleFileId: s.googleFileId,
+      title: s.title,
+      displayTitle: s.displayTitle,
+      artist: s.artist,
+      driveUrl: s.driveUrl,
+      folderPath: s.folderPath,
+      parseError: s.parseError
+    }))
+  });
+});
+
+router.patch('/admin/songs/:id', requireAdmin, async (req, res) => {
+  const id = String(req.params.id || '').trim();
+  const title = String(req.body?.title || '').trim();
+  const displayTitle = String(req.body?.displayTitle || '').trim();
+  const artist = String(req.body?.artist || '').trim();
+  if (!id) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+
+  const update = {};
+  if (title) update.title = title;
+  if (displayTitle !== undefined) update.displayTitle = displayTitle;
+  if (artist !== undefined) update.artist = artist;
+  update.parseError = '';
+  update.updatedAt = new Date();
+
+  const doc = await Song.findByIdAndUpdate(id, { $set: update }, { new: true }).lean();
+  if (!doc) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
+  res.json({ ok: true, item: { _id: String(doc._id), title: doc.title, displayTitle: doc.displayTitle, artist: doc.artist, parseError: doc.parseError } });
 });
 
 module.exports = router;

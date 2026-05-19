@@ -73,6 +73,15 @@
           </div>
 
           <div class="group">
+            <span class="label">키</span>
+            <button id="bindPrevBtn" type="button" class="mini">이전 키</button>
+            <span class="kv" id="bindPrevLabel">ArrowLeft/PageUp</span>
+            <button id="bindNextBtn" type="button" class="mini">다음 키</button>
+            <span class="kv" id="bindNextLabel">ArrowRight/PageDown/Space</span>
+            <button id="bindResetBtn" type="button" class="mini">초기화</button>
+          </div>
+
+          <div class="group">
             <label class="kv"><input type="checkbox" id="sessionToggle" /> 세션 참여</label>
             <button id="createSessionBtn" type="button" class="mini">세션 만들기</button>
           </div>
@@ -126,6 +135,15 @@
       </div>
 
       <main id="stage">
+        <!-- touch-mode header/bottom (원본) -->
+        <div id="touchHeader">
+          <div class="touchRow">
+            <span id="touchRoomBadge" class="badge hidden"></span>
+            <span id="touchTurnerBadge" class="badge hidden"></span>
+            <span id="touchPageInfo" class="muted"></span>
+          </div>
+        </div>
+
         <div id="pdf-container">
           <iframe id="pdf-preview" class="hidden"></iframe>
           <div id="canvas-stack">
@@ -139,6 +157,12 @@
 
         <!-- Mobile-only floating menu button (원본: touch-mode에서만) -->
         <button id="fab" class="fabMore" aria-label="menu">⋯</button>
+
+        <div id="touchNavBottom">
+          <button id="touchPrevBtn" type="button">◀</button>
+          <button id="touchMenuBtn" type="button">⋯</button>
+          <button id="touchNextBtn" type="button">▶</button>
+        </div>
 
         <aside id="participantsPanel" class="hidden">
           <div class="panelTitle">세션 접속자</div>

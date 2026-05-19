@@ -9,6 +9,7 @@
   --danger:#ff6b6b;
   --border:rgba(255,255,255,0.10);
   --spreadOverlapPx: 0px;
+  --previewYOffsetPx: 0px;
 }
 body{
   margin:0;
@@ -166,6 +167,7 @@ button.danger{ background:rgba(255,107,107,0.14); border-color:rgba(255,107,107,
   width: 100%;
   height: 100%;
   border: 0;
+  transform: translateY(var(--previewYOffsetPx));
 }
 
 #canvas-stack {
@@ -256,6 +258,16 @@ body.touch-mode.landscape #fab{ display:flex; }
 .focus-mode #topbar { display: none; }
 .focus-mode #participantsPanel { display: none !important; }
 
+/* Perf mode: UI 전부 제거 + 스테이지만 */
+body.perf-mode #topbar,
+body.perf-mode .floatToggles,
+body.perf-mode .toolbarShell,
+body.perf-mode #touchHeader,
+body.perf-mode #touchNavBottom,
+body.perf-mode #pageHud{
+  display:none !important;
+}
+
 /* touch-mode에서는 데스크톱 토글 버튼 숨김 */
 body.touch-mode .floatToggles{ display:none !important; }
 
@@ -273,6 +285,50 @@ body.touch-mode .toolbarShell{
 body.touch-mode.sheet-open .toolbarShell{
   transform:translateY(0);
 }
+
+/* touch header/bottom (원본: 터치모드에서만 표시) */
+#touchHeader{
+  position:fixed;
+  top:0;
+  left:0;
+  right:0;
+  z-index:4500;
+  padding:10px 12px;
+  display:none;
+  background:linear-gradient(180deg, rgba(17,18,20,0.82), rgba(17,18,20,0));
+  pointer-events:none;
+}
+#touchHeader .touchRow{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  pointer-events:auto;
+}
+#touchNavBottom{
+  position:fixed;
+  left:0;
+  right:0;
+  bottom:0;
+  z-index:4500;
+  display:none;
+  justify-content:center;
+  gap:14px;
+  padding:10px 12px;
+  background:linear-gradient(0deg, rgba(17,18,20,0.86), rgba(17,18,20,0));
+  pointer-events:none;
+}
+#touchNavBottom button{
+  width:62px;
+  height:48px;
+  border-radius:16px;
+  font-size:20px;
+  font-weight:900;
+  pointer-events:auto;
+}
+body.touch-mode #touchHeader{ display:block; }
+body.touch-mode #touchNavBottom{ display:flex; }
+body.touch-mode.landscape #touchHeader{ padding-top: 6px; }
+body.touch-mode.landscape #touchNavBottom{ padding-bottom: 6px; }
 
 /* Tap zones for page turning (touch mode only) */
 #tapZoneLeft,#tapZoneRight,#tapZoneCenter{

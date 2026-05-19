@@ -353,8 +353,8 @@ textarea {
 .song-card-header{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
 .song-card-header > div:first-child{ flex:1 1 auto; }
 .song-card-right{ flex:0 0 auto; display:flex; align-items:center; justify-content:flex-end; gap:6px; flex-wrap:wrap; min-width:0; }
-.song-card-title{ font-size:17px; font-weight:1000; line-height:1.25; letter-spacing:-0.02em; word-break:break-word; }
-.song-card-artist{ margin-top:4px; font-size:12px; font-weight:900; opacity:0.62; word-break:break-word; }
+.song-card-artist{ font-size:17px; font-weight:1000; line-height:1.25; letter-spacing:-0.02em; word-break:break-word; }
+.song-card-title{ margin-top:4px; font-size:12px; font-weight:900; opacity:0.62; word-break:break-word; }
 .new-badge{ display:inline-flex; align-items:center; justify-content:center; padding:5px 8px; border-radius:999px; background:rgba(255,90,130,0.14); border:1px solid rgba(255,90,130,0.28); color:#c51b4f; font-size:11px; font-weight:1000; }
 .avail-box{ display:flex; align-items:center; gap:6px; padding:6px 8px; border-radius:14px; border:1px solid rgba(59,109,246,0.35); background:rgba(255,255,255,0.8); font-size:11px; font-weight:900; white-space:nowrap; max-width:100%; overflow:hidden; }
 .avail-label{ display:none; }

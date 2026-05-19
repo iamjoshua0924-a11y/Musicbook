@@ -16,7 +16,7 @@ async function apiJson(url, method, body) {
 
 function showAuthed(on) {
   $('loginCard').style.display = on ? 'none' : 'block';
-  ['meCard', 'mainCard', 'syncCard'].forEach((id) => {
+  ['meCard', 'mainCard', 'syncCard', 'parseErrorCard'].forEach((id) => {
     $(id).style.display = on ? 'block' : 'none';
   });
 }
@@ -98,6 +98,53 @@ async function loadSyncStatus() {
   $('syncStatusLine').textContent = msg;
 }
 
+async function loadParseErrors() {
+  const r = await apiGet('/api/admin/songs/parse-errors?limit=200');
+  if (!r.ok) return;
+  const wrap = $('parseErrorList');
+  wrap.innerHTML = '';
+  $('parseErrorOut').textContent = `총 ${r.items?.length || 0}건`;
+
+  (r.items || []).forEach((s) => {
+    const el = document.createElement('div');
+    el.className = 'item';
+    el.style.alignItems = 'flex-start';
+    el.innerHTML = `
+      <div style="flex:1; display:grid; gap:6px;">
+        <div><span class="kbd">${s.googleFileId}</span></div>
+        <div class="muted">${s.folderPath || ''}</div>
+        <div class="muted">${s.parseError || ''}</div>
+        <div class="row" style="margin-top:6px;">
+          <input data-k="artist" placeholder="artist" value="${escapeHtml(s.artist || '')}" />
+          <input data-k="title" placeholder="title" value="${escapeHtml(s.title || '')}" />
+          <input data-k="displayTitle" placeholder="displayTitle(옵션)" value="${escapeHtml(s.displayTitle || '')}" />
+        </div>
+        ${s.driveUrl ? `<a href="${escapeHtml(s.driveUrl)}" target="_blank" class="muted">Drive 열기</a>` : ''}
+      </div>
+      <div>
+        <button class="light" data-action="save">저장</button>
+      </div>
+    `;
+    el.querySelector('[data-action="save"]').onclick = async () => {
+      const payload = {};
+      el.querySelectorAll('input[data-k]').forEach((inp) => (payload[inp.dataset.k] = inp.value));
+      const rr = await apiJson(`/api/admin/songs/${encodeURIComponent(s._id)}`, 'PATCH', payload);
+      if (!rr.ok) return alert('저장 실패');
+      el.remove();
+    };
+    wrap.appendChild(el);
+  });
+}
+
+function escapeHtml(str) {
+  return String(str || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
 function wire() {
   $('loginBtn').onclick = async () => {
     const userId = $('loginId').value.trim();
@@ -115,6 +162,7 @@ function wire() {
   $('saveMainBtn').onclick = () => saveMain().catch(() => {});
   $('saveRootFolderBtn').onclick = () => saveDriveRoot().catch(() => {});
   $('syncBtn').onclick = () => syncDrive().catch(() => {});
+  $('reloadParseErrorsBtn').onclick = () => loadParseErrors().catch(() => {});
 }
 
 async function boot() {
@@ -124,6 +172,7 @@ async function boot() {
     await loadMain();
     await loadDriveRoot();
     await loadSyncStatus();
+    await loadParseErrors();
   }
 }
 

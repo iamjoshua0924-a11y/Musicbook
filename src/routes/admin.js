@@ -59,7 +59,9 @@ router.get('/admin/users', requireAdmin, async (req, res) => {
 router.post('/admin/sync/drive', requireAdmin, async (req, res) => {
   const rootFolderId = String(req.body?.rootFolderId || driveRootFolderId || '').trim();
   try {
-    const result = await syncDriveFolderTree({ rootFolderId });
+    const latestDays = Number(req.body?.latestDays || 30);
+    const limit = Number(req.body?.limit || 5000);
+    const result = await syncDriveFolderTree({ rootFolderId, latestDays, limit });
     res.json({ ok: true, ...result });
   } catch (e) {
     res.status(400).json({ ok: false, error: String(e.message || 'SYNC_FAILED') });

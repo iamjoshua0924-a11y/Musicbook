@@ -1,60 +1,297 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ko">
   <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta charset="UTF-8" />
     <title>밍긴어게인 노래책</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="https://www.gstatic.com/images/branding/product/1x/drive_2020q4_32dp.png" />
     <link rel="stylesheet" href="/public/musicbook/musicbook.css" />
   </head>
-  <body>
+
+  <body class="preload">
+    <div class="loading-screen" id="loadingScreen">로딩 중...</div>
+    <div class="toast" id="toast"></div>
+
     <div class="layout">
-      <aside class="sidebar">
-        <div class="navbtn active">곡 리스트</div>
-        <a class="navbtn" href="/admin">관리자</a>
-      </aside>
+      <nav class="layout-nav">
+        <div class="floating-nav">
+          <button class="floating-btn nav-btn active" id="mainNavBtn" data-page="main" type="button">
+            메인페이지
+          </button>
 
-      <div class="main">
-        <header class="topbar">
-          <div class="title">밍긴어게인,</div>
-          <div class="right">
-            <span id="sessionState" class="pill">VIEWER · 방문자 · 읽기 전용</span>
-            <button id="adminLoginBtn" class="btn">세션/관리자 로그인</button>
+          <button class="floating-btn nav-btn" id="songsNavBtn" data-page="songs" type="button">
+            <img
+              class="nav-icon"
+              alt=""
+              src="https://drive.google.com/thumbnail?id=1S1T-JAIIf3DWeclc9g4lHLGKTCH2_Uwx&sz=w48"
+            />
+            곡 리스트
+          </button>
+
+          <button class="floating-btn" id="chzzkBtn" type="button">
+            <span class="nav-icon" aria-hidden="true">⬛</span>
+            밍디 치지직
+          </button>
+
+          <button class="floating-btn" id="discordBtn" type="button">
+            <img
+              class="nav-icon"
+              alt=""
+              src="https://i.namu.wiki/i/B6B7GiIqvNWDIPXCeKNGOhORQK4Gucb-Xu8xoWtm5ycArm8pj0DSh5KJBLPdsi_l2c3gnO9jTf3KD21IVQhGDz_tFOkEoIRW3qxZ1L3d8uvZApcn_YhOF32-ajjobuRfIYGvX3BAGaixSoNGDXsdpg.webp"
+            />
+            밍디 디스코드
+          </button>
+
+          <button class="floating-btn" id="youtubeBtn" type="button">
+            <img class="nav-icon" alt="" src="https://upload.wikimedia.org/wikipedia/commons/e/ef/Youtube_logo.png" />
+            밍디 유튜브
+          </button>
+        </div>
+      </nav>
+
+      <div class="layout-main">
+        <div class="top-right">
+          <div class="user-panel" id="userPanel">
+            <img id="profilePhoto" class="profile-photo" alt="" />
+            <div class="role-badge" id="roleBadge">VIEWER</div>
+            <div class="user-meta">
+              <span id="userDisplayName">방문자</span>
+              <span id="userRoleText">읽기 전용</span>
+            </div>
           </div>
-        </header>
 
-        <section class="filters">
-          <input id="q" class="input" placeholder="곡명 / 가수 검색" />
-          <select id="genre" class="select">
-            <option value="">장르 전체</option>
-          </select>
-          <select id="mood" class="select">
-            <option value="">분위기 전체</option>
-          </select>
-          <select id="vocal" class="select">
-            <option value="">보컬 전체</option>
-          </select>
-          <label class="chk"><input id="latestOnly" type="checkbox" /> 최신곡만</label>
-          <button id="resetBtn" class="btn light">필터 초기화</button>
-          <span id="resultInfo" class="muted"></span>
-        </section>
+          <button class="floating-btn black-btn" id="authButton" type="button">세션 / 관리자 로그인</button>
+          <button class="floating-btn" id="adminToggleBtn" type="button" style="display: none">관리자 버튼</button>
+          <button class="floating-btn" id="profileButton" type="button" style="display: none">프로필 관리</button>
+        </div>
 
-        <section class="requests">
-          <div class="sectionTitle">신청곡</div>
-          <div class="requestForm">
-            <input id="reqName" class="input" placeholder="닉네임" />
-            <input id="reqTitle" class="input" placeholder="곡명" />
-            <input id="reqArtist" class="input" placeholder="아티스트" />
-            <input id="reqTarget" class="input" placeholder="담당자(선택)" />
-            <button id="reqSubmit" class="btn">신청</button>
-          </div>
-          <div id="requestList" class="requestList"></div>
-        </section>
+        <div class="admin-menu" id="adminControls">
+          <button class="floating-btn" id="editBannerBtn" type="button">배너 수정</button>
+          <button class="floating-btn" id="editNoticeBtn" type="button">공지 수정</button>
+          <button class="floating-btn" id="editTitleBtn" type="button">타이틀 이미지 수정</button>
+          <button class="floating-btn" id="syncAllBtn" type="button">전체 곡 동기화</button>
+          <button class="floating-btn" id="syncFastBtn" type="button">최신곡 추가</button>
+        </div>
 
-        <section class="songs">
-          <div class="sectionTitle">곡 리스트</div>
-          <div id="songGrid" class="grid"></div>
-          <div id="pager" class="pager"></div>
-        </section>
+        <div class="app-container">
+          <section id="mainPage" class="page active">
+            <div class="glass-card">
+              <img
+                id="bannerImage"
+                class="banner-image"
+                onerror="this.src='https://placehold.co/1200x400?text=NO+IMAGE'"
+                alt=""
+              />
+            </div>
+
+            <div class="glass-card">
+              <div class="toolbar">
+                <div class="section-title notice-title">공지사항</div>
+              </div>
+              <div id="noticeContent" class="notice-content"></div>
+            </div>
+          </section>
+
+          <section id="songsPage" class="page">
+            <div class="songs-title-row" id="songsTitleRow" style="display: none">
+              <img id="songsTitleLogo" class="songs-title-logo" alt="" />
+            </div>
+
+            <div class="glass-card">
+              <div class="search-grid">
+                <input id="searchInput" class="input" placeholder="곡명 / 가수 검색" />
+
+                <select id="genreFilter" class="select">
+                  <option value="">장르 전체</option>
+                  <option>KPOP</option>
+                  <option>JPOP</option>
+                  <option>POP</option>
+                  <option>OST</option>
+                  <option>기타</option>
+                </select>
+
+                <select id="moodFilter" class="select">
+                  <option value="">분위기 전체</option>
+                  <option>발라드</option>
+                  <option>락발라드</option>
+                  <option>밴드송</option>
+                  <option>댄스</option>
+                  <option>뮤지컬</option>
+                  <option>힙합</option>
+                  <option>동요</option>
+                </select>
+
+                <select id="vocalFilter" class="select">
+                  <option value="">보컬 전체</option>
+                  <option>남솔로</option>
+                  <option>여솔로</option>
+                  <option>듀엣</option>
+                  <option>그룹곡</option>
+                </select>
+
+                <label class="inline-check">
+                  <input type="checkbox" id="latestOnlyToggle" />
+                  최신곡만
+                </label>
+
+                <div class="random-controls">
+                  <div class="random-actions-row">
+                    <button class="floating-btn" id="randomPickBtn" type="button">랜덤 곡 고르기</button>
+                    <button class="floating-btn compact-btn" id="resetFiltersBtn" type="button">필터 초기화</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="search-meta">
+                <div id="resultCount" class="result-count"></div>
+              </div>
+            </div>
+
+            <div class="glass-card">
+              <div class="sort-bar">
+                <button class="sort-btn" data-sort-field="createdAt" data-label="최신곡" type="button">최신곡</button>
+                <button class="sort-btn" data-sort-field="title" data-label="곡명" type="button">곡명</button>
+                <button class="sort-btn" data-sort-field="key" data-label="키" type="button">키</button>
+                <button class="sort-btn" data-sort-field="artist" data-label="아티스트" type="button">아티스트</button>
+                <button class="sort-btn" data-sort-field="genre" data-label="장르" type="button">장르</button>
+                <button class="sort-btn" data-sort-field="mood" data-label="분위기" type="button">분위기</button>
+                <button class="sort-btn" data-sort-field="vocal" data-label="보컬" type="button">보컬</button>
+
+                <div class="sort-actions">
+                  <label class="inline-check">
+                    <input type="checkbox" id="hideTagsToggle" />
+                    태그 숨기기
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div id="songCardList" class="song-card-list"></div>
+
+            <div class="glass-card">
+              <div class="paging-bar">
+                <div class="paging-left">
+                  <button class="floating-btn compact-btn" id="prevPageBtn" type="button">이전</button>
+                  <button class="floating-btn compact-btn" id="nextPageBtn" type="button">다음</button>
+                  <div class="paging-info" id="pageInfo"></div>
+                </div>
+
+                <div class="paging-right">
+                  <label class="paging-label" for="pageSizeSelect">페이지당</label>
+                  <select id="pageSizeSelect" class="select paging-select">
+                    <option value="50">50</option>
+                    <option value="200">200</option>
+                    <option value="100" selected>100</option>
+                    <option value="500">500</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <!-- 신청곡 패널 -->
+    <aside id="requestPanel" class="request-panel floating-request-panel">
+      <div class="request-top-actions">
+        <button
+          class="floating-btn compact-btn request-top-btn request-top-secondary"
+          id="requestManageToggleBtn"
+          style="display: none"
+          type="button"
+        >
+          상태변경
+        </button>
+
+        <button class="floating-btn compact-btn request-top-btn black-btn" id="requestOpenBtn" type="button">
+          곡 신청하기
+        </button>
+      </div>
+
+      <div class="request-panel-header">
+        <div class="request-panel-title">신청곡 현황</div>
+        <div class="toolbar-right">
+          <button class="floating-btn compact-btn" id="requestRefreshBtn" type="button">새로고침</button>
+          <button class="floating-btn compact-btn" id="requestHideBtn" type="button">숨기기</button>
+        </div>
+      </div>
+
+      <div class="request-list" id="requestTableBody"></div>
+
+      <div class="request-manage-bar" id="requestManageBar" style="display: none">
+        <div class="request-manage-title" id="requestManageTitle">신청곡 선택 후 상태 변경</div>
+        <div class="request-manage-actions">
+          <button class="floating-btn compact-btn accept-btn request-mini-btn" data-status="accepted" type="button">
+            O
+          </button>
+          <button class="floating-btn compact-btn danger-btn request-mini-btn" data-status="rejected" type="button">
+            X
+          </button>
+          <button class="floating-btn compact-btn complete-blue-btn request-mini-btn" data-status="completed" type="button">
+            완료
+          </button>
+          <button class="floating-btn compact-btn danger-strong-btn request-mini-btn" id="requestDeleteBtn" type="button">
+            삭제
+          </button>
+        </div>
+
+        <div class="request-manage-actions-secondary">
+          <button class="floating-btn compact-btn danger-solid-btn" id="clearRequestsBtn" style="display: none" type="button">
+            리스트 초기화
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <button class="floating-btn compact-btn presence-show-btn" id="requestShowBtn" type="button">신청곡 나타내기</button>
+
+    <!-- 모달(필수만) -->
+    <div class="modal-overlay" id="loginModal">
+      <div class="modal">
+        <div class="modal-title">로그인</div>
+        <input id="loginId" class="input" placeholder="ID" />
+        <input id="loginPw" class="input" type="password" placeholder="Password" />
+        <div class="modal-actions">
+          <button class="floating-btn" id="loginCloseBtn" type="button">닫기</button>
+          <button class="floating-btn black-btn" id="loginSubmitBtn" type="button">로그인</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="requestModal">
+      <div class="modal">
+        <div class="modal-title">곡 신청하기</div>
+        <input id="requesterInput" class="input" placeholder="신청자" />
+        <input id="requestSongInput" class="input" placeholder="신청곡 제목" />
+        <input id="requestArtistInput" class="input" placeholder="가수" />
+        <input id="requestSingerInput" class="input" placeholder="누가 불러드릴까요?" />
+        <div class="modal-actions">
+          <button class="floating-btn" id="requestCancelBtn" type="button">취소</button>
+          <button class="floating-btn black-btn" id="requestSubmitBtn" type="button">신청하기</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="editModal">
+      <div class="modal">
+        <div class="modal-title" id="editModalTitle"></div>
+        <textarea id="editModalInput" rows="7"></textarea>
+        <div class="modal-actions">
+          <button class="floating-btn" id="editCancelBtn" type="button">취소</button>
+          <button class="floating-btn black-btn" id="editSaveBtn" type="button">저장</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="randomModal">
+      <div class="modal">
+        <div class="modal-title">랜덤 추천곡</div>
+        <div class="random-result" id="randomResult">곡 추첨 중...</div>
+        <div class="modal-actions">
+          <button class="floating-btn" id="randomRerollBtn" style="display: none" type="button">한번 더 뽑기</button>
+          <button class="floating-btn black-btn" id="randomCloseBtn" type="button">닫기</button>
+        </div>
       </div>
     </div>
 

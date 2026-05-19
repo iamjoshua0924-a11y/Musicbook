@@ -1,206 +1,496 @@
 /* global io */
 
+// ---- State -----------------------------------------------------------------------
 const state = {
+  role: 'viewer', // viewer | session | admin
+  displayName: '방문자',
+  main: null,
+  songsAll: [],
+  songsFiltered: [],
+  requests: [],
+  requestManageMode: false,
+  selectedRequestIds: new Set(),
+
+  sortField: 'createdAt',
+  sortDir: 'desc',
   page: 1,
-  limit: 60,
-  total: 0
+  pageSize: 100
 };
 
-function qs(id) {
-  return document.getElementById(id);
+// ---- DOM helpers -----------------------------------------------------------------
+const $ = (id) => document.getElementById(id);
+const esc = (s) =>
+  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function showLoading(on) {
+  $('loadingScreen').classList.toggle('active', Boolean(on));
 }
 
-function esc(s) {
-  return String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+let toastTimer = null;
+function toast(msg) {
+  const el = $('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 1400);
 }
 
-function buildQuery() {
-  const q = qs('q').value.trim();
-  const genre = qs('genre').value;
-  const mood = qs('mood').value;
-  const vocal = qs('vocal').value;
-  const latestOnly = qs('latestOnly').checked ? '1' : '';
-
-  const p = new URLSearchParams();
-  if (q) p.set('q', q);
-  if (genre) p.set('genre', genre);
-  if (mood) p.set('mood', mood);
-  if (vocal) p.set('vocal', vocal);
-  if (latestOnly) p.set('latestOnly', '1');
-  p.set('page', String(state.page));
-  p.set('limit', String(state.limit));
-  return p.toString();
+function openModal(id) {
+  $(id).classList.add('active');
+}
+function closeModal(id) {
+  $(id).classList.remove('active');
 }
 
-async function loadSongs() {
-  const res = await fetch(`/api/songs?${buildQuery()}`);
-  const data = await res.json();
-  if (!data.ok) throw new Error('loadSongs failed');
-  state.total = data.total;
-  renderSongs(data.items);
+function switchPage(page) {
+  $('mainPage').classList.toggle('active', page === 'main');
+  $('songsPage').classList.toggle('active', page === 'songs');
+  $('mainNavBtn').classList.toggle('active', page === 'main');
+  $('songsNavBtn').classList.toggle('active', page === 'songs');
+  if (page === 'songs') {
+    $('songsTitleRow').style.display = 'flex';
+  } else {
+    $('songsTitleRow').style.display = 'none';
+  }
+}
+
+// ---- API -------------------------------------------------------------------------
+async function apiGet(url) {
+  const res = await fetch(url, { credentials: 'include' });
+  return res.json();
+}
+async function apiJson(url, method, body) {
+  const res = await fetch(url, {
+    method,
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body ?? {})
+  });
+  return res.json();
+}
+
+async function loadMainPage() {
+  const data = await apiGet('/api/main');
+  if (!data.ok) return;
+  state.main = data.data;
+
+  // banner/title
+  $('bannerImage').src = state.main.bannerImage || 'https://placehold.co/1200x400?text=NO+IMAGE';
+  $('songsTitleLogo').src = state.main.titleImage || '';
+  $('songsTitleLogo').style.display = state.main.titleImage ? 'block' : 'none';
+
+  // notice
+  $('noticeContent').innerText = state.main.notice || '';
+
+  // external links
+  $('discordBtn').onclick = () => state.main.discordUrl && window.open(state.main.discordUrl, '_blank');
+  $('youtubeBtn').onclick = () => state.main.youtubeUrl && window.open(state.main.youtubeUrl, '_blank');
+  $('chzzkBtn').onclick = () => state.main.chzzkUrl && window.open(state.main.chzzkUrl, '_blank');
+}
+
+async function loadSongs(force = false) {
+  if (!force && state.songsAll.length) return;
+  const data = await apiGet('/api/songs?limit=5000');
+  if (!data.ok) throw new Error('songs load failed');
+  state.songsAll = data.items || [];
+}
+
+function applySongFilters() {
+  const q = $('searchInput').value.trim().toLowerCase();
+  const genre = $('genreFilter').value;
+  const mood = $('moodFilter').value;
+  const vocal = $('vocalFilter').value;
+  const latestOnly = $('latestOnlyToggle').checked;
+
+  const hideTags = $('hideTagsToggle').checked;
+
+  let list = state.songsAll.slice();
+
+  list = list.filter((s) => !s.hidden);
+  if (latestOnly) list = list.filter((s) => s.isLatest);
+  if (genre) list = list.filter((s) => s.genre === genre);
+  if (mood) list = list.filter((s) => s.mood === mood);
+  if (vocal) list = list.filter((s) => s.vocal === vocal);
+  if (q) {
+    list = list.filter((s) => (s.searchText || '').includes(q) || (s.title || '').toLowerCase().includes(q) || (s.artist || '').toLowerCase().includes(q));
+  }
+
+  // sort
+  const f = state.sortField;
+  const dir = state.sortDir === 'asc' ? 1 : -1;
+  list.sort((a, b) => {
+    const av = a?.[f] ?? '';
+    const bv = b?.[f] ?? '';
+    if (av === bv) return 0;
+    return av > bv ? dir : -dir;
+  });
+
+  state.songsFiltered = list;
+  $('resultCount').textContent = `검색 결과: ${list.length}곡`;
+  renderSongCards(hideTags);
   renderPager();
-  qs('resultInfo').textContent = `결과: ${data.total}개 · ${data.page}/${Math.max(1, Math.ceil(data.total / data.limit))}페이지`;
 }
 
-function renderSongs(items) {
-  const grid = qs('songGrid');
-  grid.innerHTML = '';
+function renderSongCards(hideTags) {
+  const wrap = $('songCardList');
+  wrap.innerHTML = '';
+
+  const totalPages = Math.max(1, Math.ceil(state.songsFiltered.length / state.pageSize));
+  state.page = Math.min(state.page, totalPages);
+  const start = (state.page - 1) * state.pageSize;
+  const items = state.songsFiltered.slice(start, start + state.pageSize);
+
   items.forEach((s) => {
     const el = document.createElement('div');
-    el.className = 'card';
+    el.className = 'song-card';
+    const title = s.displayTitle || s.title || '(제목없음)';
     el.innerHTML = `
-      <div class="cardTop">
-        <div>
-          <div class="songTitle">${esc(s.displayTitle || s.title)}</div>
-          <div class="meta">${esc(s.artist || '')}</div>
+      <div class="song-title">${esc(title)} ${s.isLatest ? `<span class="chip">NEW!</span>` : ''}</div>
+      <div class="song-artist">${esc(s.artist || '')}</div>
+      ${hideTags ? '' : `
+        <div class="song-tags">
+          ${s.key ? `<span class="chip">Key ${esc(s.key)}</span>` : ''}
+          ${s.genre ? `<span class="chip">${esc(s.genre)}</span>` : ''}
+          ${s.mood ? `<span class="chip">${esc(s.mood)}</span>` : ''}
+          ${s.vocal ? `<span class="chip">${esc(s.vocal)}</span>` : ''}
         </div>
-        ${s.isLatest ? `<div class="badgeNew">NEW!</div>` : ''}
-      </div>
-      <div class="chips">
-        ${s.key ? `<span class="chip">Key ${esc(s.key)}</span>` : ''}
-        ${s.genre ? `<span class="chip">${esc(s.genre)}</span>` : ''}
-        ${s.mood ? `<span class="chip">${esc(s.mood)}</span>` : ''}
-        ${s.vocal ? `<span class="chip">${esc(s.vocal)}</span>` : ''}
-      </div>
-      <div class="cardActions">
-        <button class="pickBtn" data-fileid="${esc(s.googleFileId)}">곡 선택하기</button>
-      </div>
+      `}
     `;
-    el.querySelector('.pickBtn').onclick = () => {
+    el.onclick = () => {
+      if (!s.googleFileId) return;
       window.location.href = `/viewer/${encodeURIComponent(s.googleFileId)}`;
     };
-    grid.appendChild(el);
+    wrap.appendChild(el);
   });
 }
 
 function renderPager() {
-  const pager = qs('pager');
-  const totalPages = Math.max(1, Math.ceil(state.total / state.limit));
-  pager.innerHTML = '';
-  const prev = document.createElement('button');
-  prev.className = 'btn light';
-  prev.textContent = '이전';
-  prev.disabled = state.page <= 1;
-  prev.onclick = async () => {
-    state.page -= 1;
-    await loadSongs();
-  };
-  const next = document.createElement('button');
-  next.className = 'btn light';
-  next.textContent = '다음';
-  next.disabled = state.page >= totalPages;
-  next.onclick = async () => {
-    state.page += 1;
-    await loadSongs();
-  };
-  const label = document.createElement('span');
-  label.className = 'muted';
-  label.textContent = `${state.page}/${totalPages}`;
-  pager.append(prev, label, next);
+  const totalPages = Math.max(1, Math.ceil(state.songsFiltered.length / state.pageSize));
+  $('pageInfo').textContent = `${state.page} / ${totalPages}`;
+  $('prevPageBtn').disabled = state.page <= 1;
+  $('nextPageBtn').disabled = state.page >= totalPages;
 }
 
-async function loadRequests() {
-  const res = await fetch('/api/requests');
-  const data = await res.json();
+function pickRandomSong() {
+  if (!state.songsFiltered.length) return toast('랜덤 대상 곡이 없습니다.');
+  const s = state.songsFiltered[Math.floor(Math.random() * state.songsFiltered.length)];
+  $('randomResult').innerHTML = `<div><b>${esc(s.displayTitle || s.title)}</b></div><div style="opacity:.75;margin-top:4px">${esc(s.artist || '')}</div>`;
+  $('randomRerollBtn').style.display = 'inline-flex';
+  openModal('randomModal');
+}
+
+// ---- Requests --------------------------------------------------------------------
+async function loadRequests(force = false) {
+  if (!force && state.requests.length) return;
+  const data = await apiGet('/api/requests');
   if (!data.ok) return;
-  renderRequests(data.items);
+  state.requests = data.items || [];
+  renderRequests();
 }
 
-function renderRequests(items) {
-  const list = qs('requestList');
-  list.innerHTML = '';
-  items.forEach((r) => {
-    const el = document.createElement('div');
-    el.className = 'reqItem';
-    el.innerHTML = `
-      <div class="reqLeft">
-        <div class="reqTitle">${esc(r.songTitle)} <span class="muted">(${esc(r.status)})</span></div>
-        <div class="reqSub">${esc(r.requesterName)} · ${esc(r.artist || '')} ${r.targetSinger ? `· 담당: ${esc(r.targetSinger)}` : ''}</div>
+function renderRequests() {
+  const wrap = $('requestTableBody');
+  wrap.innerHTML = '';
+  state.selectedRequestIds.clear();
+
+  const showManage = state.requestManageMode;
+  $('requestManageBar').style.display = showManage ? 'block' : 'none';
+
+  state.requests.forEach((r) => {
+    const row = document.createElement('div');
+    row.className = 'req-row';
+    row.dataset.id = r._id;
+    row.innerHTML = `
+      <div>
+        <div class="req-title">${esc(r.songTitle)} <span style="opacity:.6;font-size:12px">(${esc(r.status)})</span></div>
+        <div class="req-sub">${esc(r.requesterName)} · ${esc(r.artist || '')}${r.targetSinger ? ` · 담당: ${esc(r.targetSinger)}` : ''}</div>
       </div>
-      <div class="reqActions">
-        <button class="btn light" data-id="${esc(r._id)}">삭제</button>
+      <div class="req-actions">
+        ${showManage ? `<span class="chip">선택</span>` : `<button class="floating-btn compact-btn" data-action="del" type="button">삭제</button>`}
       </div>
     `;
-    el.querySelector('button').onclick = async () => {
-      await fetch(`/api/requests/${encodeURIComponent(r._id)}`, { method: 'DELETE' });
-      await loadRequests();
-    };
-    list.appendChild(el);
+
+    if (showManage) {
+      row.onclick = () => {
+        const id = r._id;
+        if (state.selectedRequestIds.has(id)) {
+          state.selectedRequestIds.delete(id);
+          row.classList.remove('selected');
+        } else {
+          state.selectedRequestIds.add(id);
+          row.classList.add('selected');
+        }
+        $('requestManageTitle').textContent =
+          state.selectedRequestIds.size ? `${state.selectedRequestIds.size}개 선택됨` : '신청곡 선택 후 상태 변경';
+      };
+    } else {
+      row.querySelector('[data-action="del"]').onclick = async (e) => {
+        e.stopPropagation();
+        await apiJson(`/api/requests/${encodeURIComponent(r._id)}`, 'DELETE');
+        await loadRequests(true);
+      };
+    }
+
+    wrap.appendChild(row);
   });
 }
 
-async function submitRequest() {
+async function submitSongRequest() {
   const payload = {
-    requesterName: qs('reqName').value.trim() || '익명',
-    songTitle: qs('reqTitle').value.trim(),
-    artist: qs('reqArtist').value.trim(),
-    targetSinger: qs('reqTarget').value.trim()
+    requesterName: $('requesterInput').value.trim() || '익명',
+    songTitle: $('requestSongInput').value.trim(),
+    artist: $('requestArtistInput').value.trim(),
+    targetSinger: $('requestSingerInput').value.trim()
   };
-  if (!payload.songTitle) return alert('곡명을 입력해 주세요.');
-
-  const res = await fetch('/api/requests', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
-  const data = await res.json();
-  if (!data.ok) return alert('신청 실패');
-  qs('reqTitle').value = '';
-  qs('reqArtist').value = '';
-  qs('reqTarget').value = '';
-  await loadRequests();
+  if (!payload.songTitle) return toast('곡명을 입력해 주세요.');
+  const res = await apiJson('/api/requests', 'POST', payload);
+  if (!res.ok) return toast('신청 실패');
+  closeModal('requestModal');
+  $('requestSongInput').value = '';
+  $('requestArtistInput').value = '';
+  $('requestSingerInput').value = '';
+  await loadRequests(true);
+  toast('신청 완료');
 }
 
-function populateSelect(id, items) {
-  const sel = qs(id);
-  items.forEach((v) => {
-    const o = document.createElement('option');
-    o.value = v;
-    o.textContent = v;
-    sel.appendChild(o);
-  });
+async function applySelectedRequestStatus(status) {
+  if (!state.selectedRequestIds.size) return toast('선택된 신청곡이 없습니다.');
+  for (const id of state.selectedRequestIds) {
+    await apiJson(`/api/requests/${encodeURIComponent(id)}`, 'PATCH', { status });
+  }
+  await loadRequests(true);
 }
 
-function init() {
-  populateSelect('genre', ['KPOP', 'JPOP', 'POP', 'OST', '기타']);
-  populateSelect('mood', ['발라드', '락발라드', '밴드송', '댄스', '뮤지컬', '힙합', '동요']);
-  populateSelect('vocal', ['남솔로', '여솔로', '듀엣', '그룹곡']);
+async function deleteSelectedRequests() {
+  if (!state.selectedRequestIds.size) return toast('선택된 신청곡이 없습니다.');
+  for (const id of state.selectedRequestIds) {
+    await apiJson(`/api/requests/${encodeURIComponent(id)}`, 'DELETE');
+  }
+  await loadRequests(true);
+}
 
-  const debounced = (() => {
+async function clearRequests() {
+  const res = await apiJson('/api/requests/clear', 'POST', {});
+  if (!res.ok) return toast('권한 없음');
+  await loadRequests(true);
+}
+
+// ---- Auth / Role UI ---------------------------------------------------------------
+function applyRoleUI() {
+  $('roleBadge').textContent = state.role.toUpperCase();
+  $('userDisplayName').textContent = state.displayName;
+  $('userRoleText').textContent =
+    state.role === 'viewer' ? '읽기 전용' : state.role === 'session' ? '세션 멤버' : '관리자';
+
+  const isAdmin = state.role === 'admin';
+  const isSession = state.role === 'session';
+  const isPriv = isAdmin || isSession;
+
+  $('adminToggleBtn').style.display = isPriv ? 'inline-flex' : 'none';
+  $('profileButton').style.display = isPriv ? 'inline-flex' : 'none';
+  $('requestManageToggleBtn').style.display = isPriv ? 'inline-flex' : 'none';
+
+  $('clearRequestsBtn').style.display = isAdmin ? 'inline-flex' : 'none';
+
+  $('authButton').textContent = state.role === 'viewer' ? '세션 / 관리자 로그인' : '로그아웃';
+}
+
+async function refreshSession() {
+  const me = await apiGet('/api/admin/me');
+  if (me.ok) {
+    state.role = me.user.role;
+    state.displayName = me.user.displayName || me.user.userId;
+  } else {
+    state.role = 'viewer';
+    state.displayName = '방문자';
+  }
+  applyRoleUI();
+}
+
+async function doLogin() {
+  const userId = $('loginId').value.trim();
+  const password = $('loginPw').value;
+  if (!userId || !password) return toast('아이디/비번을 입력해 주세요.');
+  const res = await apiJson('/api/admin/login', 'POST', { userId, password });
+  if (!res.ok) return toast('로그인 실패');
+  closeModal('loginModal');
+  $('loginPw').value = '';
+  await refreshSession();
+  toast('로그인 완료');
+}
+
+async function doLogout() {
+  await apiJson('/api/admin/logout', 'POST', {});
+  await refreshSession();
+  toast('로그아웃');
+}
+
+// ---- Admin actions ----------------------------------------------------------------
+let editTargetField = null;
+function openEditModal(field, title, currentValue) {
+  editTargetField = field;
+  $('editModalTitle').textContent = title;
+  $('editModalInput').value = currentValue || '';
+  openModal('editModal');
+}
+
+async function saveEditModal() {
+  if (!editTargetField) return;
+  const value = $('editModalInput').value;
+  const res = await apiJson('/api/main', 'PATCH', { field: editTargetField, value });
+  if (!res.ok) return toast('저장 실패(권한 확인)');
+  closeModal('editModal');
+  await loadMainPage();
+  toast('저장 완료');
+}
+
+async function syncDrive(isFast) {
+  const res = await apiJson('/api/admin/sync/drive', 'POST', { latestDays: isFast ? 7 : 30 });
+  if (!res.ok) return toast(`동기화 실패: ${res.error || ''}`);
+  toast(`동기화 완료: ${res.processed}개`);
+  await loadSongs(true);
+  applySongFilters();
+}
+
+// ---- Wiring ----------------------------------------------------------------------
+function wireEvents() {
+  $('mainNavBtn').onclick = () => switchPage('main');
+  $('songsNavBtn').onclick = () => switchPage('songs');
+
+  $('authButton').onclick = async () => {
+    if (state.role === 'viewer') openModal('loginModal');
+    else await doLogout();
+  };
+
+  $('adminToggleBtn').onclick = () => $('adminControls').classList.toggle('active');
+
+  $('profileButton').onclick = () => toast('프로필 기능은 다음 단계(B)에서 확장');
+
+  $('loginCloseBtn').onclick = () => closeModal('loginModal');
+  $('loginSubmitBtn').onclick = () => doLogin().catch(() => {});
+
+  $('requestOpenBtn').onclick = () => openModal('requestModal');
+  $('requestCancelBtn').onclick = () => closeModal('requestModal');
+  $('requestSubmitBtn').onclick = () => submitSongRequest().catch(() => {});
+
+  $('requestRefreshBtn').onclick = () => loadRequests(true).catch(() => {});
+  $('requestHideBtn').onclick = () => {
+    $('requestPanel').style.display = 'none';
+    $('requestShowBtn').style.display = 'inline-flex';
+  };
+  $('requestShowBtn').onclick = () => {
+    $('requestPanel').style.display = 'block';
+    $('requestShowBtn').style.display = 'none';
+  };
+
+  $('requestManageToggleBtn').onclick = () => {
+    state.requestManageMode = !state.requestManageMode;
+    renderRequests();
+  };
+  $('requestDeleteBtn').onclick = () => deleteSelectedRequests().catch(() => {});
+  $('clearRequestsBtn').onclick = () => clearRequests().catch(() => {});
+  document.querySelectorAll('.request-mini-btn[data-status]').forEach((btn) => {
+    btn.onclick = () => applySelectedRequestStatus(btn.dataset.status).catch(() => {});
+  });
+
+  $('editCancelBtn').onclick = () => closeModal('editModal');
+  $('editSaveBtn').onclick = () => saveEditModal().catch(() => {});
+
+  $('randomPickBtn').onclick = () => pickRandomSong();
+  $('randomCloseBtn').onclick = () => closeModal('randomModal');
+  $('randomRerollBtn').onclick = () => pickRandomSong();
+
+  $('resetFiltersBtn').onclick = () => {
+    $('searchInput').value = '';
+    $('genreFilter').value = '';
+    $('moodFilter').value = '';
+    $('vocalFilter').value = '';
+    $('latestOnlyToggle').checked = false;
+    state.page = 1;
+    applySongFilters();
+  };
+
+  const debouncedFilter = (() => {
     let t = null;
     return () => {
       clearTimeout(t);
       t = setTimeout(() => {
         state.page = 1;
-        loadSongs().catch(() => {});
-      }, 250);
+        applySongFilters();
+      }, 150);
     };
   })();
+  ['searchInput', 'genreFilter', 'moodFilter', 'vocalFilter'].forEach((id) => $(id).addEventListener('input', debouncedFilter));
+  $('latestOnlyToggle').addEventListener('change', debouncedFilter);
+  $('hideTagsToggle').addEventListener('change', () => applySongFilters());
 
-  ['q', 'genre', 'mood', 'vocal'].forEach((id) => qs(id).addEventListener('input', debounced));
-  qs('latestOnly').addEventListener('change', debounced);
-  qs('resetBtn').onclick = () => {
-    qs('q').value = '';
-    qs('genre').value = '';
-    qs('mood').value = '';
-    qs('vocal').value = '';
-    qs('latestOnly').checked = false;
+  $('pageSizeSelect').onchange = () => {
+    state.pageSize = Number($('pageSizeSelect').value || 100);
     state.page = 1;
-    loadSongs().catch(() => {});
+    applySongFilters();
+  };
+  $('prevPageBtn').onclick = () => {
+    state.page = Math.max(1, state.page - 1);
+    applySongFilters();
+  };
+  $('nextPageBtn').onclick = () => {
+    const totalPages = Math.max(1, Math.ceil(state.songsFiltered.length / state.pageSize));
+    state.page = Math.min(totalPages, state.page + 1);
+    applySongFilters();
   };
 
-  qs('reqSubmit').onclick = () => submitRequest().catch(() => {});
-  qs('adminLoginBtn').onclick = () => (window.location.href = '/admin');
-
-  // Socket: request updates (simple MVP)
-  const socket = io();
-  socket.on('requests:updated', (p) => {
-    if (p?.items) renderRequests(p.items);
+  document.querySelectorAll('.sort-btn').forEach((btn) => {
+    btn.onclick = () => {
+      const field = btn.dataset.sortField;
+      if (state.sortField === field) state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
+      else {
+        state.sortField = field;
+        state.sortDir = field === 'createdAt' ? 'desc' : 'asc';
+      }
+      document.querySelectorAll('.sort-btn').forEach((b) => b.classList.toggle('active', b.dataset.sortField === state.sortField));
+      state.page = 1;
+      applySongFilters();
+    };
   });
+  // default active
+  document.querySelector('.sort-btn[data-sort-field="createdAt"]')?.classList.add('active');
 
-  loadSongs().catch(() => {});
-  loadRequests().catch(() => {});
+  $('editBannerBtn').onclick = () => openEditModal('bannerImage', '배너 이미지 URL', state.main?.bannerImage);
+  $('editNoticeBtn').onclick = () => openEditModal('notice', '공지사항 내용', state.main?.notice);
+  $('editTitleBtn').onclick = () => openEditModal('titleImage', '타이틀 이미지 URL', state.main?.titleImage);
+  $('syncAllBtn').onclick = () => syncDrive(false).catch(() => {});
+  $('syncFastBtn').onclick = () => syncDrive(true).catch(() => {});
 }
 
-init();
+function attachSockets() {
+  const socket = io();
+  socket.on('requests:updated', (p) => {
+    if (Array.isArray(p?.items)) {
+      state.requests = p.items;
+      renderRequests();
+    }
+  });
+}
+
+async function bootstrap() {
+  showLoading(true);
+  try {
+    wireEvents();
+    attachSockets();
+    await refreshSession();
+    await loadMainPage();
+    await loadSongs(true);
+    applySongFilters();
+    await loadRequests(true);
+  } finally {
+    showLoading(false);
+    document.body.classList.remove('preload');
+  }
+}
+
+bootstrap().catch((e) => {
+  console.error(e);
+  toast('초기화 실패');
+  showLoading(false);
+});
 

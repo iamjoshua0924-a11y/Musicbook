@@ -48,6 +48,100 @@ function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
 }
 
+async function copyToClipboard(text) {
+  const value = String(text || '');
+  if (!value) return false;
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {}
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = value;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function flashHud(msg, ms = 1200) {
+  setHidden('pageHud', false);
+  setText('pageHud', String(msg || ''));
+  setTimeout(() => {
+    try {
+      updatePageLabels();
+    } catch {}
+  }, ms);
+}
+
+function makeLaserGroup(points) {
+  const pts = points || [];
+  const outline = new fabric.Polyline(pts, {
+    fill: '',
+    stroke: '#ff2d55',
+    strokeWidth: 8,
+    opacity: 0.75,
+    strokeLineCap: 'round',
+    strokeLineJoin: 'round',
+    selectable: false,
+    evented: false,
+    objectCaching: false
+  });
+  const inner = new fabric.Polyline(pts, {
+    fill: '',
+    stroke: '#ffffff',
+    strokeWidth: 3,
+    opacity: 0.95,
+    strokeLineCap: 'round',
+    strokeLineJoin: 'round',
+    selectable: false,
+    evented: false,
+    objectCaching: false
+  });
+  const group = new fabric.Group([outline, inner], {
+    selectable: false,
+    evented: false,
+    objectCaching: false
+  });
+  group._transient = true;
+  return group;
+}
+
+function updateLaserGroup(group, points) {
+  if (!group?._objects?.length) return;
+  const pts = points || [];
+  group._objects.forEach((o) => o.set({ points: pts }));
+  group.dirty = true;
+}
+
+function fadeOutAndRemove(canvas, obj, ms = 2000) {
+  if (!canvas || !obj) return;
+  const startOpacity = typeof obj.opacity === 'number' ? obj.opacity : 1;
+  fabric.util.animate({
+    startValue: startOpacity,
+    endValue: 0,
+    duration: ms,
+    onChange: (v) => {
+      try {
+        obj.set('opacity', v);
+        canvas.requestRenderAll();
+      } catch {}
+    },
+    onComplete: () => {
+      try {
+        canvas.remove(obj);
+        canvas.requestRenderAll();
+      } catch {}
+    }
+  });
+}
+
 // ---- State ------------------------------------------------------------------------
 const state = {
   fileId: getFileIdFromPath(),
@@ -212,6 +306,10 @@ const updateUrlState = debounce(() => {
 // ---- UI wiring --------------------------------------------------------------------
 setText('fileIdBadge', state.fileId ? `fileId: ${state.fileId}` : 'fileId: (없음)');
 
+// link row collapse (desktop)
+const linkCollapsed = localStorage.getItem('mb_viewer_linkCollapsed') === '1';
+document.body.classList.toggle('link-collapsed', linkCollapsed);
+
 // theme (persist)
 function applyTheme(theme) {
   document.body.classList.toggle('light', theme === 'light');
@@ -287,6 +385,9 @@ document.getElementById('createSessionBtn').addEventListener('click', () => {
     // NOTE: keep current fileId; if empty, user can still open via link input in future version
     window.history.replaceState(null, '', nextUrl);
     joinSession(roomCode);
+    copyToClipboard(roomCode).then((ok) => {
+      if (ok) flashHud(`ROOM ${roomCode} 복사됨`, 1200);
+    });
   });
 });
 
@@ -578,20 +679,7 @@ function makeView(pageNo) {
       const p = getPointer(opt);
       laserPlacing = true;
       laserPoints = [{ x: p.x, y: p.y }, { x: p.x + 0.01, y: p.y + 0.01 }];
-      laserObj = new fabric.Polyline(laserPoints, {
-        fill: '',
-        stroke: '#ffffff',
-        strokeWidth: 3,
-        opacity: 0.96,
-        strokeLineCap: 'round',
-        strokeLineJoin: 'round',
-        selectable: false,
-        evented: false,
-        objectCaching: false,
-        shadow: new fabric.Shadow({ color: 'rgba(255,0,0,0.65)', blur: 10, offsetX: 0, offsetY: 0 })
-      });
-      // mark transient so it won't be saved/broadcasted
-      laserObj._transient = true;
+      laserObj = makeLaserGroup(laserPoints);
       fabricCanvas.add(laserObj);
       fabricCanvas.requestRenderAll();
       return;
@@ -664,7 +752,7 @@ function makeView(pageNo) {
       laserPoints.push({ x: p.x, y: p.y });
       // keep it light
       if (laserPoints.length > 200) laserPoints.shift();
-      laserObj.set({ points: laserPoints });
+      updateLaserGroup(laserObj, laserPoints);
       fabricCanvas.requestRenderAll();
       return;
     }
@@ -711,15 +799,8 @@ function makeView(pageNo) {
         });
       }
 
-      // remove after 5s locally
-      if (lo) {
-        setTimeout(() => {
-          try {
-            fabricCanvas.remove(lo);
-            fabricCanvas.requestRenderAll();
-          } catch {}
-        }, 5000);
-      }
+      // fade out & remove (2s)
+      if (lo) fadeOutAndRemove(fabricCanvas, lo, 2000);
       return;
     }
     if (!isPlacing) return;
@@ -1238,6 +1319,11 @@ document.getElementById('toggleViewBtn')?.addEventListener('click', () => {
 document.getElementById('toggleToolBtn')?.addEventListener('click', () => {
   document.getElementById('toolBar')?.classList.toggle('isHidden');
 });
+document.getElementById('toggleLinkBtn')?.addEventListener('click', () => {
+  const next = !document.body.classList.contains('link-collapsed');
+  document.body.classList.toggle('link-collapsed', next);
+  localStorage.setItem('mb_viewer_linkCollapsed', next ? '1' : '0');
+});
 
 // Wheel zoom (Ctrl + wheel)
 els.pdfContainer.addEventListener(
@@ -1341,11 +1427,11 @@ socket.on('session:participants', (p) => {
   list.innerHTML = '';
   (p?.members || []).forEach((m) => {
     const row = document.createElement('div');
-    row.style.display = 'flex';
-    row.style.justifyContent = 'space-between';
-    row.style.gap = '8px';
-    row.style.marginBottom = '6px';
-    row.innerHTML = `<span>${m.nickname}${m.isPageTurner ? ' (터너)' : ''}</span>`;
+    row.className = 'participant-row';
+    row.innerHTML = `
+      <span class="participant-name">${m.nickname || ''}</span>
+      ${m.isPageTurner ? `<span class="participant-badge">TURNER</span>` : ''}
+    `;
 
     if (state.isPageTurner && !m.isPageTurner) {
       const btn = document.createElement('button');
@@ -1418,27 +1504,10 @@ socket.on('viewer:laser', (p) => {
   const sx = srcW ? dstW / srcW : 1;
   const sy = srcH ? dstH / srcH : 1;
   const pts = p.points.slice(0, 240).map((pt) => ({ x: Number(pt.x) * sx, y: Number(pt.y) * sy }));
-  const obj = new fabric.Polyline(pts, {
-    fill: '',
-    stroke: '#ffffff',
-    strokeWidth: 3,
-    opacity: 0.96,
-    strokeLineCap: 'round',
-    strokeLineJoin: 'round',
-    selectable: false,
-    evented: false,
-    objectCaching: false,
-    shadow: new fabric.Shadow({ color: 'rgba(255,0,0,0.65)', blur: 10, offsetX: 0, offsetY: 0 })
-  });
-  obj._transient = true;
+  const obj = makeLaserGroup(pts);
   v.fabric.add(obj);
   v.fabric.requestRenderAll();
-  setTimeout(() => {
-    try {
-      v.fabric.remove(obj);
-      v.fabric.requestRenderAll();
-    } catch {}
-  }, 5000);
+  fadeOutAndRemove(v.fabric, obj, 2000);
 });
 
 socket.on('session:follow:file', (p) => {

@@ -52,6 +52,7 @@ body.light{
 #topbar .right{ display:flex; flex-wrap:wrap; align-items:center; gap:10px; flex:1; justify-content:flex-end; }
 
 .inputRow{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+body.link-collapsed .inputRow{ display:none; }
 #linkInput{
   padding:10px 12px;
   border-radius:10px;
@@ -241,11 +242,43 @@ body.touch-mode.landscape #fab{ display:flex; }
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: rgba(255,255,255,0.92);
+  background: var(--panel2);
   z-index: 1001;
 }
 
 .panelTitle { font-weight: 700; margin-bottom: 8px; }
+.participant-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:8px 10px;
+  border-radius:12px;
+  border:1px solid var(--border);
+  background: rgba(255,255,255,0.03);
+  margin-bottom:8px;
+}
+.participant-name{
+  font-weight:900;
+  font-size:13px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.participant-badge{
+  font-size:11px;
+  font-weight:1000;
+  padding:4px 8px;
+  border-radius:999px;
+  border:1px solid rgba(122,162,255,0.35);
+  background: rgba(122,162,255,0.16);
+}
+.participant-row button{
+  height:30px;
+  padding:6px 10px;
+  border-radius:10px;
+  font-size:12px;
+}
 
 /* MUST-2: Fullscreen target is #viewer-wrapper, overlays are inside */
 #viewer-wrapper:fullscreen { position: relative; background: #fff; }

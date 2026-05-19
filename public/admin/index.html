@@ -72,6 +72,18 @@
         </div>
       </div>
 
+      <div class="card" id="mainImportCard" style="display:none;">
+        <div class="title" style="font-size:16px;">MainPage CSV 가져오기</div>
+        <div class="muted">GAS 관리DB(MainPage) CSV 내용을 그대로 붙여넣고 “적용”을 누르세요.</div>
+        <div style="margin-top:10px;">
+          <textarea id="mainCsvInput" rows="6" placeholder="항목,내용&#10;배너이미지,https://..."></textarea>
+        </div>
+        <div class="row" style="margin-top:10px;">
+          <button id="importMainCsvBtn" class="light">CSV 적용</button>
+          <span class="muted" id="importMainCsvOut"></span>
+        </div>
+      </div>
+
       <div class="card" id="syncCard" style="display:none;">
         <div class="title" style="font-size:16px;">Drive 동기화</div>
         <div class="row" style="margin-top:10px;">

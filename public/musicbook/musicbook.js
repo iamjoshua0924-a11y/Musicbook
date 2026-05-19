@@ -76,6 +76,11 @@ async function apiJson(url, method, body) {
   return res.json();
 }
 
+function openUrlOrToast(url, label) {
+  if (url) window.open(url, '_blank');
+  else toast(`${label} 링크가 설정되어 있지 않습니다. /admin에서 설정해 주세요.`);
+}
+
 async function loadMainPage() {
   const data = await apiGet('/api/main');
   if (!data.ok) return;
@@ -90,9 +95,9 @@ async function loadMainPage() {
   $('noticeContent').innerText = state.main.notice || '';
 
   // external links
-  $('discordBtn').onclick = () => state.main.discordUrl && window.open(state.main.discordUrl, '_blank');
-  $('youtubeBtn').onclick = () => state.main.youtubeUrl && window.open(state.main.youtubeUrl, '_blank');
-  $('chzzkBtn').onclick = () => state.main.chzzkUrl && window.open(state.main.chzzkUrl, '_blank');
+  $('discordBtn').onclick = () => openUrlOrToast(state.main.discordUrl, '디스코드');
+  $('youtubeBtn').onclick = () => openUrlOrToast(state.main.youtubeUrl, '유튜브');
+  $('chzzkBtn').onclick = () => openUrlOrToast(state.main.chzzkUrl, '치지직');
 }
 
 async function loadSongs(force = false) {

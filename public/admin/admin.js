@@ -16,7 +16,7 @@ async function apiJson(url, method, body) {
 
 function showAuthed(on) {
   $('loginCard').style.display = on ? 'none' : 'block';
-  ['meCard', 'mainCard', 'syncCard', 'usersCard', 'availCard'].forEach((id) => {
+  ['meCard', 'mainCard', 'mainImportCard', 'syncCard', 'usersCard', 'availCard'].forEach((id) => {
     $(id).style.display = on ? 'block' : 'none';
   });
 }
@@ -56,6 +56,94 @@ async function saveMain() {
   }
   $('mainSaveOut').textContent = '저장 완료';
   setTimeout(() => ($('mainSaveOut').textContent = ''), 1200);
+}
+
+function extractDriveFileId(s) {
+  const str = String(s || '');
+  const m1 = str.match(/\/file\/d\/([^/]+)\//);
+  if (m1) return m1[1];
+  const m2 = str.match(/[?&]id=([^&]+)/);
+  if (m2) return m2[1];
+  return '';
+}
+
+function driveToThumb(url, size = 1200) {
+  const id = extractDriveFileId(url);
+  if (!id) return url;
+  return `https://drive.google.com/thumbnail?id=${encodeURIComponent(id)}&sz=w${size}`;
+}
+
+function parseCsv(text) {
+  // Minimal CSV parser supporting quotes + newlines inside quotes.
+  const rows = [];
+  let row = [];
+  let cell = '';
+  let inQ = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    const next = text[i + 1];
+    if (inQ) {
+      if (ch === '"' && next === '"') {
+        cell += '"';
+        i += 1;
+      } else if (ch === '"') {
+        inQ = false;
+      } else {
+        cell += ch;
+      }
+    } else {
+      if (ch === '"') inQ = true;
+      else if (ch === ',') {
+        row.push(cell);
+        cell = '';
+      } else if (ch === '\n') {
+        row.push(cell);
+        cell = '';
+        if (row.length > 1 || row[0] !== '') rows.push(row);
+        row = [];
+      } else if (ch === '\r') {
+        // ignore
+      } else {
+        cell += ch;
+      }
+    }
+  }
+  if (cell.length || row.length) {
+    row.push(cell);
+    rows.push(row);
+  }
+  return rows.map((r) => r.map((v) => String(v ?? '').trim()));
+}
+
+function applyMainFromLegacyMap(map) {
+  if (map.bannerImage) $('bannerImage').value = driveToThumb(map.bannerImage, 1600);
+  if (map.titleImage) $('titleImage').value = driveToThumb(map.titleImage, 800);
+  if (map.notice) $('notice').value = map.notice;
+  if (map.discordUrl) $('discordUrl').value = map.discordUrl;
+  if (map.youtubeUrl) $('youtubeUrl').value = map.youtubeUrl;
+  if (map.chzzkUrl) $('chzzkUrl').value = map.chzzkUrl;
+}
+
+async function importMainCsv() {
+  const text = $('mainCsvInput').value || '';
+  if (!text.trim()) return;
+  const rows = parseCsv(text);
+  // Expect header like: 항목,내용
+  const map = {};
+  rows.slice(1).forEach((r) => {
+    const k = r[0];
+    const v = r.slice(1).join(','); // just in case
+    if (!k) return;
+    if (k.includes('배너')) map.bannerImage = v;
+    else if (k.includes('타이틀')) map.titleImage = v;
+    else if (k.includes('공지')) map.notice = v;
+    else if (k.includes('디스코드')) map.discordUrl = v;
+    else if (k.includes('유튜브')) map.youtubeUrl = v;
+    else if (k.includes('치지직')) map.chzzkUrl = v;
+  });
+  applyMainFromLegacyMap(map);
+  $('importMainCsvOut').textContent = '적용됨(아래 저장을 눌러 반영)';
+  setTimeout(() => ($('importMainCsvOut').textContent = ''), 2000);
 }
 
 async function syncDrive() {
@@ -221,6 +309,7 @@ function wire() {
   };
 
   $('saveMainBtn').onclick = () => saveMain().catch(() => {});
+  $('importMainCsvBtn').onclick = () => importMainCsv().catch(() => {});
   $('syncBtn').onclick = () => syncDrive().catch(() => {});
   $('createUserBtn').onclick = () => createUser().catch(() => {});
 

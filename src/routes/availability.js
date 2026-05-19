@@ -13,24 +13,18 @@ router.get('/availability', async (req, res) => {
   res.json({ ok: true, items });
 });
 
-// Public: list "available vocal" users (only users who have at least one available=true)
+// Public: list users selectable in "가능보컬" filter.
+// NOTE: do NOT filter out admin; role 구분 없이 모두 선택 가능하게 유지.
 router.get('/availability/users', async (_req, res) => {
-  const rows = await Availability.aggregate([
-    { $match: { available: true } },
-    { $group: { _id: '$userId', c: { $sum: 1 } } },
-    { $sort: { c: -1 } },
-    { $limit: 200 }
-  ]);
-  const userIds = rows.map((r) => String(r._id || '')).filter(Boolean);
-  // include admin too (profilePhoto/displayName should still work)
-  const users = await User.find({ userId: { $in: userIds }, active: { $ne: false } }).lean();
-  const map = new Map(users.map((u) => [String(u.userId), u]));
-  const items = userIds
-    .map((id) => {
-      const u = map.get(id);
-      return u ? { userId: u.userId, displayName: u.displayName || u.userId, profilePhoto: u.profilePhoto || '' } : null;
-    })
-    .filter(Boolean);
+  const users = await User.find({ active: { $ne: false }, role: { $in: ['admin', 'session'] } })
+    .sort({ role: 1, displayName: 1, userId: 1 })
+    .limit(500)
+    .lean();
+  const items = (users || []).map((u) => ({
+    userId: u.userId,
+    displayName: u.displayName || u.userId,
+    profilePhoto: u.profilePhoto || ''
+  }));
   res.json({ ok: true, items });
 });
 

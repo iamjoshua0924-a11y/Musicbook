@@ -500,7 +500,8 @@ body.live-mode.sheet-open .toolbarShell{
   display:none;
   justify-content:center;
   gap:14px;
-  padding:10px 12px;
+  /* iOS 홈 인디케이터/브라우저 UI에 가리는 문제 대응 */
+  padding:10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
   background:linear-gradient(0deg, rgba(17,18,20,0.86), rgba(17,18,20,0));
   pointer-events:auto;
 }
@@ -510,6 +511,8 @@ body.live-mode.sheet-open .toolbarShell{
   border-radius:16px;
   font-size:20px;
   font-weight:900;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 body.touch-mode #touchHeader,
 body.live-mode #touchHeader{ display:block; }

@@ -75,6 +75,7 @@ button{
   cursor:pointer;
   line-height:1;
   height:34px;
+  box-sizing: border-box;
 }
 button.primary{ background:rgba(122,162,255,0.18); border-color:rgba(122,162,255,0.35); }
 button:hover{ border-color:rgba(255,255,255,0.20); }

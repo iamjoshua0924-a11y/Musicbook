@@ -15,6 +15,8 @@ const state = {
   availableVocalUserId: '',
   availableVocalSet: null, // Set<googleFileId>
   availabilityEditMode: false,
+  availabilityOriginalSet: null, // Set<googleFileId>
+  availabilityDraftSet: null, // Set<googleFileId>
 
   sessionRoomCode: '',
   isPageTurner: false,
@@ -297,7 +299,7 @@ function renderAvailabilityEditCards(hideTags) {
   const items = state.songFilesFiltered.slice(start, start + state.pageSize);
 
   const userId = $('availableVocalFilter')?.value || '';
-  const set = state.availableVocalSet;
+  const set = state.availabilityDraftSet || state.availableVocalSet;
 
   items.forEach((s) => {
     const el = document.createElement('div');
@@ -329,6 +331,13 @@ function renderAvailabilityEditCards(hideTags) {
     const chk = el.querySelector('input[type="checkbox"]');
     chk.onchange = async () => {
       const next = chk.checked;
+      // 선택모드에서는 로컬 draft만 수정(저장 버튼에서 일괄 반영)
+      if (state.availabilityEditMode) {
+        if (!state.availabilityDraftSet) state.availabilityDraftSet = new Set();
+        if (next) state.availabilityDraftSet.add(s.googleFileId);
+        else state.availabilityDraftSet.delete(s.googleFileId);
+        return;
+      }
       await toggleAvailabilityForFile(userId, s.googleFileId, next);
     };
     wrap.appendChild(el);
@@ -442,7 +451,6 @@ function renderPager() {
 // (룰렛 애니메이션은 후속 단계에서 교체)
 function spinRoulette() {
   if (!state.songCardsFiltered.length) return toast('랜덤 대상 곡이 없습니다.');
-  const wheel = $('rouletteWheel');
   const openBtn = $('randomOpenBtn');
   const rerollBtn = $('randomRerollBtn');
   openBtn.style.display = 'none';
@@ -452,22 +460,42 @@ function spinRoulette() {
   const card = state.songCardsFiltered[Math.floor(Math.random() * state.songCardsFiltered.length)];
   state._rouletteCard = card;
 
-  // reset rotation (no transition)
-  wheel.style.transition = 'none';
-  wheel.style.transform = 'rotate(0deg)';
-  // spin
-  const extraTurns = 5 + Math.floor(Math.random() * 3); // 5~7
-  const offset = Math.floor(Math.random() * 360);
+  // 슬롯머신 스타일: 리스트가 내려오며 선택된 카드에서 멈춤
+  const listEl = $('rouletteList');
+  if (!listEl) return;
+  const ITEM_H = 44;
+  const WRAP_H = 220;
+  const centerOffset = WRAP_H / 2 - ITEM_H / 2;
+
+  const pool = state.songCardsFiltered;
+  const total = Math.min(48, Math.max(24, 32));
+  const seq = [];
+  for (let i = 0; i < total; i += 1) {
+    seq.push(pool[Math.floor(Math.random() * pool.length)]);
+  }
+  const stopIndex = Math.max(8, total - 8);
+  seq[stopIndex] = card;
+
+  listEl.style.transition = 'none';
+  listEl.style.transform = 'translateY(0px)';
+  listEl.innerHTML = seq
+    .map(
+      (c) =>
+        `<div class="roulette-item"><span>${esc(c.title || '')}</span><span class="sub">${esc(c.artist || '')}</span></div>`
+    )
+    .join('');
+
   requestAnimationFrame(() => {
-    wheel.style.transition = 'transform 3.2s cubic-bezier(0.12, 0.86, 0.10, 1)';
-    wheel.style.transform = `rotate(${extraTurns * 360 + offset}deg)`;
+    const y = centerOffset - stopIndex * ITEM_H;
+    listEl.style.transition = 'transform 2.6s cubic-bezier(0.12, 0.86, 0.10, 1)';
+    listEl.style.transform = `translateY(${y}px)`;
   });
 
   setTimeout(() => {
     $('randomResult').innerHTML = `<div><b>${esc(card.title || '')}</b></div><div style="opacity:.75;margin-top:4px">${esc(card.artist || '')}</div>`;
     openBtn.style.display = 'inline-flex';
     rerollBtn.style.display = 'inline-flex';
-  }, 3300);
+  }, 2700);
 }
 
 // ---- Requests --------------------------------------------------------------------
@@ -823,17 +851,58 @@ function wireEvents() {
     applySongFilters();
   };
 
+  // 가능곡 편집(세션/관리자만): 버튼 클릭 즉시 "가능곡 선택모드" 진입 → 하단 취소/저장으로 종료
   $('availabilityEditToggleBtn').onclick = async () => {
-    if (state.role === 'viewer') return;
-    const userId = $('availableVocalFilter').value;
-    if (!userId && !state.availabilityEditMode) return toast('가능보컬을 먼저 선택해 주세요.');
-    state.availabilityEditMode = !state.availabilityEditMode;
-    $('availabilityEditToggleBtn').textContent = state.availabilityEditMode ? '편집 종료' : '가능곡 편집';
-    // 편집 모드 진입 시 파일 단위 목록 + availability 로드
+    if (!(state.role === 'admin' || state.role === 'session')) return;
+    const userId = $('availableVocalFilter')?.value || '';
+    if (!userId) return toast('가능보컬을 먼저 선택해 주세요.');
     await loadSongFiles(true);
-    if (userId) await loadAvailableVocalSet(userId);
+    await loadAvailableVocalSet(userId);
+    state.availabilityOriginalSet = new Set(Array.from(state.availableVocalSet || []));
+    state.availabilityDraftSet = new Set(Array.from(state.availableVocalSet || []));
+    state.availabilityEditMode = true;
+    $('availabilityEditToggleBtn').style.display = 'none';
+    $('availabilityEditBar').style.display = 'flex';
+    $('availabilityEditTitle').textContent = `가능곡 선택모드 · ${$('availableVocalFilter').selectedOptions?.[0]?.textContent || userId}`;
     state.page = 1;
     applySongFilters();
+  };
+
+  $('availabilityEditCancelBtn').onclick = () => {
+    state.availabilityEditMode = false;
+    state.availabilityDraftSet = null;
+    state.availableVocalSet = state.availabilityOriginalSet ? new Set(Array.from(state.availabilityOriginalSet)) : state.availableVocalSet;
+    state.availabilityOriginalSet = null;
+    $('availabilityEditBar').style.display = 'none';
+    $('availabilityEditToggleBtn').style.display = state.role === 'admin' || state.role === 'session' ? 'inline-flex' : 'none';
+    applySongFilters();
+    toast('취소됨');
+  };
+
+  $('availabilityEditSaveBtn').onclick = async () => {
+    const userId = $('availableVocalFilter')?.value || '';
+    if (!userId) return;
+    const before = state.availabilityOriginalSet || new Set();
+    const after = state.availabilityDraftSet || new Set();
+    const all = new Set([...before, ...after]);
+    const items = [];
+    all.forEach((fid) => {
+      const b = before.has(fid);
+      const a = after.has(fid);
+      if (a !== b) items.push({ googleFileId: fid, available: a });
+    });
+    if (items.length) {
+      const res = await apiJson('/api/availability/bulk', 'POST', { userId, items });
+      if (!res.ok) return toast('저장 실패');
+    }
+    state.availableVocalSet = new Set(Array.from(after));
+    state.availabilityEditMode = false;
+    state.availabilityOriginalSet = null;
+    state.availabilityDraftSet = null;
+    $('availabilityEditBar').style.display = 'none';
+    $('availabilityEditToggleBtn').style.display = state.role === 'admin' || state.role === 'session' ? 'inline-flex' : 'none';
+    applySongFilters();
+    toast('저장 완료');
   };
 
   const debouncedFilter = (() => {

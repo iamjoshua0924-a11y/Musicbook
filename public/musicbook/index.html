@@ -330,9 +330,11 @@
     <div class="modal-overlay" id="randomModal">
       <div class="modal">
         <div class="modal-title">랜덤 추천곡</div>
-        <div class="roulette-wrap">
-          <div class="roulette-pointer"></div>
-          <div class="roulette-wheel" id="rouletteWheel"></div>
+        <div class="roulette-list-wrap">
+          <div class="roulette-fade top"></div>
+          <div class="roulette-fade bottom"></div>
+          <div class="roulette-center-line"></div>
+          <div class="roulette-list" id="rouletteList"></div>
         </div>
         <div class="random-result" id="randomResult">룰렛을 돌려 곡을 고릅니다...</div>
         <div class="modal-actions">
@@ -340,6 +342,15 @@
           <button class="floating-btn" id="randomRerollBtn" style="display: none" type="button">한번 더 뽑기</button>
           <button class="floating-btn black-btn" id="randomCloseBtn" type="button">닫기</button>
         </div>
+      </div>
+    </div>
+
+    <!-- 가능곡 선택모드 하단 바 -->
+    <div class="availability-edit-bar" id="availabilityEditBar" style="display:none;">
+      <div class="availability-edit-title" id="availabilityEditTitle">가능곡 선택모드</div>
+      <div class="availability-edit-actions">
+        <button class="floating-btn compact-btn" id="availabilityEditCancelBtn" type="button">취소</button>
+        <button class="floating-btn black-btn" id="availabilityEditSaveBtn" type="button">저장</button>
       </div>
     </div>
 

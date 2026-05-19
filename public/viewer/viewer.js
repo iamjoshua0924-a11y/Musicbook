@@ -399,6 +399,7 @@ function updateCursorShareUI() {
   btn.disabled = !canUse;
   btn.classList.toggle('disabled', !canUse);
   btn.classList.toggle('active', Boolean(state.cursorShareOn));
+  updateToolActiveUI();
 }
 
 function stopCursorShare(sendHide = false) {
@@ -413,6 +414,7 @@ function stopCursorShare(sendHide = false) {
   }
   cursorMoveHandler = null;
   updateCursorShareUI();
+  updateToolActiveUI();
   if (sendHide && state.isInSession && state.isPageTurner && state.roomCode && state.fileId) {
     socket.emit('viewer:cursor', { roomCode: state.roomCode, fileId: state.fileId, hide: true });
   }
@@ -426,6 +428,7 @@ function startCursorShare() {
   ensureCursorEls();
   state.cursorShareOn = true;
   updateCursorShareUI();
+  updateToolActiveUI();
 
   const container = document.getElementById('pdf-container');
   if (!container) return;
@@ -728,6 +731,8 @@ function joinSession(roomCode) {
     setHidden('participantsPanel', false);
     // 모바일에서는 기본으로 패널을 접어둠(필요 시 '세션목록' 버튼으로 열기)
     if (isMobileLike()) setHidden('participantsPanel', true);
+    // 세션의 최신 상태(현재 악보/페이지)를 재요청해서 동기화 보장
+    socket.emit('session:participants:refresh', { roomCode: state.roomCode });
     // request initial annotations
     if (state.fileId) socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId: state.fileId });
     setSessionUiDefaultsIfNeeded();
@@ -1830,7 +1835,29 @@ const ro = new ResizeObserver(
 );
 ro.observe(els.pdfContainer);
 
-// (브러시 UI 제거: 기본 값 사용)
+// ---- Tool/UI state ---------------------------------------------------------------
+function updateToolActiveUI() {
+  const on = (id, active) => document.getElementById(id)?.classList.toggle('active', Boolean(active));
+  on('selectBtn', state.tool === 'select');
+  on('penBtn', state.tool === 'pen');
+  on('highlighterBtn', state.tool === 'highlighter');
+  on('eraserBtn', state.tool === 'eraser');
+  on('textBtn', state.tool === 'text');
+  on('laserBtn', state.tool === 'laser');
+  on('cursorShareBtn', Boolean(state.cursorShareOn));
+  on('lineBtn', state.tool === 'shape' && state.shape === 'line');
+  on('rectBtn', state.tool === 'shape' && state.shape === 'rect');
+  on('circleBtn', state.tool === 'shape' && state.shape === 'circle');
+}
+
+function syncBrushOptionUI() {
+  const sizeEl = document.getElementById('brushSize');
+  const colorEl = document.getElementById('colorPicker');
+  const fontEl = document.getElementById('fontSize');
+  if (sizeEl) sizeEl.value = String(state.brushSize || 3);
+  if (colorEl) colorEl.value = String(state.brushColor || '#ff2d55');
+  if (fontEl) fontEl.value = String(state.textFontSize || 22);
+}
 
 function setTool(tool, shape = null) {
   // 세션 참여 중이더라도 도구 사용 자체는 허용(단, 공유/동기화는 권한 필요)
@@ -1844,6 +1871,7 @@ function setTool(tool, shape = null) {
   document.body.dataset.tool = tool;
   document.body.classList.toggle('tool-text', tool === 'text');
   applyToolToAll();
+  updateToolActiveUI();
 }
 
 document.getElementById('penBtn').addEventListener('click', () => setTool('pen'));
@@ -1859,6 +1887,30 @@ document.getElementById('lineBtn').addEventListener('click', () => setTool('shap
 document.getElementById('rectBtn').addEventListener('click', () => setTool('shape', 'rect'));
 document.getElementById('circleBtn').addEventListener('click', () => setTool('shape', 'circle'));
 document.getElementById('textBtn').addEventListener('click', () => setTool('text'));
+
+// Brush / color / text size controls
+document.getElementById('brushSize')?.addEventListener('input', (e) => {
+  state.brushSize = clamp(Number(e.target?.value || 3), 1, 30);
+  applyToolToAll();
+});
+document.getElementById('colorPicker')?.addEventListener('input', (e) => {
+  state.brushColor = String(e.target?.value || '#ff2d55');
+  applyToolToAll();
+});
+document.getElementById('fontSize')?.addEventListener('input', (e) => {
+  state.textFontSize = clamp(Number(e.target?.value || 22), 12, 60);
+  const v = getActiveView();
+  const obj = v?.fabric?.getActiveObject?.();
+  if (v?.fabric && obj?.type === 'i-text') {
+    obj.set('fontSize', state.textFontSize);
+    v.fabric.requestRenderAll();
+    // 권한 있으면 공유, 아니면 로컬만
+    v.pushUndo?.();
+    if (canUseToolsNow()) v.broadcast?.();
+  }
+});
+syncBrushOptionUI();
+updateToolActiveUI();
 
 function undoForActivePage() {
   const pageNo = state.activeDrawPageNo || state.pageNo;
@@ -2203,6 +2255,24 @@ socket.on('session:participants', (p) => {
     }
     list.appendChild(row);
   });
+});
+
+// Ensure late joiners always align to room's current file/page
+socket.on('session:state', (p) => {
+  if (!state.isInSession) return;
+  if (p?.roomCode && String(p.roomCode).toUpperCase() !== String(state.roomCode || '').toUpperCase()) return;
+  const fileId = String(p?.currentFileId || '').trim();
+  const pageNo = Number(p?.currentPageNo || 0);
+  if (fileId && String(fileId) !== String(state.fileId || '')) {
+    state.fileId = fileId;
+    loadPdf(state.fileId).catch(() => {});
+  }
+  if (pageNo && !state.isPageTurner) {
+    state.pageNo = pageNo;
+    state.activeDrawPageNo = pageNo;
+    updatePageLabels();
+    renderSpread(state.pageNo).catch(() => {});
+  }
 });
 
 socket.on('viewer:cursor', (p) => {

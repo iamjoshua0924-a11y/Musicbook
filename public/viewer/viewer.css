@@ -45,6 +45,8 @@ body.light{
   padding:6px 10px;
   background:linear-gradient(180deg,var(--panel),rgba(0,0,0,0));
   border-bottom:1px solid var(--border);
+  position: relative;
+  z-index: 6000;
 }
 
 #topbar .left{ display:flex; align-items:center; gap:10px; flex:1; min-width: 280px; }
@@ -187,11 +189,22 @@ body.mobile-viewer #turnUnitSpreadBtn{
 }
 .label{ color:var(--muted); font-size:12px; margin-right:4px; font-weight:800; }
 .seg button{ padding:8px 10px; border-radius:10px; height:32px; }
+.seg button,
+.mini{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  line-height:1;
+}
 .seg button.active{
   border-color:rgba(122,162,255,0.6);
   box-shadow:0 0 0 2px rgba(122,162,255,0.12) inset;
 }
 .mini{ padding:8px 10px; font-size:13px; height:32px; }
+.mini.active{
+  border-color:rgba(122,162,255,0.6);
+  box-shadow:0 0 0 2px rgba(122,162,255,0.12) inset;
+}
 button.danger{ background:rgba(255,107,107,0.14); border-color:rgba(255,107,107,0.35); }
 .kv{ display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); }
 
@@ -370,8 +383,11 @@ body.touch-mode.landscape #fab{ display:none; }
 #textOptionGroup{ display:none; }
 body.tool-text #textOptionGroup{ display:inline-flex; }
 #brushGroup{ display:none; }
-body[data-tool="line"] #brushGroup,
-body[data-tool="shape"] #brushGroup{
+body[data-tool="pen"] #brushGroup,
+body[data-tool="highlighter"] #brushGroup,
+body[data-tool="eraser"] #brushGroup,
+body[data-tool="shape"] #brushGroup,
+body[data-tool="text"] #brushGroup{
   display:inline-flex;
 }
 
@@ -526,12 +542,14 @@ body.live-mode.sheet-open .toolbarShell{
   padding:10px 12px;
   display:none;
   background:linear-gradient(180deg, rgba(17,18,20,0.82), rgba(17,18,20,0));
-  pointer-events:auto;
+  /* topbar 클릭을 막지 않도록 */
+  pointer-events:none;
 }
 #touchHeader .touchRow{
   display:flex;
   align-items:center;
   gap:8px;
+  pointer-events:auto;
 }
 #touchNavBottom{
   position:fixed;
@@ -545,7 +563,7 @@ body.live-mode.sheet-open .toolbarShell{
   /* iOS 홈 인디케이터/브라우저 UI에 가리는 문제 대응 */
   padding:10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
   background:linear-gradient(0deg, rgba(17,18,20,0.86), rgba(17,18,20,0));
-  pointer-events:auto;
+  pointer-events:none;
 }
 #touchNavBottom button{
   width:62px;
@@ -555,6 +573,7 @@ body.live-mode.sheet-open .toolbarShell{
   font-weight:900;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
+  pointer-events:auto;
 }
 body.touch-mode #touchHeader,
 body.live-mode #touchHeader{ display:block; }

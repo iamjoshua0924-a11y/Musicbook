@@ -159,13 +159,15 @@ function attachSockets(io) {
       const roomCode = String(payload?.roomCode || '').trim().toUpperCase();
       const nickname = String(payload?.nickname || socket.data.nickname || '익명').slice(0, 20);
       const role = socket.data.role || 'viewer';
-      const displayName = socket.data.displayName || nickname;
+      // displayName은 UI 식별용이므로 payload 우선(특히 익명 사용자 닉네임 변경 케이스)
+      const displayName = String(payload?.displayName || '').trim() || nickname;
       const profilePhoto = String(payload?.profilePhoto || '');
       if (!roomCode) return ack?.({ ok: false, error: 'ROOM_REQUIRED' });
 
       const room = store.getOrCreateRoom(roomCode);
 
       socket.data.nickname = nickname;
+      socket.data.displayName = displayName;
       room.members.set(socket.id, { nickname, role, displayName, profilePhoto });
       socket.data.joinedRooms.add(roomCode);
 

@@ -900,6 +900,11 @@ function applyTouchMode(on) {
   document.body.classList.toggle('touch-mode', Boolean(on));
   localStorage.setItem('mb_viewer_touch', on ? '1' : '0');
 }
+
+function applyTouchModeAuto(on) {
+  // auto mode: don't persist (사용자가 명시적으로 끈 경우를 존중)
+  document.body.classList.toggle('touch-mode', Boolean(on));
+}
 document.getElementById('touchBtn')?.addEventListener('click', () => {
   manualTouch = !document.body.classList.contains('touch-mode');
   applyTouchMode(manualTouch);
@@ -1890,8 +1895,10 @@ function updateLiveMode() {
   const isLive = window.matchMedia('(max-width: 980px)').matches || isCoarse;
   document.body.classList.toggle('live-mode', isLive);
   document.body.classList.toggle('landscape', window.matchMedia('(orientation: landscape)').matches);
-  // auto enable touch-mode on touch devices unless user explicitly turned it off
-  if (!manualTouch && isCoarse) applyTouchMode(true);
+  // auto enable touch-mode on small screens unless user explicitly turned it off
+  const pref = localStorage.getItem('mb_viewer_touch'); // '1' | '0' | null
+  const userForcedOff = pref === '0';
+  if (!userForcedOff && isLive) applyTouchModeAuto(true);
 }
 updateLiveMode();
 window.addEventListener('resize', updateLiveMode);

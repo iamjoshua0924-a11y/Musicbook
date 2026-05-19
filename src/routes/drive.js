@@ -5,12 +5,44 @@ const router = express.Router();
 const { getDriveClient, getFileMetadata, buildPreviewUrl } = require('../services/drive');
 const { requireSessionOrAdmin } = require('../middleware/auth');
 
+async function allowSessionOrPublicFile(req, res, next) {
+  const role = req.session?.user?.role;
+  if (role === 'admin' || role === 'session') return next();
+  const fileId = String(req.params?.fileId || '').trim();
+  if (!fileId) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+
+  try {
+    const drive = getDriveClient();
+    const meta = await drive.files.get({
+      fileId,
+      supportsAllDrives: true,
+      fields: 'permissions(type,role)'
+    });
+    const perms = meta?.data?.permissions || [];
+    const isPublic = perms.some((p) => p?.type === 'anyone' && typeof p.role === 'string' && p.role.length);
+    if (!isPublic) {
+      return res.status(403).json({
+        ok: false,
+        error: 'FORBIDDEN',
+        fallback: { mode: 'iframe', previewUrl: buildPreviewUrl(fileId) }
+      });
+    }
+    return next();
+  } catch {
+    return res.status(403).json({
+      ok: false,
+      error: 'FORBIDDEN',
+      fallback: { mode: 'iframe', previewUrl: buildPreviewUrl(fileId) }
+    });
+  }
+}
+
 /**
  * Streaming pipe endpoint (NO buffering in memory).
  * - Supports Range header (pass-through to Drive).
  * - If Drive blocks download, client can use /api/drive/preview/:fileId and fallback to iframe.
  */
-router.get('/drive/pdf/:fileId', requireSessionOrAdmin, async (req, res) => {
+router.get('/drive/pdf/:fileId', allowSessionOrPublicFile, async (req, res) => {
   const { fileId } = req.params;
   const range = req.headers.range;
 

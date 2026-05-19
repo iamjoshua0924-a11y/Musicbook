@@ -700,7 +700,8 @@ function updateSongBookPickVisibility() {
   const btn = document.getElementById('songBookPickBtn');
   if (!btn) return;
   const isMember = authState.role === 'admin' || authState.role === 'session';
-  btn.classList.toggle('hidden', !(isMember && state.isInSession && state.roomCode));
+  // 로그인 환경이면(세션 참여 여부와 무관하게) 노래책에서 고르기 노출
+  btn.classList.toggle('hidden', !isMember);
 }
 
 function joinSession(roomCode) {
@@ -748,7 +749,7 @@ function leaveSession() {
   state.roomCode = null;
   state.isInSession = false;
   state.isPageTurner = false;
-  document.getElementById('sessionFloatBtn').textContent = '세션 참여';
+  document.getElementById('sessionFloatBtn').textContent = '세션참여';
   setHidden('sessionBadge', true);
   setHidden('turnerBadge', true);
   setHidden('touchRoomBadge', true);

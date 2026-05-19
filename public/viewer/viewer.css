@@ -109,6 +109,24 @@ button:disabled{
 #topbar .right::-webkit-scrollbar{ display:none; }
 .topToggles{ display:inline-flex; gap:8px; align-items:center; flex-wrap:nowrap; }
 .topToggles button{ height:28px; padding:6px 10px; border-radius:10px; font-size:12px; }
+.topToggles .vsep{
+  width:1px;
+  height:18px;
+  background: rgba(255,255,255,0.18);
+  border-radius: 1px;
+}
+
+.iconBtn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding: 0 8px;
+}
+.iconBtn svg{
+  width: 18px;
+  height: 18px;
+  display:block;
+}
 #themeBtn, #touchBtn{ height:28px; padding:6px 10px; border-radius:10px; font-size:12px; }
 .floatToggles button{
   height:32px;
@@ -146,12 +164,7 @@ body.light .floatToggles button{
 }
 .toolbarRow .spacer{ flex: 1 1 auto; min-width: 8px; }
 
-#undoBtn,#redoBtn{
-  font-size: 18px;
-  line-height: 1;
-  width: 46px;
-  text-align: center;
-}
+#undoBtn,#redoBtn{ width: 42px; }
 
 /* 모바일 viewer(익명)는 1페이지 보기 고정 */
 body.mobile-viewer #spread2Btn,

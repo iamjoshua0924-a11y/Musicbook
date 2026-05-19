@@ -779,6 +779,8 @@ async function doLogin() {
   closeModal('loginModal');
   $('loginPw').value = '';
   await refreshSession();
+  // 로그인 직후에도 곡 카드 클릭/선택이 바로 활성화되도록 UI를 재렌더링한다.
+  applySongFilters();
   await refreshSocketMetaAndReconnect();
   await loadAvailabilityUsersIfNeeded();
   toast('로그인 완료');
@@ -787,6 +789,7 @@ async function doLogin() {
 async function doLogout() {
   await apiJson('/api/admin/logout', 'POST', {});
   await refreshSession();
+  applySongFilters();
   await refreshSocketMetaAndReconnect();
   toast('로그아웃');
 }

@@ -21,10 +21,12 @@
         <div class="right">
           <div id="topToggles" class="topToggles">
             <button id="toggleLinkBtn" title="링크 입력줄 접기/펼치기">링크칸</button>
-            <button id="toggleViewBtn" title="보기/넘김/확대 줄 접기/펼치기">보기</button>
-            <button id="toggleToolBtn" title="주석 도구 줄 접기/펼치기">도구</button>
-            <button id="sessionFloatBtn" title="세션 참여/나가기">세션</button>
-            <button id="createSessionFloatBtn" title="세션 만들기">만들기</button>
+            <button id="toggleViewBtn" title="보기/넘김/확대 줄 접기/펼치기">보기옵션</button>
+            <button id="toggleToolBtn" title="주석 도구 줄 접기/펼치기">도구바</button>
+            <span class="vsep" aria-hidden="true"></span>
+            <button id="createSessionFloatBtn" title="세션 만들기">세션만들기</button>
+            <button id="sessionFloatBtn" title="세션 참여/나가기">세션참여</button>
+            <span class="vsep" aria-hidden="true"></span>
             <button id="fullscreenBtn" type="button">전체화면</button>
             <button id="themeBtn" type="button">테마</button>
           </div>
@@ -102,8 +104,22 @@
           </div>
           <div class="spacer"></div>
           <div class="group">
-            <button id="undoBtn" type="button" class="mini" aria-label="undo">↶</button>
-            <button id="redoBtn" type="button" class="mini" aria-label="redo">↷</button>
+            <button id="undoBtn" type="button" class="mini iconBtn" aria-label="undo" title="Undo">
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path
+                  fill="currentColor"
+                  d="M8 3a5 5 0 1 1-4.546 2.916.5.5 0 1 1 .909-.416A4 4 0 1 0 8 4H5.707l.147.146a.5.5 0 0 1-.708.708l-1-1a.5.5 0 0 1 0-.708l1-1a.5.5 0 1 1 .708.708L5.707 3H8z"
+                />
+              </svg>
+            </button>
+            <button id="redoBtn" type="button" class="mini iconBtn" aria-label="redo" title="Redo">
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path
+                  fill="currentColor"
+                  d="M8 3a5 5 0 1 0 4.546 2.916.5.5 0 0 0-.909-.416A4 4 0 1 1 8 4h2.293l-.147.146a.5.5 0 0 0 .708.708l1-1a.5.5 0 0 0 0-.708l-1-1a.5.5 0 1 0-.708.708L10.293 3H8z"
+                />
+              </svg>
+            </button>
             <button id="clearBtn" type="button" class="mini danger">주석 전체삭제</button>
           </div>
         </div>

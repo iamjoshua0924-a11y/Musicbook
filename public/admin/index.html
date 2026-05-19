@@ -66,8 +66,11 @@
             <option value="30" selected>30일</option>
             <option value="365">1년</option>
           </select>
+          <label class="muted"><input id="incrementalToggle" type="checkbox" /> 증분(이전 이후 변경만)</label>
+          <label class="muted"><input id="pruneToggle" type="checkbox" checked /> 누락 파일 숨김(prune)</label>
           <button id="syncBtn">동기화 실행</button>
         </div>
+        <div class="muted" style="margin-top:8px;">마지막 상태: <span id="syncStatusLine">-</span></div>
         <pre id="syncOut" class="muted"></pre>
       </div>
 

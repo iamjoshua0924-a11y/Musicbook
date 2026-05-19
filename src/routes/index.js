@@ -9,5 +9,6 @@ router.use('/api', require('./requests'));
 router.use('/api', require('./admin'));
 router.use('/api', require('./mainPage'));
 router.use('/api', require('./availability'));
+router.use('/api', require('./socketMeta'));
 
 module.exports = router;

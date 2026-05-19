@@ -1,6 +1,7 @@
 const ViewerAnnoSnapshot = require('../models/ViewerAnnoSnapshot');
 const Request = require('../models/Request');
 const { SessionStore } = require('./sessionStore');
+const { verifySocketMetaToken } = require('../services/socketMeta');
 
 const store = new SessionStore();
 
@@ -84,17 +85,27 @@ async function saveSnapshotOnce(roomCode, fileId, snapshot) {
 
 function attachSockets(io) {
   io.on('connection', (socket) => {
-    socket.data.nickname = socket.handshake.auth?.nickname || '익명';
+    const nickname = socket.handshake.auth?.nickname || '익명';
+    const metaToken = socket.handshake.auth?.metaToken;
+    const meta = verifySocketMetaToken(metaToken) || { role: 'viewer', displayName: nickname, userId: '' };
+
+    socket.data.nickname = nickname;
+    socket.data.role = meta.role || 'viewer';
+    socket.data.displayName = meta.displayName || nickname;
+    socket.data.userId = meta.userId || '';
     socket.data.joinedRooms = new Set(); // roomCode set
 
     // --- Main presence -------------------------------------------------------------
     socket.on('main:join', (payload, ack) => {
-      const nickname = String(payload?.nickname || socket.data.nickname || '익명').slice(0, 20);
-      const role = String(payload?.role || 'viewer');
-      const displayName = String(payload?.displayName || '').slice(0, 30);
-      const profilePhoto = String(payload?.profilePhoto || '');
-      socket.data.nickname = nickname;
-      presence.set(socket.id, { nickname, role, displayName, profilePhoto, ts: Date.now() });
+      const nn = String(payload?.nickname || socket.data.nickname || '익명').slice(0, 20);
+      socket.data.nickname = nn;
+      presence.set(socket.id, {
+        nickname: nn,
+        role: socket.data.role || 'viewer',
+        displayName: socket.data.displayName || nn,
+        profilePhoto: String(payload?.profilePhoto || ''),
+        ts: Date.now()
+      });
       socket.join('room:main');
       emitPresence(io);
       ack?.({ ok: true });
@@ -124,8 +135,8 @@ function attachSockets(io) {
     socket.on('session:join', async (payload, ack) => {
       const roomCode = String(payload?.roomCode || '').trim().toUpperCase();
       const nickname = String(payload?.nickname || socket.data.nickname || '익명').slice(0, 20);
-      const role = String(payload?.role || 'viewer');
-      const displayName = String(payload?.displayName || '').slice(0, 30);
+      const role = socket.data.role || 'viewer';
+      const displayName = socket.data.displayName || nickname;
       const profilePhoto = String(payload?.profilePhoto || '');
       if (!roomCode) return ack?.({ ok: false, error: 'ROOM_REQUIRED' });
 

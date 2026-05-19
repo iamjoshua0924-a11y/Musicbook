@@ -62,10 +62,27 @@ async function syncDrive() {
   const payload = {
     rootFolderId: $('rootFolderId').value.trim(),
     latestDays: Number($('latestDays').value || 30),
-    limit: 5000
+    limit: 5000,
+    incremental: Boolean($('incrementalToggle')?.checked),
+    pruneMissing: Boolean($('pruneToggle')?.checked)
   };
   const r = await apiJson('/api/admin/sync/drive', 'POST', payload);
   $('syncOut').textContent = JSON.stringify(r, null, 2);
+  await loadSyncStatus();
+}
+
+async function loadSyncStatus() {
+  const r = await apiGet('/api/admin/sync/status');
+  if (!r.ok) return;
+  const s = r.status;
+  if (!s) {
+    $('syncStatusLine').textContent = '-';
+    return;
+  }
+  const msg = s.running
+    ? `RUNNING · startedAt=${s.startedAt}`
+    : `endedAt=${s.endedAt || '-'} · processed=${s.processed ?? '-'} · skipped=${s.skipped ?? '-'} · hidden=${s.hiddenCount ?? '-'}`;
+  $('syncStatusLine').textContent = msg;
 }
 
 async function loadUsers() {
@@ -203,8 +220,8 @@ async function boot() {
     await loadMain();
     await loadUsers();
     await loadAvailUsers();
+    await loadSyncStatus();
   }
 }
 
 boot().catch((e) => console.error(e));
-

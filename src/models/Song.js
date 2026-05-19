@@ -20,6 +20,8 @@ const SongSchema = new mongoose.Schema(
 
     searchText: { type: String, default: '', index: true },
     driveModifiedTime: { type: Date, default: null },
+    syncRootId: { type: String, default: '', index: true },
+    lastSeenAt: { type: Date, default: null, index: true },
 
     createdAt: { type: Date, default: () => new Date() },
     updatedAt: { type: Date, default: () => new Date() }

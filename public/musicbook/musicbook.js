@@ -559,7 +559,8 @@ function wireEvents() {
 
 function attachSockets() {
   const nickname = getOrCreatePresenceNickname();
-  const socket = io({ auth: { nickname } });
+  const metaToken = state.metaToken || '';
+  const socket = io({ auth: { nickname, metaToken } });
   socket.on('requests:updated', (p) => {
     if (Array.isArray(p?.items)) {
       state.requests = p.items;
@@ -567,8 +568,8 @@ function attachSockets() {
     }
   });
 
-  // Join main presence room
-  socket.emit('main:join', { nickname, role: state.role, displayName: state.displayName, profilePhoto: $('profilePhoto')?.src || '' });
+  // Join main presence room (server trusts metaToken, not payload role)
+  socket.emit('main:join', { nickname, profilePhoto: $('profilePhoto')?.src || '' });
   state._socket = socket;
 
   socket.on('presence:list', (p) => {
@@ -802,6 +803,11 @@ async function bootstrap() {
   showLoading(true);
   try {
     wireEvents();
+    // socket meta for role hardening
+    try {
+      const meta = await fetch('/api/socket/meta', { credentials: 'include' }).then((r) => r.json());
+      if (meta?.ok) state.metaToken = meta.token;
+    } catch {}
     attachSockets();
     await refreshSession();
     await loadAvailabilityUsersIfNeeded();

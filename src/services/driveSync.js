@@ -59,14 +59,17 @@ async function listChildren(drive, folderId, pageToken) {
   return res.data;
 }
 
-async function syncDriveFolderTree({ rootFolderId, latestDays = 30, limit = 5000 }) {
+async function syncDriveFolderTree({ rootFolderId, latestDays = 30, limit = 5000, incrementalSince = null, pruneMissing = true }) {
   if (!rootFolderId) throw new Error('ROOT_FOLDER_ID_REQUIRED');
   const drive = getDriveClient();
 
   const queue = [{ folderId: rootFolderId, path: '' }];
   let processed = 0;
+  let skipped = 0;
   const now = Date.now();
+  const startedAt = new Date();
   const latestThreshold = now - latestDays * 24 * 60 * 60 * 1000;
+  const incSinceDate = incrementalSince ? new Date(incrementalSince) : null;
 
   while (queue.length) {
     const { folderId, path } = queue.shift();
@@ -92,6 +95,17 @@ async function syncDriveFolderTree({ rootFolderId, latestDays = 30, limit = 5000
         const displayTitle = title;
         const driveModifiedTime = f.modifiedTime ? new Date(f.modifiedTime) : null;
         const isLatest = driveModifiedTime ? driveModifiedTime.getTime() >= latestThreshold : false;
+
+        if (incSinceDate && driveModifiedTime && driveModifiedTime.getTime() <= incSinceDate.getTime()) {
+          // still mark as seen to avoid pruning when scanning the same root repeatedly
+          await Song.updateOne(
+            { googleFileId: f.id },
+            { $set: { syncRootId: rootFolderId, lastSeenAt: startedAt, driveModifiedTime } },
+            { upsert: true }
+          );
+          skipped += 1;
+          continue;
+        }
 
         const tags = extractBracketTags(nameNoExt);
         const key = extractKey(nameNoExt);
@@ -119,7 +133,9 @@ async function syncDriveFolderTree({ rootFolderId, latestDays = 30, limit = 5000
               isLatest,
               driveModifiedTime,
               searchText,
-              hidden: false
+              hidden: false,
+              syncRootId: rootFolderId,
+              lastSeenAt: startedAt
             }
           },
           { upsert: true }
@@ -132,7 +148,16 @@ async function syncDriveFolderTree({ rootFolderId, latestDays = 30, limit = 5000
     } while (pageToken);
   }
 
-  return { processed, reachedLimit: false };
+  let hiddenCount = 0;
+  if (pruneMissing) {
+    const r = await Song.updateMany(
+      { syncRootId: rootFolderId, lastSeenAt: { $lt: startedAt }, hidden: { $ne: true } },
+      { $set: { hidden: true } }
+    );
+    hiddenCount = r.modifiedCount || r.nModified || 0;
+  }
+
+  return { processed, skipped, hiddenCount, reachedLimit: false, startedAt };
 }
 
 module.exports = { syncDriveFolderTree, parseArtistTitle };

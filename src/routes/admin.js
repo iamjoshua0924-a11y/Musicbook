@@ -1,9 +1,10 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
 const User = require('../models/User');
-const { requireLogin, requireAdmin } = require('../middleware/auth');
+const { requireLogin, requireAdmin, requireSessionOrAdmin } = require('../middleware/auth');
 const { driveRootFolderId } = require('../config/env');
 const { syncDriveFolderTree } = require('../services/driveSync');
+const { KEYS, setJson, getJson } = require('../services/syncStatus');
 
 const router = express.Router();
 
@@ -65,14 +66,45 @@ router.get('/admin/users', requireAdmin, async (req, res) => {
 });
 
 // Drive sync (admin/session only; for now admin only)
+router.get('/admin/sync/status', requireSessionOrAdmin, async (req, res) => {
+  const status = await getJson(KEYS.driveSyncStatus, null);
+  res.json({ ok: true, status });
+});
+
 router.post('/admin/sync/drive', requireAdmin, async (req, res) => {
   const rootFolderId = String(req.body?.rootFolderId || driveRootFolderId || '').trim();
   try {
     const latestDays = Number(req.body?.latestDays || 30);
     const limit = Number(req.body?.limit || 5000);
-    const result = await syncDriveFolderTree({ rootFolderId, latestDays, limit });
-    res.json({ ok: true, ...result });
+    const pruneMissing = req.body?.pruneMissing !== undefined ? Boolean(req.body.pruneMissing) : true;
+    const incremental = Boolean(req.body?.incremental);
+    const prev = await getJson(KEYS.driveSyncStatus, null);
+    const incrementalSince = incremental ? prev?.endedAt || prev?.startedAt || null : null;
+
+    const startedAt = new Date().toISOString();
+    await setJson(KEYS.driveSyncStatus, { startedAt, running: true, rootFolderId, latestDays, limit, pruneMissing, incremental });
+
+    const result = await syncDriveFolderTree({ rootFolderId, latestDays, limit, incrementalSince, pruneMissing });
+    const endedAt = new Date().toISOString();
+    const status = {
+      startedAt,
+      endedAt,
+      running: false,
+      rootFolderId,
+      latestDays,
+      limit,
+      pruneMissing,
+      incremental,
+      processed: result.processed,
+      skipped: result.skipped,
+      hiddenCount: result.hiddenCount,
+      reachedLimit: result.reachedLimit
+    };
+    await setJson(KEYS.driveSyncStatus, status);
+    res.json({ ok: true, ...status });
   } catch (e) {
+    const endedAt = new Date().toISOString();
+    await setJson(KEYS.driveSyncStatus, { endedAt, running: false, ok: false, error: String(e.message || 'SYNC_FAILED') });
     res.status(400).json({ ok: false, error: String(e.message || 'SYNC_FAILED') });
   }
 });

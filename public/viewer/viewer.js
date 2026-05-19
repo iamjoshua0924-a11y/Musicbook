@@ -92,9 +92,19 @@ async function loadMe() {
   } catch {}
 }
 
+// Fetch signed meta token (role hardening)
+async function getSocketMetaToken() {
+  try {
+    const r = await fetch('/api/socket/meta', { credentials: 'include' }).then((x) => x.json());
+    return r?.token || '';
+  } catch {
+    return '';
+  }
+}
+
 // ---- Socket -----------------------------------------------------------------------
 const socket = io({
-  auth: { nickname: state.nickname }
+  auth: { nickname: state.nickname, metaToken: '' }
 });
 
 function joinSession(roomCode) {
@@ -1070,10 +1080,24 @@ socket.on('wb:page:update', (p) => {
 });
 
 // ---- Init -------------------------------------------------------------------------
-if (state.fileId) {
-  loadMe().finally(() => {
-    loadPdf(state.fileId).catch(() => {});
-  });
-} else {
-  alert('fileId가 없습니다. /viewer/:fileId 로 접속해 주세요.');
+async function init() {
+  const metaToken = await getSocketMetaToken();
+  if (metaToken) {
+    try {
+      socket.auth = { ...(socket.auth || {}), metaToken };
+      // reconnect to apply auth
+      socket.disconnect();
+      socket.connect();
+    } catch {}
+  }
+
+  if (!state.fileId) {
+    alert('fileId가 없습니다. /viewer/:fileId 로 접속해 주세요.');
+    return;
+  }
+
+  await loadMe();
+  await loadPdf(state.fileId);
 }
+
+init().catch(() => {});

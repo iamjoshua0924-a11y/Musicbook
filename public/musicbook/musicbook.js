@@ -15,6 +15,8 @@ const state = {
 
   sessionRoomCode: '',
   isPageTurner: false,
+  sessionCurrentFileId: '',
+  sessionCurrentPageNo: 1,
 
   sortField: 'createdAt',
   sortDir: 'desc',
@@ -586,6 +588,30 @@ function attachSockets() {
     renderSessionMembers(p?.members || []);
   });
 
+  socket.on('session:state', (p) => {
+    if (!state.sessionRoomCode) return;
+    if (p?.roomCode && String(p.roomCode).toUpperCase() !== String(state.sessionRoomCode).toUpperCase()) return;
+    state.sessionCurrentFileId = p?.currentFileId || '';
+    state.sessionCurrentPageNo = Number(p?.currentPageNo || 1);
+    renderSessionStatus();
+  });
+
+  // keep status updated even without session:state (backward)
+  socket.on('session:follow:file', (p) => {
+    if (!state.sessionRoomCode) return;
+    if (!p?.fileId) return;
+    state.sessionCurrentFileId = p.fileId;
+    state.sessionCurrentPageNo = 1;
+    renderSessionStatus();
+  });
+  socket.on('viewer:page_change', (p) => {
+    if (!state.sessionRoomCode) return;
+    if (!p?.fileId || !p?.pageNo) return;
+    state.sessionCurrentFileId = p.fileId;
+    state.sessionCurrentPageNo = Number(p.pageNo);
+    renderSessionStatus();
+  });
+
   // If turner was transferred to this socket while on main page, keep room stable by re-broadcasting current state.
   socket.on('session:pageTurner:sync_request', (p) => {
     if (!state.sessionRoomCode) return;
@@ -599,6 +625,21 @@ function attachSockets() {
       });
     }
   });
+}
+
+function renderSessionStatus() {
+  if (!state.sessionRoomCode) return;
+  const badge = $('sessionBadge');
+  if (!badge) return;
+  const fileId = state.sessionCurrentFileId;
+  const pageNo = state.sessionCurrentPageNo;
+  let label = `세션: ${state.sessionRoomCode}`;
+  if (fileId) {
+    const song = state.songsAll.find((s) => s.googleFileId === fileId);
+    const title = song?.displayTitle || song?.title || '';
+    label += ` · ${title ? title : fileId.slice(0, 8) + '...'} · p.${pageNo}`;
+  }
+  badge.textContent = label;
 }
 
 function getOrCreatePresenceNickname() {
@@ -650,14 +691,24 @@ function joinLiveSession(roomCode) {
   $('sessionLeaveBtn').style.display = 'inline-flex';
   $('sessionMembersBtn').style.display = 'inline-flex';
   setRoomToUrl(code);
-  state._socket?.emit?.('session:join', { roomCode: code, nickname: localStorage.getItem('mb_presence_nick') || state.displayName }, (ack) => {
+  state._socket?.emit?.(
+    'session:join',
+    {
+      roomCode: code,
+      nickname: localStorage.getItem('mb_presence_nick') || state.displayName,
+      role: state.role,
+      displayName: state.displayName,
+      profilePhoto: $('profilePhoto')?.src || ''
+    },
+    (ack) => {
     if (!ack?.ok) {
       toast('세션 참여 실패');
       return;
     }
     state.isPageTurner = Boolean(ack.isPageTurner);
     $('turnerBadge').style.display = state.isPageTurner ? 'inline-flex' : 'none';
-  });
+    }
+  );
 }
 
 function leaveLiveSession() {
@@ -682,12 +733,13 @@ function renderSessionMembers(members) {
   members.forEach((m) => {
     const el = document.createElement('div');
     el.className = 'presence-item';
+    const name = m.displayName || m.nickname || '익명';
     el.innerHTML = `
       <div style="display:flex; gap:10px; align-items:center;">
-        <div class="presence-photo"></div>
+        ${m.profilePhoto ? `<img class="presence-photo" src="${esc(m.profilePhoto)}" alt="" />` : `<div class="presence-photo"></div>`}
         <div>
-          <div>${esc(m.nickname || '익명')} ${m.isPageTurner ? '<span class="chip">터너</span>' : ''}</div>
-          <div class="presence-sub">${esc(m.socketId || '')}</div>
+          <div>${esc(name)} ${m.isPageTurner ? '<span class="chip">터너</span>' : ''}</div>
+          <div class="presence-sub">${esc(m.role || 'viewer')}</div>
         </div>
       </div>
       <div>

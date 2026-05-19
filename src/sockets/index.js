@@ -28,6 +28,9 @@ function buildParticipantsPayload(room) {
   const members = Array.from(room.members.entries()).map(([socketId, m]) => ({
     socketId,
     nickname: m.nickname,
+    role: m.role,
+    displayName: m.displayName,
+    profilePhoto: m.profilePhoto,
     isPageTurner: socketId === room.pageTurnerSocketId
   }));
   return { roomCode: room.roomCode, members };
@@ -40,6 +43,11 @@ function emitRoomState(io, room) {
     pageTurnerName: room.pageTurnerSocketId ? room.members.get(room.pageTurnerSocketId)?.nickname : null
   });
   io.to(toSessionRoomName(room.roomCode)).emit('session:participants', buildParticipantsPayload(room));
+  io.to(toSessionRoomName(room.roomCode)).emit('session:state', {
+    roomCode: room.roomCode,
+    currentFileId: room.currentFileId,
+    currentPageNo: room.currentPageNo
+  });
 }
 
 async function loadSnapshot(roomCode, fileId) {
@@ -100,12 +108,15 @@ function attachSockets(io) {
     socket.on('session:join', async (payload, ack) => {
       const roomCode = String(payload?.roomCode || '').trim().toUpperCase();
       const nickname = String(payload?.nickname || socket.data.nickname || '익명').slice(0, 20);
+      const role = String(payload?.role || 'viewer');
+      const displayName = String(payload?.displayName || '').slice(0, 30);
+      const profilePhoto = String(payload?.profilePhoto || '');
       if (!roomCode) return ack?.({ ok: false, error: 'ROOM_REQUIRED' });
 
       const room = store.getOrCreateRoom(roomCode);
 
       socket.data.nickname = nickname;
-      room.members.set(socket.id, { nickname });
+      room.members.set(socket.id, { nickname, role, displayName, profilePhoto });
       socket.data.joinedRooms.add(roomCode);
 
       await socket.join(toSessionRoomName(roomCode));
@@ -128,6 +139,14 @@ function attachSockets(io) {
         const snap = await loadSnapshot(roomCode, room.currentFileId);
         if (snap) socket.emit('wb:sync', { fileId: room.currentFileId, snapshot: snap });
       }
+    });
+
+    socket.on('session:participants:refresh', async (payload) => {
+      const roomCode = String(payload?.roomCode || '').trim().toUpperCase();
+      const room = store.rooms.get(roomCode);
+      if (!room) return;
+      socket.emit('session:participants', buildParticipantsPayload(room));
+      socket.emit('session:state', { roomCode, currentFileId: room.currentFileId, currentPageNo: room.currentPageNo });
     });
 
     socket.on('session:leave', async (payload, ack) => {
@@ -197,6 +216,7 @@ function attachSockets(io) {
       room.currentPageNo = pageNo;
 
       io.to(toSessionRoomName(roomCode)).emit('viewer:page_change', { fileId, pageNo });
+      io.to(toSessionRoomName(roomCode)).emit('session:state', { roomCode, currentFileId: fileId, currentPageNo: pageNo });
       ack?.({ ok: true });
     });
 
@@ -214,6 +234,7 @@ function attachSockets(io) {
 
       io.to(toSessionRoomName(roomCode)).emit('session:follow:file', { fileId });
       io.to(toSessionRoomName(roomCode)).emit('viewer:page_change', { fileId, pageNo: 1 });
+      io.to(toSessionRoomName(roomCode)).emit('session:state', { roomCode, currentFileId: fileId, currentPageNo: 1 });
 
       // Lazy-load stored snapshot if exists (server restart case).
       const snap = await loadSnapshot(roomCode, fileId);

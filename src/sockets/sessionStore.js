@@ -19,7 +19,7 @@ class SessionStore {
       pageTurnerSocketId: null,
       currentFileId: null,
       currentPageNo: 1,
-      members: new Map(), // socketId -> { nickname }
+      members: new Map(), // socketId -> { nickname, role, displayName, profilePhoto }
       // annotations: Map<fileId, { pages: { [pageNo]: {json,w,h}}, updatedAt }>
       annotationsByFile: new Map()
     });
@@ -47,4 +47,3 @@ class SessionStore {
 }
 
 module.exports = { SessionStore };
-

@@ -19,21 +19,19 @@
         <div class="right">
           <button id="themeBtn" type="button">테마</button>
           <button id="touchBtn" type="button">터치</button>
+          <div id="topToggles" class="topToggles">
+            <button id="toggleLinkBtn" title="링크 입력줄 접기/펼치기">링크칸</button>
+            <button id="toggleViewBtn" title="보기/넘김/확대 줄 접기/펼치기">보기</button>
+            <button id="toggleToolBtn" title="주석 도구 줄 접기/펼치기">도구</button>
+            <button id="sessionFloatBtn" title="세션 참여/나가기">세션</button>
+            <button id="createSessionFloatBtn" title="세션 만들기">만들기</button>
+            <button id="lockFloatBtn" title="잠금">잠금</button>
+            <button id="fullscreenBtn" type="button">전체화면</button>
+          </div>
           <span id="sessionBadge" class="badge hidden"></span>
           <span id="turnerBadge" class="badge hidden"></span>
         </div>
       </header>
-
-      <!-- Desktop toggles (GAS 원본 스타일) -->
-      <div class="floatToggles" id="floatToggles">
-        <button id="toggleLinkBtn" title="링크 입력줄 접기/펼치기">링크칸 접기/열기</button>
-        <button id="toggleViewBtn" title="보기/넘김/확대 줄 접기/펼치기">보기옵션 접기/열기</button>
-        <button id="toggleToolBtn" title="주석 도구 줄 접기/펼치기">도구반 접기/열기</button>
-        <button id="sessionFloatBtn" title="세션 참여/나가기">세션 참여</button>
-        <button id="createSessionFloatBtn" title="세션 만들기">세션 만들기</button>
-        <button id="lockFloatBtn" title="잠금">잠금</button>
-        <button id="fullscreenBtn" type="button">전체화면</button>
-      </div>
 
       <!-- Toolbar (desktop). In touch-mode, this becomes a bottom sheet via CSS. -->
       <div class="toolbarShell" id="toolbarShell">

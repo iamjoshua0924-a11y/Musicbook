@@ -39,30 +39,30 @@ body.light{
 
 #topbar {
   display:flex;
-  flex-wrap:wrap;
+  flex-wrap:nowrap;
   align-items:center;
   gap:10px;
-  padding:10px 12px;
+  padding:6px 10px;
   background:linear-gradient(180deg,var(--panel),rgba(0,0,0,0));
   border-bottom:1px solid var(--border);
 }
 
 #topbar .left{ display:flex; align-items:center; gap:10px; flex:1; min-width: 280px; }
 .brand{ font-weight:800; letter-spacing:.2px; white-space:nowrap; }
-#topbar .right{ display:flex; flex-wrap:wrap; align-items:center; gap:10px; justify-content:flex-end; }
+#topbar .right{ display:flex; flex-wrap:nowrap; align-items:center; gap:10px; justify-content:flex-end; }
 
-.inputRow{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.inputRow{ display:flex; gap:8px; align-items:center; flex-wrap:nowrap; }
 body.link-collapsed .inputRow{ display:none; }
 #linkInput{
-  padding:10px 12px;
+  padding:7px 10px;
   border-radius:10px;
   border:1px solid var(--border);
   background:var(--panel2);
   color:var(--text);
   outline:none;
-  height:34px;
-  width:min(360px, 44vw);
-  min-width: 240px;
+  height:28px;
+  width:min(320px, 40vw);
+  min-width: 200px;
 }
 button{
   padding:10px 12px;
@@ -96,15 +96,12 @@ body.light button:hover{ border-color:rgba(0,0,0,0.22); }
 }
 
 /* ===== Desktop Float Toggles (GAS 원본) ===== */
-.floatToggles{
-  position:fixed;
-  right:12px;
-  top:70px; /* 상단 링크 입력줄과 겹침 방지 */
-  z-index:5000;
-  display:inline-flex;
-  gap:8px;
-  align-items:center;
-}
+/* header 오른쪽 버튼: 한 줄 유지(넘치면 가로 스크롤) */
+#topbar .right{ overflow-x:auto; scrollbar-width: none; }
+#topbar .right::-webkit-scrollbar{ display:none; }
+.topToggles{ display:inline-flex; gap:8px; align-items:center; flex-wrap:nowrap; }
+.topToggles button{ height:28px; padding:6px 10px; border-radius:10px; font-size:12px; }
+#themeBtn, #touchBtn{ height:28px; padding:6px 10px; border-radius:10px; font-size:12px; }
 .floatToggles button{
   height:32px;
   padding:8px 10px;
@@ -276,9 +273,6 @@ body.touch-mode.landscape #fab{ display:flex; }
 #textOptionGroup{ display:none; }
 body.tool-text #textOptionGroup{ display:inline-flex; }
 #brushGroup{ display:none; }
-body[data-tool="pen"] #brushGroup,
-body[data-tool="highlighter"] #brushGroup,
-body[data-tool="eraser"] #brushGroup,
 body[data-tool="line"] #brushGroup,
 body[data-tool="shape"] #brushGroup{
   display:inline-flex;

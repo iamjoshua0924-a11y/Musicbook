@@ -6,8 +6,11 @@
  *
  * 반환: { title, key, artist, normalized, parseError }
  */
-const KEY_IN_PAREN_RE =
-  /\((Ab|A#|A|Bb|B|Cb|C#|C|Db|D#|D|Eb|E#|E|Fb|F#|F|Gb|G#|G)\)/;
+// (Eb), (D#), (Gb) 같은 조성 괄호를 폭넓게 인식:
+// - 소문자/대문자 모두 허용
+// - ♭/♯ 같은 특수문자도 허용
+// - 전각 괄호(（ ）)도 허용
+const KEY_IN_PAREN_RE = /[（(]\s*([A-Ga-g])\s*([#b♯♭]?)\s*(m?)\s*[)）]/;
 
 const BAD_TOKENS_RE =
   /(악보바다|악보|스코어|score|sheet|3단|2단|4단|단|MR|inst|instrumental|파트|피아노|기타|드럼|베이스)/i;
@@ -32,6 +35,24 @@ function freqOf(map, s) {
   return Number(map.get(k) || 0);
 }
 
+function normalizeKey({ letter, accidental, minorFlag } = {}) {
+  const L = String(letter || '').trim();
+  if (!L) return '';
+  const acc = String(accidental || '').trim();
+  const m = String(minorFlag || '').trim();
+  const acc2 = acc === '♭' ? 'b' : acc === '♯' ? '#' : acc;
+  return `${L.toUpperCase()}${acc2}${m ? 'm' : ''}`.trim();
+}
+
+function extractKeyAndStrip(text) {
+  const s = clean(text);
+  const m = s.match(KEY_IN_PAREN_RE);
+  if (!m) return { found: false, key: '', stripped: s };
+  const key = normalizeKey({ letter: m[1], accidental: m[2], minorFlag: m[3] });
+  const stripped = clean(s.replace(KEY_IN_PAREN_RE, ''));
+  return { found: Boolean(key), key, stripped };
+}
+
 /**
  * @param {object} args
  * @param {string} args.filenameNoExt - 확장자 제거된 파일명
@@ -54,52 +75,65 @@ function normalizeSongFileName({ filenameNoExt, artistFreqMap } = {}) {
     };
   }
 
-  const keyMatch = raw.match(KEY_IN_PAREN_RE);
-  const key = keyMatch ? keyMatch[1] : '';
-  const keyIndex = keyMatch ? keyMatch.index ?? -1 : -1;
-  const withoutKey = clean(keyMatch ? raw.replace(KEY_IN_PAREN_RE, '') : raw);
+  // 1) 먼저 하이픈 기준으로 분리(괄호 포함 상태로)한 뒤,
+  // 2) 괄호 조성이 어느 쪽(왼쪽/오른쪽)에 붙어있는지로 title/artist 방향을 결정한다.
+  const { left: left0, right: right0, ok } = splitByLastHyphen(raw);
+  const leftK = extractKeyAndStrip(left0);
+  const rightK = extractKeyAndStrip(right0);
 
-  const { left, right, ok } = splitByLastHyphen(withoutKey);
   if (!ok) {
-    // delimiter가 없으면 제목만으로 저장(관리자 보정 대상)
-    const titleOnly = withoutKey;
+    // delimiter가 없으면 제목만으로 저장(키는 괄호에서 추출)
+    const kOnly = extractKeyAndStrip(raw);
+    const titleOnly = kOnly.stripped || raw;
     return {
       title: titleOnly,
-      key,
+      key: kOnly.key || '',
       artist: '',
-      normalized: `${titleOnly}//${key}//`,
+      normalized: `${titleOnly}//${kOnly.key || ''}//`,
       parseError: 'FILENAME_PARSE_FAILED'
     };
   }
 
-  let title = left;
-  let artist = right;
+  let title = left0;
+  let artist = right0;
+  let key = '';
   let parseError = '';
 
-  if (key && keyIndex >= 0) {
-    // 괄호 조성이 파일명에서 "곡제목" 쪽에 붙어있다고 가정 → 위치로 판단
-    const rawLastHyphen = raw.lastIndexOf('-');
-    // key가 마지막 '-' 뒤에 있으면 오른쪽이 title
-    const keyOnRight = rawLastHyphen >= 0 && keyIndex > rawLastHyphen;
-    if (keyOnRight) {
-      title = right;
-      artist = left;
-    }
+  if (leftK.found && !rightK.found) {
+    title = leftK.stripped;
+    artist = right0;
+    key = leftK.key;
+  } else if (rightK.found && !leftK.found) {
+    title = rightK.stripped;
+    artist = left0;
+    key = rightK.key;
+  } else if (leftK.found && rightK.found) {
+    // 둘 다 키가 있으면, 오른쪽을 title로 우선(아티스트-곡제목(키) 케이스가 더 흔함)
+    title = rightK.stripped;
+    artist = left0;
+    key = rightK.key || leftK.key;
+    parseError = 'AMBIGUOUS_BOTH_SIDES_HAVE_KEY';
   } else {
     // 괄호 조성이 없을 때: artist 빈도 기반 판정(동률/정보없음이면 기본=곡제목-아티스트)
-    const fL = freqOf(artistFreqMap, left);
-    const fR = freqOf(artistFreqMap, right);
+    const fL = freqOf(artistFreqMap, left0);
+    const fR = freqOf(artistFreqMap, right0);
     if (fL > fR) {
-      artist = left;
-      title = right;
+      artist = left0;
+      title = right0;
       parseError = 'AMBIGUOUS_RESOLVED_BY_FREQUENCY';
     } else if (fR > fL) {
-      artist = right;
-      title = left;
+      artist = right0;
+      title = left0;
       parseError = 'AMBIGUOUS_RESOLVED_BY_FREQUENCY';
     } else {
       // 기본값 유지(곡제목-아티스트)
       parseError = 'AMBIGUOUS_DEFAULT_TITLE_FIRST';
+    }
+    // title 쪽에 키가 붙어있는 경우가 있으니, 최종적으로 title에서 한번 더 키를 추출
+    const k2 = extractKeyAndStrip(title);
+    if (k2.found) {
+      title = k2.stripped;
+      key = k2.key;
     }
   }
 

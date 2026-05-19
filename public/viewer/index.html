@@ -14,6 +14,12 @@
           <span id="fileIdBadge"></span>
         </div>
         <div class="right">
+          <div class="pageControls">
+            <button id="prevBtn" type="button">이전</button>
+            <span id="pageLabel">1</span>
+            <span id="pageTotal">/ ?</span>
+            <button id="nextBtn" type="button">다음</button>
+          </div>
           <label class="toggle">
             <input type="checkbox" id="sessionToggle" />
             <span>주석공유 세션 참여</span>
@@ -28,26 +34,36 @@
       <main id="stage">
         <div id="pdf-container">
           <iframe id="pdf-preview" class="hidden"></iframe>
-          <div id="pdf-placeholder">
-            <p>이 뷰어는 현재 “백엔드/룸/권한 스코프” 구현을 위한 최소 동작 버전입니다.</p>
-            <p>PDF 스트리밍 URL: <code id="pdfUrlText"></code></p>
-            <p>
-              <input id="driveInput" placeholder="Drive 링크 또는 fileId 붙여넣기" style="width: min(560px, 90vw)" />
-              <button id="openBtn" type="button">열기</button>
-            </p>
-            <p>
-              <button id="prevBtn" type="button">이전</button>
-              <span id="pageLabel">1</span>
-              <button id="nextBtn" type="button">다음</button>
-            </p>
+          <div id="canvas-stack">
+            <canvas id="pdf-canvas"></canvas>
+            <canvas id="anno-canvas"></canvas>
           </div>
+          <div id="pageHud" class="hidden"></div>
         </div>
 
         <button id="fab">✎</button>
         <div id="fabPanel" class="hidden">
           <div class="panelTitle">주석 팔레트</div>
-          <button id="undoBtn" type="button">Undo(스텁)</button>
-          <button id="clearBtn" type="button">전체삭제(스텁)</button>
+          <div class="row">
+            <button id="penBtn" type="button">펜</button>
+            <button id="eraserBtn" type="button">지우개</button>
+          </div>
+          <div class="row">
+            <label class="label">굵기</label>
+            <input id="brushSize" type="range" min="1" max="20" value="3" />
+          </div>
+          <div class="row">
+            <label class="label">색</label>
+            <input id="colorPicker" type="color" value="#ff2d55" />
+          </div>
+          <div class="row">
+            <button id="undoBtn" type="button">Undo</button>
+            <button id="clearBtn" type="button">전체삭제</button>
+          </div>
+          <div class="row">
+            <button id="openFromLinkBtn" type="button">Drive 링크로 열기</button>
+            <button id="fullscreenBtn2" type="button">전체화면</button>
+          </div>
         </div>
 
         <aside id="participantsPanel" class="hidden">
@@ -57,6 +73,10 @@
       </main>
     </div>
 
+    <!-- pdf.js + fabric.js (CDN) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.7.76/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.7.76/pdf.worker.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/6.6.0/fabric.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <script src="/public/viewer/viewer.js"></script>
   </body>

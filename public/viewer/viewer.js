@@ -1161,6 +1161,13 @@ document.getElementById('touchMenuBtn')?.addEventListener('click', () => {
   flashHud(document.body.classList.contains('sheet-open') ? '메뉴 열림' : '메뉴 닫힘', 700);
 });
 
+// iOS/Safari에서 하단바 클릭이 불안정한 케이스 대비: 컨테이너 클릭도 허용
+document.getElementById('touchNavBottom')?.addEventListener('click', (e) => {
+  if (e.target?.id !== 'touchMenuBtn') return;
+  document.body.classList.toggle('sheet-open');
+  flashHud(document.body.classList.contains('sheet-open') ? '메뉴 열림' : '메뉴 닫힘', 700);
+});
+
 // Tap zones (GAS style): left=prev, right=next, center=toggle palette
 document.getElementById('tapZoneLeft')?.addEventListener('click', () => changePage(state.pageNo - state.spreadCount, 'tap'));
 document.getElementById('tapZoneRight')?.addEventListener('click', () => changePage(state.pageNo + state.spreadCount, 'tap'));

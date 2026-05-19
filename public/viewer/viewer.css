@@ -484,13 +484,12 @@ body.live-mode.sheet-open .toolbarShell{
   padding:10px 12px;
   display:none;
   background:linear-gradient(180deg, rgba(17,18,20,0.82), rgba(17,18,20,0));
-  pointer-events:none;
+  pointer-events:auto;
 }
 #touchHeader .touchRow{
   display:flex;
   align-items:center;
   gap:8px;
-  pointer-events:auto;
 }
 #touchNavBottom{
   position:fixed;
@@ -503,7 +502,7 @@ body.live-mode.sheet-open .toolbarShell{
   gap:14px;
   padding:10px 12px;
   background:linear-gradient(0deg, rgba(17,18,20,0.86), rgba(17,18,20,0));
-  pointer-events:none;
+  pointer-events:auto;
 }
 #touchNavBottom button{
   width:62px;
@@ -511,7 +510,6 @@ body.live-mode.sheet-open .toolbarShell{
   border-radius:16px;
   font-size:20px;
   font-weight:900;
-  pointer-events:auto;
 }
 body.touch-mode #touchHeader,
 body.live-mode #touchHeader{ display:block; }

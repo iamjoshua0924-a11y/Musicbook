@@ -337,6 +337,21 @@ body[data-tool="shape"] #brushGroup{
 }
 
 .panelTitle { font-weight: 700; margin-bottom: 8px; }
+.panelTitleRow{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom: 8px;
+}
+.panelTitleRow .panelTitle{ margin-bottom: 0; }
+.panelToggleBtn{
+  height: 28px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 900;
+}
 .participant-row{
   display:flex;
   align-items:center;

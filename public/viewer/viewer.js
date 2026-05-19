@@ -114,6 +114,15 @@ function setHidden(id, hidden) {
   el.classList.toggle('hidden', hidden);
 }
 
+function setParticipantsCollapsed(collapsed) {
+  const body = document.getElementById('participantsBody');
+  const btn = document.getElementById('participantsToggleBtn');
+  if (!body || !btn) return;
+  body.classList.toggle('isHidden', Boolean(collapsed));
+  btn.textContent = collapsed ? '보기' : '감추기';
+  localStorage.setItem('mb_viewer_participantsCollapsed', collapsed ? '1' : '0');
+}
+
 async function apiGet(url) {
   const res = await fetch(url, { credentials: 'include' });
   return res.json();
@@ -622,6 +631,12 @@ function applyTouchMode(on) {
 document.getElementById('touchBtn')?.addEventListener('click', () => {
   manualTouch = !document.body.classList.contains('touch-mode');
   applyTouchMode(manualTouch);
+});
+
+document.getElementById('participantsToggleBtn')?.addEventListener('click', () => {
+  const body = document.getElementById('participantsBody');
+  if (!body) return;
+  setParticipantsCollapsed(!body.classList.contains('isHidden'));
 });
 
 document.getElementById('songBookPickBtn')?.addEventListener('click', () => {
@@ -1830,6 +1845,13 @@ async function init() {
     socket.auth = { ...(socket.auth || {}), nickname: nick };
     joinSession(desiredRoom);
   }
+
+  // participants panel collapse state restore
+  try {
+    const v = localStorage.getItem('mb_viewer_participantsCollapsed');
+    setParticipantsCollapsed(v === '1');
+  } catch {}
+
 
   // Personal entry without fileId: show prompt to open from link
   if (!state.fileId) {

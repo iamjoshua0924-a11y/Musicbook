@@ -4,6 +4,20 @@ const { SessionStore } = require('./sessionStore');
 
 const store = new SessionStore();
 
+// Presence (main page) - in-memory only
+const presence = new Map(); // socketId -> { nickname, role, ts }
+
+function emitPresence(io) {
+  const items = Array.from(presence.entries()).map(([socketId, p]) => ({
+    socketId,
+    nickname: p.nickname,
+    role: p.role,
+    ts: p.ts
+  }));
+  io.to('room:main').emit('presence:list', { items });
+  io.to('room:main').emit('main:onlineCount', { count: items.length });
+}
+
 function toSessionRoomName(roomCode) {
   return `room:session:${roomCode}`;
 }
@@ -46,6 +60,28 @@ function attachSockets(io) {
   io.on('connection', (socket) => {
     socket.data.nickname = socket.handshake.auth?.nickname || '익명';
     socket.data.joinedRooms = new Set(); // roomCode set
+
+    // --- Main presence -------------------------------------------------------------
+    socket.on('main:join', (payload, ack) => {
+      const nickname = String(payload?.nickname || socket.data.nickname || '익명').slice(0, 20);
+      const role = String(payload?.role || 'viewer');
+      socket.data.nickname = nickname;
+      presence.set(socket.id, { nickname, role, ts: Date.now() });
+      socket.join('room:main');
+      emitPresence(io);
+      ack?.({ ok: true });
+    });
+
+    socket.on('main:leave', (_payload, ack) => {
+      presence.delete(socket.id);
+      socket.leave('room:main');
+      emitPresence(io);
+      ack?.({ ok: true });
+    });
+
+    socket.on('presence:refresh', () => {
+      emitPresence(io);
+    });
 
     // --- Session creation/join/leave -------------------------------------------------
     socket.on('session:create', async (_payload, ack) => {
@@ -227,6 +263,11 @@ function attachSockets(io) {
     });
 
     socket.on('disconnect', async () => {
+      // remove from presence
+      if (presence.has(socket.id)) {
+        presence.delete(socket.id);
+        emitPresence(io);
+      }
       // Remove from all joined session rooms.
       for (const roomCode of socket.data.joinedRooms || []) {
         const room = store.rooms.get(roomCode);

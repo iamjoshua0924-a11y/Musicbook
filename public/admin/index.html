@@ -3,40 +3,102 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>관리자 로그인</title>
-    <style>
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; padding: 24px; }
-      .box { max-width: 420px; border: 1px solid #eee; border-radius: 14px; padding: 16px; }
-      input { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 10px; margin: 6px 0; }
-      button { padding: 10px 12px; border-radius: 10px; border: 0; background: #111; color: #fff; width: 100%; cursor: pointer; }
-      a { color: #111; }
-      .muted { color: #777; font-size: 12px; }
-    </style>
+    <title>관리자</title>
+    <link rel="stylesheet" href="/public/admin/admin.css" />
   </head>
   <body>
     <a href="/">← 노래책으로</a>
-    <h1>세션/관리자 로그인</h1>
-    <div class="box">
-      <div class="muted">초기 버전: 로그인 API만 연결(권한 UI는 다음 단계에서 확장)</div>
-      <input id="userId" placeholder="ID" />
-      <input id="password" placeholder="Password" type="password" />
-      <button id="loginBtn">로그인</button>
-      <pre id="out" class="muted"></pre>
+    <div class="wrap">
+      <div class="title">관리자/세션 콘솔</div>
+
+      <div class="card" id="loginCard">
+        <div class="muted">세션 멤버 또는 관리자 계정으로 로그인하세요.</div>
+        <div class="row" style="margin-top:10px">
+          <input id="loginId" placeholder="ID" />
+          <input id="loginPw" placeholder="Password" type="password" />
+          <button id="loginBtn">로그인</button>
+        </div>
+        <pre id="loginOut" class="muted"></pre>
+      </div>
+
+      <div class="card" id="meCard" style="display:none;">
+        <div class="row">
+          <div>현재 로그인: <span class="kbd" id="meText"></span></div>
+          <button class="light" id="logoutBtn">로그아웃</button>
+        </div>
+      </div>
+
+      <div class="card" id="mainCard" style="display:none;">
+        <div class="title" style="font-size:16px;">메인페이지 설정</div>
+        <div class="grid2" style="margin-top:10px;">
+          <div>
+            <div class="muted">타이틀 이미지 URL</div>
+            <input id="titleImage" />
+          </div>
+          <div>
+            <div class="muted">배너 이미지 URL</div>
+            <input id="bannerImage" />
+          </div>
+        </div>
+        <div style="margin-top:10px;">
+          <div class="muted">공지</div>
+          <textarea id="notice" rows="4"></textarea>
+        </div>
+        <div class="grid2" style="margin-top:10px;">
+          <div><div class="muted">Discord</div><input id="discordUrl" /></div>
+          <div><div class="muted">YouTube</div><input id="youtubeUrl" /></div>
+        </div>
+        <div class="grid2" style="margin-top:10px;">
+          <div><div class="muted">Chzzk</div><input id="chzzkUrl" /></div>
+        </div>
+        <div class="row" style="margin-top:10px;">
+          <button id="saveMainBtn">저장</button>
+          <span class="muted" id="mainSaveOut"></span>
+        </div>
+      </div>
+
+      <div class="card" id="syncCard" style="display:none;">
+        <div class="title" style="font-size:16px;">Drive 동기화</div>
+        <div class="row" style="margin-top:10px;">
+          <input id="rootFolderId" placeholder="rootFolderId(비우면 env 사용)" style="min-width:420px;" />
+          <select id="latestDays">
+            <option value="7">7일(최신곡)</option>
+            <option value="30" selected>30일</option>
+            <option value="365">1년</option>
+          </select>
+          <button id="syncBtn">동기화 실행</button>
+        </div>
+        <pre id="syncOut" class="muted"></pre>
+      </div>
+
+      <div class="card" id="usersCard" style="display:none;">
+        <div class="title" style="font-size:16px;">유저 관리</div>
+        <div class="row" style="margin-top:10px;">
+          <input id="newUserId" placeholder="userId" />
+          <input id="newPassword" placeholder="password" type="password" />
+          <select id="newRole">
+            <option value="session">session</option>
+            <option value="admin">admin</option>
+          </select>
+          <input id="newDisplayName" placeholder="displayName" />
+          <button id="createUserBtn">생성/업데이트</button>
+        </div>
+        <div class="list" id="usersList" style="margin-top:10px;"></div>
+      </div>
+
+      <div class="card" id="availCard" style="display:none;">
+        <div class="title" style="font-size:16px;">가능곡(Availability)</div>
+        <div class="row" style="margin-top:10px;">
+          <select id="availUserSelect"></select>
+          <input id="availSearch" placeholder="곡명/가수 검색" />
+          <button id="availLoadBtn" class="light">불러오기</button>
+          <button id="availSaveBtn">저장(선택 유저)</button>
+        </div>
+        <div class="avail-grid" id="availGrid" style="margin-top:10px;"></div>
+        <pre id="availOut" class="muted"></pre>
+      </div>
     </div>
-    <script>
-      document.getElementById('loginBtn').onclick = async () => {
-        const userId = document.getElementById('userId').value.trim();
-        const password = document.getElementById('password').value;
-        const res = await fetch('/api/admin/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId, password })
-        });
-        const data = await res.json();
-        document.getElementById('out').textContent = JSON.stringify(data, null, 2);
-        if (data.ok) location.href = '/';
-      };
-    </script>
+
+    <script src="/public/admin/admin.js"></script>
   </body>
 </html>
-

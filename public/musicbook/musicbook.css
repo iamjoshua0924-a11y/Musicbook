@@ -481,6 +481,60 @@ textarea {
   display: none;
 }
 
+/* Presence panel */
+.floating-presence-panel {
+  position: fixed;
+  left: 22px;
+  bottom: 22px;
+  width: min(360px, calc(100vw - 44px));
+  max-height: 42vh;
+  overflow: hidden;
+  padding: 14px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid var(--border);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(18px);
+  z-index: 1700;
+}
+.presence-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.presence-title {
+  font-size: 16px;
+  font-weight: 1000;
+}
+.presence-actions {
+  display: flex;
+  gap: 8px;
+}
+.presence-list {
+  display: grid;
+  gap: 8px;
+  overflow: auto;
+  max-height: calc(42vh - 72px);
+  padding-right: 4px;
+}
+.presence-item {
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-weight: 900;
+}
+.presence-sub {
+  font-size: 12px;
+  opacity: 0.7;
+  font-weight: 800;
+}
+
 /* Modals */
 .modal-overlay {
   position: fixed;
@@ -574,4 +628,3 @@ textarea {
     grid-template-columns: 1fr 1fr;
   }
 }
-

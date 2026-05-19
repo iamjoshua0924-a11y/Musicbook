@@ -52,7 +52,16 @@ router.post('/admin/users', requireAdmin, async (req, res) => {
 
 router.get('/admin/users', requireAdmin, async (req, res) => {
   const items = await User.find({}).sort({ role: 1, userId: 1 }).lean();
-  res.json({ ok: true, items });
+  const safe = items.map((u) => ({
+    _id: String(u._id),
+    userId: u.userId,
+    role: u.role,
+    displayName: u.displayName,
+    active: u.active,
+    profilePhoto: u.profilePhoto,
+    mustChangePassword: u.mustChangePassword
+  }));
+  res.json({ ok: true, items: safe });
 });
 
 // Drive sync (admin/session only; for now admin only)

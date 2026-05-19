@@ -305,6 +305,8 @@ async function refreshSession() {
     state.displayName = '방문자';
   }
   applyRoleUI();
+  // update presence role on socket (best-effort)
+  state._socket?.emit?.('main:join', { nickname: localStorage.getItem('mb_presence_nick') || state.displayName, role: state.role });
 }
 
 async function doLogin() {
@@ -381,6 +383,18 @@ function wireEvents() {
   $('requestShowBtn').onclick = () => {
     $('requestPanel').style.display = 'block';
     $('requestShowBtn').style.display = 'none';
+  };
+
+  // presence panel
+  $('presenceRefreshBtn').onclick = () => state._socket?.emit?.('presence:refresh');
+  $('presenceHideBtn').onclick = () => {
+    $('presencePanel').style.display = 'none';
+    $('presenceShowBtn').style.display = 'inline-flex';
+  };
+  $('presenceShowBtn').onclick = () => {
+    $('presencePanel').style.display = 'block';
+    $('presenceShowBtn').style.display = 'none';
+    state._socket?.emit?.('presence:refresh');
   };
 
   $('requestManageToggleBtn').onclick = () => {
@@ -463,12 +477,47 @@ function wireEvents() {
 }
 
 function attachSockets() {
-  const socket = io();
+  const nickname = getOrCreatePresenceNickname();
+  const socket = io({ auth: { nickname } });
   socket.on('requests:updated', (p) => {
     if (Array.isArray(p?.items)) {
       state.requests = p.items;
       renderRequests();
     }
+  });
+
+  // Join main presence room
+  socket.emit('main:join', { nickname, role: state.role });
+  state._socket = socket;
+
+  socket.on('presence:list', (p) => {
+    renderPresence(p?.items || []);
+  });
+}
+
+function getOrCreatePresenceNickname() {
+  const key = 'mb_presence_nick';
+  const saved = localStorage.getItem(key);
+  if (saved) return saved;
+  const v = prompt('닉네임을 입력해 주세요(접속자 표시용):', '익명') || '익명';
+  localStorage.setItem(key, v);
+  return v;
+}
+
+function renderPresence(items) {
+  const wrap = $('presenceList');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  items.forEach((p) => {
+    const el = document.createElement('div');
+    el.className = 'presence-item';
+    el.innerHTML = `
+      <div>
+        <div>${esc(p.nickname || '익명')}</div>
+        <div class="presence-sub">${esc(p.role || 'viewer')}</div>
+      </div>
+    `;
+    wrap.appendChild(el);
   });
 }
 
@@ -493,4 +542,3 @@ bootstrap().catch((e) => {
   toast('초기화 실패');
   showLoading(false);
 });
-

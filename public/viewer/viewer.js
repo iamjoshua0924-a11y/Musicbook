@@ -668,6 +668,8 @@ async function loadPdf(fileId) {
   updatePageLabels();
 
   const url = `${window.location.origin}/api/drive/pdf/${fileId}`;
+  setHidden('pageHud', false);
+  setText('pageHud', 'PDF 로딩 중...');
 
   try {
     const loadingTask = pdfjsLib.getDocument({
@@ -690,9 +692,11 @@ async function loadPdf(fileId) {
       els.pdfPreview.src = meta.previewUrl;
       els.pdfPreview.classList.remove('hidden');
       els.canvasStack.style.display = 'none';
-      alert('이 파일은 다운로드/스트리밍이 제한되어 preview 모드로 열립니다.');
+      setHidden('pageHud', false);
+      setText('pageHud', '스트리밍이 제한되어 미리보기 모드로 열었습니다(권한/공유 확인)');
     } catch {
-      alert('PDF 로딩 실패');
+      setHidden('pageHud', false);
+      setText('pageHud', 'PDF 로딩 실패: Drive 공유/권한 또는 fileId 확인');
     }
   }
 }

@@ -84,27 +84,73 @@ router.post('/admin/login', async (req, res) => {
   if (!user) return res.status(401).json({ ok: false, error: 'INVALID_CREDENTIALS' });
 
   let ok = false;
-  try {
-    ok = await bcrypt.compare(password, user.passwordHash);
-  } catch {
-    ok = false;
+  const sha = crypto.createHash('sha256').update(password).digest('hex');
+  const stored = String(user.passwordHash || '');
+  const looksBcrypt = stored.startsWith('$2a$') || stored.startsWith('$2b$') || stored.startsWith('$2y$');
+
+  if (looksBcrypt) {
+    try {
+      ok = await bcrypt.compare(password, stored);
+    } catch {
+      ok = false;
+    }
+  } else {
+    // Some old imports might have stored legacy hash into passwordHash.
+    ok = Boolean(stored && stored === sha);
   }
 
   // Migration fallback: legacy SHA-256 hash (from GAS sheet) -> auto-upgrade to bcrypt.
-  if (!ok && user.legacyPasswordHash) {
-    const sha = crypto.createHash('sha256').update(password).digest('hex');
-    if (sha === user.legacyPasswordHash) {
-      ok = true;
-      // Upgrade bcrypt hash in background
-      const passwordHash = await bcrypt.hash(password, 10);
-      await User.updateOne({ _id: user._id }, { $set: { passwordHash } });
-    }
+  if (!ok && user.legacyPasswordHash) ok = sha === user.legacyPasswordHash;
+
+  if (ok && !looksBcrypt) {
+    // Upgrade bcrypt hash in background
+    const passwordHash = await bcrypt.hash(password, 10);
+    await User.updateOne({ _id: user._id }, { $set: { passwordHash } });
   }
 
   if (!ok) return res.status(401).json({ ok: false, error: 'INVALID_CREDENTIALS' });
 
   req.session.user = { id: String(user._id), userId: user.userId, role: user.role, displayName: user.displayName };
   res.json({ ok: true, user: req.session.user });
+});
+
+// Debug: check if a user exists / hash type (bootstrap token OR admin).
+router.post('/admin/debug/verify', async (req, res) => {
+  const okByAdmin = isAdminSession(req);
+  const token = String(req.body?.token || '');
+  const okByToken = Boolean(adminBootstrapToken && token && token === adminBootstrapToken);
+  if (!okByAdmin && !okByToken) return res.status(403).json({ ok: false, error: 'FORBIDDEN' });
+
+  const userId = String(req.body?.userId || '').trim();
+  const password = String(req.body?.password || '');
+  if (!userId || !password) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+
+  const user = await User.findOne({ userId }).lean();
+  if (!user) return res.json({ ok: true, exists: false });
+
+  const sha = crypto.createHash('sha256').update(password).digest('hex');
+  const stored = String(user.passwordHash || '');
+  const looksBcrypt = stored.startsWith('$2a$') || stored.startsWith('$2b$') || stored.startsWith('$2y$');
+  let bcryptOk = false;
+  if (looksBcrypt) {
+    try {
+      bcryptOk = await bcrypt.compare(password, stored);
+    } catch {
+      bcryptOk = false;
+    }
+  }
+  const shaOk = stored === sha || (user.legacyPasswordHash ? user.legacyPasswordHash === sha : false);
+
+  res.json({
+    ok: true,
+    exists: true,
+    active: user.active !== false,
+    role: user.role,
+    mustChangePassword: Boolean(user.mustChangePassword),
+    looksBcrypt,
+    bcryptOk,
+    shaOk
+  });
 });
 
 router.post('/admin/users', requireAdmin, async (req, res) => {

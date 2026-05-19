@@ -17,8 +17,9 @@ function createApp() {
   app.use(cors({ origin: true, credentials: true }));
   app.use(morgan(env === 'production' ? 'combined' : 'dev'));
   app.use(cookieParser());
-  app.use(express.json({ limit: '2mb' }));
-  app.use(express.urlencoded({ extended: true }));
+  // Legacy CSV import may exceed a few MB; keep a safe cap.
+  app.use(express.json({ limit: '20mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
   // Session (used later for admin; safe default for now).
   app.use(

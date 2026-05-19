@@ -26,6 +26,7 @@ function readFileText(file) {
 
 function showAuthed(on) {
   $('loginCard').style.display = on ? 'none' : 'block';
+  $('loginDebugCard').style.display = on ? 'none' : 'block';
   ['meCard', 'mainCard', 'mainImportCard', 'syncCard', 'usersCard', 'availCard'].forEach((id) => {
     $(id).style.display = on ? 'block' : 'none';
   });
@@ -331,6 +332,16 @@ function wire() {
       await loadAvailUsers();
       await loadSyncStatus();
     }
+  };
+
+  $('debugLoginBtn').onclick = async () => {
+    const payload = {
+      token: $('debugToken').value.trim(),
+      userId: $('debugUserId').value.trim(),
+      password: $('debugPw').value
+    };
+    const r = await apiJson('/api/admin/debug/verify', 'POST', payload);
+    $('debugLoginOut').textContent = JSON.stringify(r, null, 2);
   };
 
   $('logoutBtn').onclick = async () => {

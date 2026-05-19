@@ -21,6 +21,18 @@
         <pre id="loginOut" class="muted"></pre>
       </div>
 
+      <div class="card" id="loginDebugCard">
+        <div class="title" style="font-size:16px;">로그인 진단(문제 해결용)</div>
+        <div class="muted">ADMIN_BOOTSTRAP_TOKEN이 있을 때만 사용하세요.</div>
+        <div class="row" style="margin-top:10px">
+          <input id="debugToken" placeholder="ADMIN_BOOTSTRAP_TOKEN" />
+          <input id="debugUserId" placeholder="userId" />
+          <input id="debugPw" placeholder="password" type="password" />
+          <button id="debugLoginBtn" class="light">진단</button>
+        </div>
+        <pre id="debugLoginOut" class="muted"></pre>
+      </div>
+
       <div class="card" id="bootstrapCard">
         <div class="title" style="font-size:16px;">초기 관리자 생성(최초 1회)</div>
         <div class="muted">

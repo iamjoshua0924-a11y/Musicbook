@@ -119,7 +119,8 @@ router.get('/songs/cards', async (req, res) => {
   const allUserIds = Array.from(new Set(Array.from(cardAvailUsers.values()).flatMap((s) => Array.from(s))));
   const userMap = new Map();
   if (allUserIds.length) {
-    const users = await User.find({ userId: { $in: allUserIds }, active: { $ne: false }, role: { $ne: 'admin' } }).lean();
+    // include admin too (profilePhoto/displayName should still work)
+    const users = await User.find({ userId: { $in: allUserIds }, active: { $ne: false } }).lean();
     users.forEach((u) => userMap.set(String(u.userId), u));
   }
 

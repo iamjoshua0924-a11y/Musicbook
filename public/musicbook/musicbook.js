@@ -608,10 +608,14 @@ function renderRequests() {
     const row = document.createElement('div');
     row.className = 'req-row';
     row.dataset.id = r._id;
+    const st = statusLabel(r.status);
+    const title = `${String(r.songTitle || '').trim()}-${String(r.artist || '').trim()}`.replace(/-$/, '');
+    const requester = String(r.requesterName || '').trim();
+    const target = String(r.targetSinger || '').trim();
     row.innerHTML = `
       <div>
-        <div class="req-title">${esc(r.songTitle)} <span style="opacity:.6;font-size:12px">(${esc(statusLabel(r.status))})</span></div>
-        <div class="req-sub">${esc(r.requesterName)} · ${esc(r.artist || '')}${r.targetSinger ? ` · 담당: ${esc(r.targetSinger)}` : ''}</div>
+        <div class="req-title">${esc(title)} <span style="opacity:.6;font-size:12px">(${esc(st)})</span></div>
+        <div class="req-sub"><b>신청자:</b> ${esc(requester)}${target ? ` <span style="opacity:.7">담당보컬:</span> ${esc(target)}` : ''}</div>
       </div>
       <div class="req-actions">
         ${showManage ? `<span class="chip">선택</span>` : `<button class="floating-btn compact-btn" data-action="del" type="button">삭제</button>`}

@@ -22,7 +22,8 @@ router.get('/availability/users', async (_req, res) => {
     { $limit: 200 }
   ]);
   const userIds = rows.map((r) => String(r._id || '')).filter(Boolean);
-  const users = await User.find({ userId: { $in: userIds }, role: { $ne: 'admin' }, active: { $ne: false } }).lean();
+  // include admin too (profilePhoto/displayName should still work)
+  const users = await User.find({ userId: { $in: userIds }, active: { $ne: false } }).lean();
   const map = new Map(users.map((u) => [String(u.userId), u]));
   const items = userIds
     .map((id) => {

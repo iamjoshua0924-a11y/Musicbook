@@ -175,8 +175,8 @@ button.danger{ background:rgba(255,107,107,0.14); border-color:rgba(255,107,107,
   width: 7px;
   height: 80px;
   border-radius: 10px;
-  background: rgba(255, 255, 0, 0.22);
-  border: 1px solid rgba(255, 255, 0, 0.50);
+  background: rgba(255, 80, 80, 0.22);
+  border: 1px solid rgba(255, 80, 80, 0.55);
   box-shadow: 0 10px 30px rgba(0,0,0,0.20);
   transform: translate(-50%, -50%);
   pointer-events: none;

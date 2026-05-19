@@ -344,7 +344,7 @@ function applyRoleUI() {
   const isSession = state.role === 'session';
   const isPriv = isAdmin || isSession;
 
-  $('adminToggleBtn').style.display = isPriv ? 'inline-flex' : 'none';
+  $('adminToggleBtn').style.display = isAdmin ? 'inline-flex' : 'none';
   $('profileButton').style.display = isPriv ? 'inline-flex' : 'none';
   $('requestManageToggleBtn').style.display = isPriv ? 'inline-flex' : 'none';
 
@@ -356,6 +356,26 @@ function applyRoleUI() {
   const showAvail = isPriv;
   $('availUserFilter').style.display = showAvail ? 'inline-flex' : 'none';
   $('availOnlyWrap').style.display = showAvail ? 'inline-flex' : 'none';
+}
+
+function openCreateUserModal() {
+  if (state.role !== 'admin') return toast('관리자 권한이 필요합니다.');
+  $('createUserId').value = '';
+  $('createUserRole').value = 'session';
+  $('createUserName').value = '';
+  openModal('createUserModal');
+}
+
+async function submitCreateUser() {
+  if (state.role !== 'admin') return toast('관리자 권한이 필요합니다.');
+  const userId = $('createUserId').value.trim();
+  const role = $('createUserRole').value;
+  const displayName = $('createUserName').value.trim();
+  if (!userId) return toast('유저 ID를 입력하세요.');
+  const res = await apiJson('/api/admin/users', 'POST', { userId, role, displayName });
+  if (!res.ok) return toast(`유저 추가 실패: ${res.error || ''}`);
+  closeModal('createUserModal');
+  toast(`유저 생성 완료: ${userId} / PW: ${res.password || '(응답 없음)'}`);
 }
 
 async function refreshSession() {
@@ -487,6 +507,10 @@ function wireEvents() {
   $('toggleProfilePwBtn').onclick = () => toggleProfilePasswordBox();
   $('profilePwSaveBtn').onclick = () => submitPasswordChangeFromProfile().catch(() => {});
   $('profilePhotoInput').addEventListener('input', (e) => updateProfileImage('profilePreview', e.target.value.trim()));
+
+  $('createUserOpenBtn').onclick = () => openCreateUserModal();
+  $('createUserCancelBtn').onclick = () => closeModal('createUserModal');
+  $('createUserSubmitBtn').onclick = () => submitCreateUser().catch(() => {});
 
   $('loginCloseBtn').onclick = () => closeModal('loginModal');
   $('loginSubmitBtn').onclick = () => doLogin().catch(() => {});

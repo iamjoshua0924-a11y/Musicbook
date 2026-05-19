@@ -80,6 +80,7 @@
           <button class="floating-btn" id="editTitleBtn" type="button">타이틀 이미지 수정</button>
           <button class="floating-btn" id="syncAllBtn" type="button">전체 곡 동기화</button>
           <button class="floating-btn" id="syncFastBtn" type="button">최신곡 추가</button>
+          <button class="floating-btn" id="createUserOpenBtn" type="button">유저 추가</button>
         </div>
 
         <div class="app-container">
@@ -368,6 +369,23 @@
         <div class="modal-actions">
           <button class="floating-btn" id="profileCancelBtn" type="button">취소</button>
           <button class="floating-btn black-btn" id="profileSaveBtn" type="button">업로드</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Create user modal (GAS 원본 이식) -->
+    <div class="modal-overlay" id="createUserModal">
+      <div class="modal">
+        <div class="modal-title">유저 추가</div>
+        <input id="createUserId" class="input" placeholder="유저 ID" />
+        <select id="createUserRole" class="select">
+          <option value="session">session</option>
+          <option value="admin">admin</option>
+        </select>
+        <input id="createUserName" class="input" placeholder="표시 이름(옵션)" />
+        <div class="modal-actions">
+          <button class="floating-btn" id="createUserCancelBtn" type="button">취소</button>
+          <button class="floating-btn black-btn" id="createUserSubmitBtn" type="button">생성</button>
         </div>
       </div>
     </div>

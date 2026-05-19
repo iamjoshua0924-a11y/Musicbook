@@ -21,59 +21,6 @@
         <pre id="loginOut" class="muted"></pre>
       </div>
 
-      <div class="card" id="loginDebugCard">
-        <div class="title" style="font-size:16px;">로그인 진단(문제 해결용)</div>
-        <div class="muted">ADMIN_BOOTSTRAP_TOKEN이 있을 때만 사용하세요.</div>
-        <div class="row" style="margin-top:10px">
-          <input id="debugToken" placeholder="ADMIN_BOOTSTRAP_TOKEN" />
-          <input id="debugUserId" placeholder="userId" />
-          <input id="debugPw" placeholder="password" type="password" />
-          <button id="debugLoginBtn" class="light">진단</button>
-        </div>
-        <pre id="debugLoginOut" class="muted"></pre>
-      </div>
-
-      <div class="card" id="bootstrapCard">
-        <div class="title" style="font-size:16px;">초기 관리자 생성(최초 1회)</div>
-        <div class="muted">
-          DB에 admin이 없고, Render 환경변수 <span class="kbd">ADMIN_BOOTSTRAP_TOKEN</span>이 설정된 경우에만 동작합니다.
-        </div>
-        <div class="row" style="margin-top:10px">
-          <input id="bootToken" placeholder="ADMIN_BOOTSTRAP_TOKEN" />
-          <input id="bootUserId" placeholder="admin userId" />
-          <input id="bootPw" placeholder="admin password" type="password" />
-          <input id="bootName" placeholder="displayName(옵션)" />
-          <button id="bootstrapBtn">생성</button>
-        </div>
-        <pre id="bootstrapOut" class="muted"></pre>
-      </div>
-
-      <div class="card" id="legacyImportCard">
-        <div class="title" style="font-size:16px;">기존 DB(CSV) 이관</div>
-        <div class="muted">
-          Users/Songs/Availability/MainPage/Settings CSV를 넣으면 MongoDB로 업서트합니다.
-          초기 DB(관리자 없음)인 경우 <span class="kbd">ADMIN_BOOTSTRAP_TOKEN</span>을 같이 넣으면 로그인 없이도 1회 import 가능합니다.
-        </div>
-        <div class="row" style="margin-top:10px">
-          <input id="legacyToken" placeholder="ADMIN_BOOTSTRAP_TOKEN(선택)" />
-        </div>
-        <div class="grid2" style="margin-top:10px">
-          <div><div class="muted">Users.csv</div><input id="usersCsvFile" type="file" accept=".csv" /></div>
-          <div><div class="muted">Songs.csv</div><input id="songsCsvFile" type="file" accept=".csv" /></div>
-        </div>
-        <div class="grid2" style="margin-top:10px">
-          <div><div class="muted">Availability.csv</div><input id="availabilityCsvFile" type="file" accept=".csv" /></div>
-          <div><div class="muted">MainPage.csv</div><input id="mainPageCsvFile" type="file" accept=".csv" /></div>
-        </div>
-        <div class="grid2" style="margin-top:10px">
-          <div><div class="muted">Settings.csv</div><input id="settingsCsvFile" type="file" accept=".csv" /></div>
-        </div>
-        <div class="row" style="margin-top:10px">
-          <button id="legacyImportBtn">이관 실행</button>
-        </div>
-        <pre id="legacyImportOut" class="muted"></pre>
-      </div>
-
       <div class="card" id="meCard" style="display:none;">
         <div class="row">
           <div>현재 로그인: <span class="kbd" id="meText"></span></div>
@@ -110,22 +57,11 @@
         </div>
       </div>
 
-      <div class="card" id="mainImportCard" style="display:none;">
-        <div class="title" style="font-size:16px;">MainPage CSV 가져오기</div>
-        <div class="muted">GAS 관리DB(MainPage) CSV 내용을 그대로 붙여넣고 “적용”을 누르세요.</div>
-        <div style="margin-top:10px;">
-          <textarea id="mainCsvInput" rows="6" placeholder="항목,내용&#10;배너이미지,https://..."></textarea>
-        </div>
-        <div class="row" style="margin-top:10px;">
-          <button id="importMainCsvBtn" class="light">CSV 적용</button>
-          <span class="muted" id="importMainCsvOut"></span>
-        </div>
-      </div>
-
       <div class="card" id="syncCard" style="display:none;">
         <div class="title" style="font-size:16px;">Drive 동기화</div>
         <div class="row" style="margin-top:10px;">
-          <input id="rootFolderId" placeholder="rootFolderId(비우면 env 사용)" style="min-width:420px;" />
+          <input id="rootFolderId" placeholder="rootFolderId(기본값으로 저장됨)" style="min-width:420px;" />
+          <button id="saveRootFolderBtn" class="light">root 저장</button>
           <select id="latestDays">
             <option value="7">7일(최신곡)</option>
             <option value="30" selected>30일</option>
@@ -137,33 +73,6 @@
         </div>
         <div class="muted" style="margin-top:8px;">마지막 상태: <span id="syncStatusLine">-</span></div>
         <pre id="syncOut" class="muted"></pre>
-      </div>
-
-      <div class="card" id="usersCard" style="display:none;">
-        <div class="title" style="font-size:16px;">유저 관리</div>
-        <div class="row" style="margin-top:10px;">
-          <input id="newUserId" placeholder="userId" />
-          <input id="newPassword" placeholder="password" type="password" />
-          <select id="newRole">
-            <option value="session">session</option>
-            <option value="admin">admin</option>
-          </select>
-          <input id="newDisplayName" placeholder="displayName" />
-          <button id="createUserBtn">생성/업데이트</button>
-        </div>
-        <div class="list" id="usersList" style="margin-top:10px;"></div>
-      </div>
-
-      <div class="card" id="availCard" style="display:none;">
-        <div class="title" style="font-size:16px;">가능곡(Availability)</div>
-        <div class="row" style="margin-top:10px;">
-          <select id="availUserSelect"></select>
-          <input id="availSearch" placeholder="곡명/가수 검색" />
-          <button id="availLoadBtn" class="light">불러오기</button>
-          <button id="availSaveBtn">저장(선택 유저)</button>
-        </div>
-        <div class="avail-grid" id="availGrid" style="margin-top:10px;"></div>
-        <pre id="availOut" class="muted"></pre>
       </div>
     </div>
 

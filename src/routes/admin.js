@@ -2,68 +2,18 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const User = require('../models/User');
+const Setting = require('../models/Setting');
 const { requireLogin, requireAdmin, requireSessionOrAdmin } = require('../middleware/auth');
-const { driveRootFolderId, adminBootstrapToken } = require('../config/env');
+const { driveRootFolderId } = require('../config/env');
 const { syncDriveFolderTree } = require('../services/driveSync');
 const { KEYS, setJson, getJson } = require('../services/syncStatus');
-const { importLegacyBundle } = require('../services/legacyCsvImport');
 
 const router = express.Router();
 
-function isAdminSession(req) {
-  return Boolean(req.session?.user && req.session.user.role === 'admin');
+async function getDriveRootFolderId() {
+  const s = await Setting.findOne({ key: 'driveRootFolderId' }).lean();
+  return String(s?.value || driveRootFolderId || '').trim();
 }
-
-async function allowBootstrap(req) {
-  if (!adminBootstrapToken) return false;
-  const token = String(req.body?.token || req.query?.token || '');
-  if (!token || token !== adminBootstrapToken) return false;
-  // Allow only when there is no active admin yet
-  const existingAdmin = await User.findOne({ role: 'admin', active: { $ne: false } }).lean();
-  return !existingAdmin;
-}
-
-// One-time bootstrap admin creation (for fresh DB).
-router.post('/admin/bootstrap', async (req, res) => {
-  if (!adminBootstrapToken) return res.status(404).json({ ok: false, error: 'DISABLED' });
-  const token = String(req.body?.token || '');
-  if (token !== adminBootstrapToken) return res.status(403).json({ ok: false, error: 'FORBIDDEN' });
-
-  const existingAdmin = await User.findOne({ role: 'admin', active: { $ne: false } }).lean();
-  if (existingAdmin) return res.status(409).json({ ok: false, error: 'ALREADY_EXISTS' });
-
-  const userId = String(req.body?.userId || '').trim();
-  const password = String(req.body?.password || '');
-  const displayName = String(req.body?.displayName || userId).trim();
-  if (!userId || !password) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
-
-  const passwordHash = await bcrypt.hash(password, 10);
-  const doc = await User.create({ userId, passwordHash, role: 'admin', displayName, active: true });
-  res.json({ ok: true, item: doc.toObject() });
-});
-
-// Legacy CSV import bundle (MainPage/Songs/Users/Availability/Settings).
-// Admin-only, but allow bootstrap token ONLY when no admin exists (fresh DB).
-router.post('/admin/import/legacy', async (req, res) => {
-  const okByAdmin = isAdminSession(req);
-  const okByBootstrap = okByAdmin ? false : await allowBootstrap(req);
-  if (!okByAdmin && !okByBootstrap) return res.status(403).json({ ok: false, error: 'FORBIDDEN' });
-
-  const bundle = {
-    mainPageCsv: String(req.body?.mainPageCsv || ''),
-    songsCsv: String(req.body?.songsCsv || ''),
-    usersCsv: String(req.body?.usersCsv || ''),
-    availabilityCsv: String(req.body?.availabilityCsv || ''),
-    settingsCsv: String(req.body?.settingsCsv || '')
-  };
-
-  try {
-    const result = await importLegacyBundle(bundle);
-    res.json({ ok: true, result });
-  } catch (e) {
-    res.status(400).json({ ok: false, error: String(e.message || 'IMPORT_FAILED') });
-  }
-});
 
 router.get('/admin/me', requireLogin, async (req, res) => {
   const user = await User.findById(req.session.user.id).lean();
@@ -179,61 +129,23 @@ router.post('/admin/logout', requireLogin, async (req, res) => {
   });
 });
 
-// Debug: check if a user exists / hash type (bootstrap token OR admin).
-router.post('/admin/debug/verify', async (req, res) => {
-  const okByAdmin = isAdminSession(req);
-  const token = String(req.body?.token || '');
-  const okByToken = Boolean(adminBootstrapToken && token && token === adminBootstrapToken);
-  if (!okByAdmin && !okByToken) return res.status(403).json({ ok: false, error: 'FORBIDDEN' });
-
-  const userId = String(req.body?.userId || '').trim();
-  const password = String(req.body?.password || '');
-  if (!userId || !password) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
-
-  const user = await User.findOne({ userId }).lean();
-  if (!user) return res.json({ ok: true, exists: false });
-
-  const sha = crypto.createHash('sha256').update(password).digest('hex');
-  const stored = String(user.passwordHash || '');
-  const looksBcrypt = stored.startsWith('$2a$') || stored.startsWith('$2b$') || stored.startsWith('$2y$');
-  let bcryptOk = false;
-  if (looksBcrypt) {
-    try {
-      bcryptOk = await bcrypt.compare(password, stored);
-    } catch {
-      bcryptOk = false;
-    }
-  }
-  const shaOk = stored === sha || (user.legacyPasswordHash ? user.legacyPasswordHash === sha : false);
-
-  res.json({
-    ok: true,
-    exists: true,
-    active: user.active !== false,
-    role: user.role,
-    mustChangePassword: Boolean(user.mustChangePassword),
-    looksBcrypt,
-    bcryptOk,
-    shaOk
-  });
-});
-
 router.post('/admin/users', requireAdmin, async (req, res) => {
   const userId = String(req.body?.userId || '').trim();
-  const password = String(req.body?.password || '');
+  const passwordInput = String(req.body?.password || '');
   const role = String(req.body?.role || '').trim();
   const displayName = String(req.body?.displayName || '').trim();
-  if (!userId || !password || !['admin', 'session'].includes(role)) {
+  if (!userId || !['admin', 'session'].includes(role)) {
     return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
   }
 
+  const password = passwordInput || crypto.randomBytes(6).toString('base64url');
   const passwordHash = await bcrypt.hash(password, 10);
   const doc = await User.findOneAndUpdate(
     { userId },
     { $set: { userId, passwordHash, role, displayName, active: true } },
     { upsert: true, new: true }
   );
-  res.json({ ok: true, item: doc.toObject() });
+  res.json({ ok: true, item: doc.toObject(), password });
 });
 
 router.get('/admin/users', requireAdmin, async (req, res) => {
@@ -257,7 +169,7 @@ router.get('/admin/sync/status', requireSessionOrAdmin, async (req, res) => {
 });
 
 router.post('/admin/sync/drive', requireAdmin, async (req, res) => {
-  const rootFolderId = String(req.body?.rootFolderId || driveRootFolderId || '').trim();
+  const rootFolderId = String(req.body?.rootFolderId || (await getDriveRootFolderId()) || '').trim();
   try {
     const latestDays = Number(req.body?.latestDays || 30);
     const limit = Number(req.body?.limit || 5000);
@@ -292,6 +204,18 @@ router.post('/admin/sync/drive', requireAdmin, async (req, res) => {
     await setJson(KEYS.driveSyncStatus, { endedAt, running: false, ok: false, error: String(e.message || 'SYNC_FAILED') });
     res.status(400).json({ ok: false, error: String(e.message || 'SYNC_FAILED') });
   }
+});
+
+// Drive sync root folder config (stored in DB)
+router.get('/admin/drive-root', requireAdmin, async (_req, res) => {
+  const value = await getDriveRootFolderId();
+  res.json({ ok: true, rootFolderId: value });
+});
+
+router.patch('/admin/drive-root', requireAdmin, async (req, res) => {
+  const value = String(req.body?.rootFolderId || '').trim();
+  await Setting.findOneAndUpdate({ key: 'driveRootFolderId' }, { $set: { key: 'driveRootFolderId', value } }, { upsert: true });
+  res.json({ ok: true, rootFolderId: value });
 });
 
 module.exports = router;

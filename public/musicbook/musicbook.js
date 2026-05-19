@@ -183,12 +183,12 @@ function renderSongCards(hideTags) {
           : `불가`
         : '';
 
-    // 카드 레이아웃: 가수(강조) 위, 제목 아래
+    // 카드 레이아웃: 제목(강조) 위, 가수(보조) 아래
     el.innerHTML = `
       <div class="song-card-header">
         <div>
-          <div class="song-card-artist">${esc(s.artist || '')}</div>
           <div class="song-card-title">${esc(title)}</div>
+          <div class="song-card-artist">${esc(s.artist || '')}</div>
         </div>
         <div class="song-card-right">
           ${s.isLatest ? `<span class="new-badge">NEW</span>` : ''}

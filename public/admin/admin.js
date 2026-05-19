@@ -16,7 +16,7 @@ async function apiJson(url, method, body) {
 
 function showAuthed(on) {
   $('loginCard').style.display = on ? 'none' : 'block';
-  ['meCard', 'mainCard', 'syncCard', 'parseErrorCard'].forEach((id) => {
+  ['meCard', 'mainCard', 'syncCard', 'parseErrorCard', 'csvImportCard'].forEach((id) => {
     $(id).style.display = on ? 'block' : 'none';
   });
 }
@@ -163,6 +163,21 @@ function wire() {
   $('saveRootFolderBtn').onclick = () => saveDriveRoot().catch(() => {});
   $('syncBtn').onclick = () => syncDrive().catch(() => {});
   $('reloadParseErrorsBtn').onclick = () => loadParseErrors().catch(() => {});
+
+  $('importSongsCsvBtn').onclick = async () => {
+    const f = $('songsCsvFile')?.files?.[0];
+    if (!f) return alert('CSV 파일을 선택하세요.');
+    $('importSongsCsvOut').textContent = '업로드/임포트 중...';
+    const text = await f.text();
+    const r = await apiJson('/api/admin/import/songs-csv', 'POST', { csvText: text });
+    $('importSongsCsvDetail').textContent = JSON.stringify(r, null, 2);
+    if (!r.ok) {
+      $('importSongsCsvOut').textContent = `실패: ${r.error || ''}`;
+      return;
+    }
+    $('importSongsCsvOut').textContent = `완료 · created=${r.created ?? 0} updated=${r.updated ?? 0} skippedSame=${r.skippedSame ?? 0} dupSkipped=${r.duplicatesSkipped ?? 0}`;
+    setTimeout(() => ($('importSongsCsvOut').textContent = ''), 2500);
+  };
 }
 
 async function boot() {

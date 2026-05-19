@@ -2,6 +2,7 @@ const express = require('express');
 const Song = require('../models/Song');
 const { requireSessionOrAdmin } = require('../middleware/auth');
 const Availability = require('../models/Availability');
+const User = require('../models/User');
 
 const router = express.Router();
 
@@ -62,6 +63,7 @@ router.get('/songs/cards', async (req, res) => {
 
   const songs = await Song.find(filter).sort({ title: 1, artist: 1, key: 1, googleFileId: 1 }).limit(5000).lean();
   const cardsByKey = new Map(); // cardKey -> card
+  const fileIdToCardKey = new Map(); // googleFileId -> cardKey
 
   for (const s of songs) {
     if (availSet && !availSet.has(s.googleFileId)) continue;
@@ -96,6 +98,29 @@ router.get('/songs/cards', async (req, res) => {
         driveUrl: s.driveUrl || ''
       });
     }
+    fileIdToCardKey.set(String(s.googleFileId), cardKey);
+  }
+
+  // Availability -> card별 가능한 유저(프로필) 집계
+  const cardAvailUsers = new Map(); // cardKey -> Set<userId>
+  const fileIds = Array.from(fileIdToCardKey.keys());
+  if (fileIds.length) {
+    const av = await Availability.find({ googleFileId: { $in: fileIds }, available: true }).lean();
+    av.forEach((a) => {
+      const fid = String(a.googleFileId || '');
+      const ck = fileIdToCardKey.get(fid);
+      if (!ck) return;
+      const uid = String(a.userId || '').trim();
+      if (!uid) return;
+      if (!cardAvailUsers.has(ck)) cardAvailUsers.set(ck, new Set());
+      cardAvailUsers.get(ck).add(uid);
+    });
+  }
+  const allUserIds = Array.from(new Set(Array.from(cardAvailUsers.values()).flatMap((s) => Array.from(s))));
+  const userMap = new Map();
+  if (allUserIds.length) {
+    const users = await User.find({ userId: { $in: allUserIds }, active: { $ne: false }, role: { $ne: 'admin' } }).lean();
+    users.forEach((u) => userMap.set(String(u.userId), u));
   }
 
   const cards = [];
@@ -103,6 +128,15 @@ router.get('/songs/cards', async (req, res) => {
     const variants = Array.from(card.variantsByKey.values()).sort((a, b) => String(a.key).localeCompare(String(b.key)));
     const keys = variants.map((v) => v.key);
     const searchText = `${card.title} ${card.artist} ${card.genre} ${card.mood} ${card.vocal} ${keys.join(' ')}`.toLowerCase();
+    const uids = Array.from(cardAvailUsers.get(card.cardId) || []);
+    const availableUsers = uids
+      .map((uid) => {
+        const u = userMap.get(uid);
+        const displayName = String(u?.displayName || uid);
+        return { userId: uid, displayName, profilePhoto: String(u?.profilePhoto || '') };
+      })
+      .sort((a, b) => a.displayName.localeCompare(b.displayName))
+      .slice(0, 12);
     cards.push({
       cardId: card.cardId,
       title: card.title,
@@ -113,6 +147,7 @@ router.get('/songs/cards', async (req, res) => {
       isLatest: card.isLatest,
       keys,
       variants,
+      availableUsers,
       searchText
     });
   }

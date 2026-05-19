@@ -84,6 +84,17 @@
         </div>
         <div class="list" id="parseErrorList" style="margin-top:10px;"></div>
       </div>
+
+      <div class="card" id="csvImportCard" style="display:none;">
+        <div class="title" style="font-size:16px;">CSV 임포트(곡 DB)</div>
+        <div class="muted">CSV 파일을 업로드해서 DB를 임포트합니다. 동일한 값은 스킵하고, 변경/비일치 항목만 CSV 값으로 덮어씁니다.</div>
+        <div class="row" style="margin-top:10px; gap:10px; flex-wrap:wrap;">
+          <input id="songsCsvFile" type="file" accept=".csv,text/csv" />
+          <button id="importSongsCsvBtn">임포트 실행</button>
+          <span class="muted" id="importSongsCsvOut"></span>
+        </div>
+        <pre id="importSongsCsvDetail" class="muted"></pre>
+      </div>
     </div>
 
     <script src="/public/admin/admin.js"></script>

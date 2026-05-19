@@ -170,6 +170,100 @@ async function importSongs(csvText) {
   return { ok: true, imported };
 }
 
+async function importSongsSelective(csvText) {
+  if (!csvText) return { ok: true, created: 0, updated: 0, skippedSame: 0, duplicatesSkipped: 0 };
+  const rows = parseCsv(csvText);
+  const header = rows[0] || [];
+  const idx = (name) => header.findIndex((h) => h.includes(name));
+  const col = {
+    legacySongId: idx('곡 ID'),
+    title: idx('곡 제목'),
+    displayTitle: idx('표시'),
+    key: idx('키'),
+    artist: idx('아티스트'),
+    genre: idx('장르'),
+    mood: idx('분위기'),
+    vocal: idx('보컬'),
+    googleFileId: idx('드라이브 파일 ID'),
+    driveUrl: idx('드라이브 링크'),
+    folderPath: idx('폴더 경로'),
+    searchText: idx('검색 인덱스'),
+    parseError: idx('파싱 오류'),
+    hidden: idx('숨김')
+  };
+
+  const seen = new Set();
+  let created = 0;
+  let updated = 0;
+  let skippedSame = 0;
+  let duplicatesSkipped = 0;
+
+  for (const r of rows.slice(1)) {
+    const googleFileId = String(r[col.googleFileId] || '').trim();
+    if (!googleFileId) continue;
+    if (seen.has(googleFileId)) {
+      duplicatesSkipped += 1;
+      continue;
+    }
+    seen.add(googleFileId);
+
+    const doc = {
+      legacySongId: String(r[col.legacySongId] || '').trim(),
+      title: String(r[col.title] || '').trim(),
+      displayTitle: String(r[col.displayTitle] || r[col.title] || '').trim(),
+      key: String(r[col.key] || '').trim(),
+      artist: String(r[col.artist] || '').trim(),
+      genre: String(r[col.genre] || '').trim(),
+      mood: String(r[col.mood] || '').trim(),
+      vocal: String(r[col.vocal] || '').trim(),
+      googleFileId,
+      driveUrl: String(r[col.driveUrl] || '').trim(),
+      folderPath: String(r[col.folderPath] || '').trim(),
+      searchText: (String(r[col.searchText] || `${r[col.displayTitle] || ''} ${r[col.artist] || ''}`).trim()).toLowerCase(),
+      parseError: String(r[col.parseError] || '').trim(),
+      hidden: boolFromLegacy(r[col.hidden])
+    };
+
+    const prev = await Song.findOne({ googleFileId }).lean();
+    if (!prev) {
+      await Song.create({ ...doc });
+      created += 1;
+      continue;
+    }
+
+    const keys = [
+      'legacySongId',
+      'title',
+      'displayTitle',
+      'key',
+      'artist',
+      'genre',
+      'mood',
+      'vocal',
+      'driveUrl',
+      'folderPath',
+      'searchText',
+      'parseError',
+      'hidden'
+    ];
+    const changed = {};
+    keys.forEach((k) => {
+      const pv = prev[k];
+      const nv = doc[k];
+      const eq = typeof nv === 'boolean' ? Boolean(pv) === Boolean(nv) : String(pv ?? '').trim() === String(nv ?? '').trim();
+      if (!eq) changed[k] = nv;
+    });
+    if (!Object.keys(changed).length) {
+      skippedSame += 1;
+      continue;
+    }
+    await Song.updateOne({ googleFileId }, { $set: { ...changed, updatedAt: new Date() } });
+    updated += 1;
+  }
+
+  return { ok: true, created, updated, skippedSame, duplicatesSkipped };
+}
+
 async function importUsers(csvText) {
   if (!csvText) return { ok: true, imported: 0, generated: [] };
   const rows = parseCsv(csvText);
@@ -262,5 +356,8 @@ async function importLegacyBundle(bundle) {
   return result;
 }
 
-module.exports = { parseCsv, importLegacyBundle };
-
+module.exports = {
+  parseCsv,
+  importLegacyBundle,
+  importSongsSelective
+};

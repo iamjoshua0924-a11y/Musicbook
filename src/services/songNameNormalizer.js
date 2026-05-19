@@ -82,14 +82,30 @@ function normalizeSongFileName({ filenameNoExt, artistFreqMap } = {}) {
   const rightK = extractKeyAndStrip(right0);
 
   if (!ok) {
-    // delimiter가 없으면 제목만으로 저장(키는 괄호에서 추출)
+    // delimiter가 없으면 기본은 제목만 저장.
+    // 단, "가수 곡제목(조성)"처럼 공백으로 구분되고 괄호 조성이 있으면:
+    // - 괄호(조성)가 붙은 텍스트는 무조건 제목으로 분류
+    // - 앞 토큰(숫자/영문 위주)은 가수로 분류
     const kOnly = extractKeyAndStrip(raw);
-    const titleOnly = kOnly.stripped || raw;
+    const stripped = kOnly.stripped || raw;
+    const parts = stripped.split(/\s+/).map((x) => clean(x)).filter(Boolean);
+    const first = parts[0] || '';
+    const rest = parts.slice(1).join(' ').trim();
+    const looksAsciiArtist = /^[0-9A-Za-z._-]{2,}$/.test(first);
+    if (kOnly.found && looksAsciiArtist && rest) {
+      return {
+        title: rest,
+        key: kOnly.key || '',
+        artist: first,
+        normalized: `${rest}//${kOnly.key || ''}//${first}`,
+        parseError: 'NO_HYPHEN_SPLIT_BY_SPACE'
+      };
+    }
     return {
-      title: titleOnly,
+      title: stripped,
       key: kOnly.key || '',
       artist: '',
-      normalized: `${titleOnly}//${kOnly.key || ''}//`,
+      normalized: `${stripped}//${kOnly.key || ''}//`,
       parseError: 'FILENAME_PARSE_FAILED'
     };
   }

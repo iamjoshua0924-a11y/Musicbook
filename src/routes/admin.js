@@ -7,6 +7,7 @@ const Song = require('../models/Song');
 const { requireLogin, requireAdmin, requireSessionOrAdmin } = require('../middleware/auth');
 const { runDriveSync, getDriveRootFolderId } = require('../services/driveSyncRunner');
 const { KEYS, getJson } = require('../services/syncStatus');
+const { importSongsSelective } = require('../services/legacyCsvImport');
 
 const router = express.Router();
 
@@ -300,6 +301,14 @@ router.patch('/admin/song-cards', requireAdmin, async (req, res) => {
     { $set }
   );
   res.json({ ok: true, matched: r.matchedCount ?? r.n ?? 0, modified: r.modifiedCount ?? r.nModified ?? 0 });
+});
+
+// CSV 업로드(곡) 임포트: 동일값은 스킵, 변경/비일치 항목만 CSV 값으로 덮어쓰기
+router.post('/admin/import/songs-csv', requireAdmin, async (req, res) => {
+  const csvText = String(req.body?.csvText || '');
+  if (!csvText.trim()) return res.status(400).json({ ok: false, error: 'CSV_REQUIRED' });
+  const r = await importSongsSelective(csvText);
+  res.json({ ok: true, ...r });
 });
 
 module.exports = router;

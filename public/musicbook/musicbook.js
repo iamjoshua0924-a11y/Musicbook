@@ -224,6 +224,24 @@ function renderSongCards(hideTags) {
     const keyLabel = c.keyLabel || '-';
 
     const isAdmin = state.role === 'admin';
+    const users = Array.isArray(c.availableUsers) ? c.availableUsers : [];
+    const maxShown = 5;
+    const shown = users.slice(0, maxShown);
+    const more = users.length > maxShown ? users.length - maxShown : 0;
+    const avatarHtml = `
+      <div class="mini-avatars">
+        ${shown
+          .map((u) => {
+            const name = String(u.displayName || u.userId || '').trim();
+            const initial = name ? name.slice(0, 1) : '?';
+            return u.profilePhoto
+              ? `<span class="mini-avatar" title="${esc(name)}"><img src="${esc(u.profilePhoto)}" alt="" /></span>`
+              : `<span class="mini-avatar" title="${esc(name)}">${esc(initial)}</span>`;
+          })
+          .join('')}
+        ${more ? `<span class="mini-avatar more" title="+${more}명">+${more}</span>` : ''}
+      </div>
+    `;
     // 카드 레이아웃: 제목(강조) 위, 가수(보조) 아래
     el.innerHTML = `
       <div class="song-card-header">
@@ -232,6 +250,7 @@ function renderSongCards(hideTags) {
           <div class="song-card-artist">${esc(c.artist || '')}</div>
         </div>
         <div class="song-card-right">
+          ${avatarHtml}
           ${isAdmin ? `<span class="chip edit-chip" data-action="editSong">편집</span>` : ''}
         </div>
       </div>

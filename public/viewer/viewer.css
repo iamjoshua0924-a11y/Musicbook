@@ -127,6 +127,9 @@ button:disabled{
   height: 18px;
   display:block;
 }
+
+#toolBar .iconBtn svg{ width: 16px; height: 16px; }
+#toolBar .iconBtn{ width: 38px; padding: 0; }
 #themeBtn, #touchBtn{ height:28px; padding:6px 10px; border-radius:10px; font-size:12px; }
 .floatToggles button{
   height:32px;
@@ -558,10 +561,7 @@ body.live-mode #touchHeader{ display:block; }
 body.touch-mode #touchNavBottom,
 body.live-mode #touchNavBottom{ display:flex; }
 
-/* 시트가 열렸을 때는 하단 네비가 시트를 덮지 않게 클릭을 막음 */
-body.sheet-open #touchNavBottom{
-  pointer-events:none;
-}
+/* (시트가 열려도 하단 네비는 유지) */
 body.touch-mode.landscape #touchHeader,
 body.live-mode.landscape #touchHeader{ padding-top: 6px; }
 body.touch-mode.landscape #touchNavBottom,

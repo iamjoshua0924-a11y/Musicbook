@@ -686,14 +686,7 @@ function canUseToolsNow() {
 }
 
 function updateTurnerToggleAccess() {
-  const canToggle = state.isInSession ? canUseToolsNow() : true;
-  ['toggleLinkBtn', 'toggleViewBtn', 'toggleToolBtn'].forEach((id) => {
-    const btn = document.getElementById(id);
-    if (!btn) return;
-    btn.disabled = !canToggle;
-    btn.classList.toggle('disabled', !canToggle);
-  });
-  if (state.isInSession && !canUseToolsNow()) setSessionUiDefaultsIfNeeded();
+  // 링크/보기/도구 UI 토글은 세션 권한과 무관하게 사용 가능(주석 공유만 권한 필요)
 }
 
 function updateSongBookPickVisibility() {
@@ -1246,24 +1239,23 @@ document.getElementById('touchNextBtn')?.addEventListener('click', () => {
   changePage(state.pageNo + pageTurnStep(), 'touch');
   updateUrlState();
 });
-function toggleBottomSheet(e) {
-  // 문서 레벨 auto-close 핸들러에 의해 즉시 닫히는 것 방지
+function toggleSessionPanel(e) {
   try {
     e?.preventDefault?.();
     e?.stopPropagation?.();
   } catch {}
-  document.body.classList.toggle('sheet-open');
-  flashHud(document.body.classList.contains('sheet-open') ? '메뉴 열림' : '메뉴 닫힘', 700);
+  const panel = document.getElementById('participantsPanel');
+  if (!panel) return;
+  panel.classList.toggle('hidden');
+  flashHud(panel.classList.contains('hidden') ? '세션 목록 닫힘' : '세션 목록 열림', 700);
 }
 
-document.getElementById('touchMenuBtn')?.addEventListener('click', toggleBottomSheet);
-// iOS에서 click이 불안정한 경우 대비
-document.getElementById('touchMenuBtn')?.addEventListener('touchend', toggleBottomSheet, { passive: false });
+document.getElementById('touchMenuBtn')?.addEventListener('click', toggleSessionPanel);
+document.getElementById('touchMenuBtn')?.addEventListener('touchend', toggleSessionPanel, { passive: false });
 
-// iOS/Safari에서 하단바 클릭이 불안정한 케이스 대비: 컨테이너 클릭도 허용
 document.getElementById('touchNavBottom')?.addEventListener('click', (e) => {
   if (e.target?.id !== 'touchMenuBtn') return;
-  toggleBottomSheet(e);
+  toggleSessionPanel(e);
 });
 
 // Tap zones (GAS style): left=prev, right=next, center=toggle palette
@@ -1841,9 +1833,9 @@ ro.observe(els.pdfContainer);
 // (브러시 UI 제거: 기본 값 사용)
 
 function setTool(tool, shape = null) {
-  if (state.isInSession && !canUseToolsNow()) {
-    flashHud('도구 권한이 없습니다(도구요청 버튼으로 요청)', 1400);
-    return;
+  // 세션 참여 중이더라도 도구 사용 자체는 허용(단, 공유/동기화는 권한 필요)
+  if (state.isInSession && !canUseToolsNow() && tool !== 'select') {
+    flashHud('로컬 주석 모드(공유 안됨)', 900);
   }
   // 커서공유는 "표시 모드"이므로, 다른 도구로 전환하면 자동 중단
   if (state.cursorShareOn) stopCursorShare(true);
@@ -2028,15 +2020,12 @@ window.addEventListener('resize', updateLiveMode);
 
 // Desktop toggles (GAS 원본)
 document.getElementById('toggleViewBtn')?.addEventListener('click', () => {
-  if (state.isInSession && !canUseToolsNow()) return;
   document.getElementById('viewBar')?.classList.toggle('isHidden');
 });
 document.getElementById('toggleToolBtn')?.addEventListener('click', () => {
-  if (state.isInSession && !canUseToolsNow()) return;
   document.getElementById('toolBar')?.classList.toggle('isHidden');
 });
 document.getElementById('toggleLinkBtn')?.addEventListener('click', () => {
-  if (state.isInSession && !canUseToolsNow()) return;
   const next = !document.body.classList.contains('link-collapsed');
   document.body.classList.toggle('link-collapsed', next);
   localStorage.setItem('mb_viewer_linkCollapsed', next ? '1' : '0');

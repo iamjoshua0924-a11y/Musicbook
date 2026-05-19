@@ -90,34 +90,62 @@
           <div class="group">
             <span class="label">도구</span>
             <div class="seg">
-              <button id="selectBtn" type="button" class="mini">선택</button>
-              <button id="penBtn" type="button" class="mini">펜</button>
-              <button id="highlighterBtn" type="button" class="mini">형광펜</button>
-              <button id="lineBtn" type="button" class="mini">선</button>
-              <button id="rectBtn" type="button" class="mini">사각</button>
-              <button id="circleBtn" type="button" class="mini">원</button>
-              <button id="eraserBtn" type="button" class="mini">지우개</button>
-              <button id="textBtn" type="button" class="mini">텍스트</button>
-              <button id="laserBtn" type="button" class="mini">레이저</button>
-              <button id="cursorShareBtn" type="button" class="mini">커서공유</button>
+              <button id="selectBtn" type="button" class="mini" title="선택">선택</button>
+              <button id="penBtn" type="button" class="mini iconBtn" aria-label="pen" title="펜">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true">
+                  <path fill="currentColor" d="M12.854.146a.5.5 0 0 0-.707 0L10.5 1.793 14.207 5.5l1.647-1.646a.5.5 0 0 0 0-.708zm.646 6.061L9.793 2.5 3.293 9H3.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.207zm-7.468 7.468A.5.5 0 0 1 6 13.5V13h-.5a.5.5 0 0 1-.5-.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.5-.5V10h-.5a.5.5 0 0 1-.175-.032l-.179.178a.5.5 0 0 0-.11.168l-2 5a.5.5 0 0 0 .65.65l5-2a.5.5 0 0 0 .168-.11z"/>
+                </svg>
+              </button>
+              <button id="highlighterBtn" type="button" class="mini iconBtn" aria-label="highlighter" title="형광펜">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true">
+                  <path fill="currentColor" fill-rule="evenodd" d="M11.096.644a2 2 0 0 1 2.791.036l1.433 1.433a2 2 0 0 1 .035 2.791l-.413.435-8.07 8.995a.5.5 0 0 1-.372.166h-3a.5.5 0 0 1-.234-.058l-.412.412A.5.5 0 0 1 2.5 15h-2a.5.5 0 0 1-.354-.854l1.412-1.412A.5.5 0 0 1 1.5 12.5v-3a.5.5 0 0 1 .166-.372l8.995-8.07zm-.115 1.47L2.727 9.52l3.753 3.753 7.406-8.254zm3.585 2.17.064-.068a1 1 0 0 0-.017-1.396L13.18 1.387a1 1 0 0 0-1.396-.018l-.068.065zM5.293 13.5 2.5 10.707v1.586L3.707 13.5z"/>
+                </svg>
+              </button>
+              <button id="lineBtn" type="button" class="mini iconBtn" aria-label="line" title="선">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true">
+                  <path fill="currentColor" fill-rule="evenodd" d="M2 8a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11A.5.5 0 0 1 2 8"/>
+                </svg>
+              </button>
+              <button id="rectBtn" type="button" class="mini iconBtn" aria-label="rectangle" title="사각형">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true">
+                  <path fill="currentColor" d="M14 1a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1zM2 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2z"/>
+                </svg>
+              </button>
+              <button id="circleBtn" type="button" class="mini iconBtn" aria-label="circle" title="원">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true">
+                  <path fill="currentColor" d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14m0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16"/>
+                </svg>
+              </button>
+              <button id="eraserBtn" type="button" class="mini iconBtn" aria-label="eraser" title="지우개">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true">
+                  <path fill="currentColor" d="M8.086 2.207a2 2 0 0 1 2.828 0l3.879 3.879a2 2 0 0 1 0 2.828l-5.5 5.5A2 2 0 0 1 7.879 15H5.12a2 2 0 0 1-1.414-.586l-2.5-2.5a2 2 0 0 1 0-2.828zm2.121.707a1 1 0 0 0-1.414 0L4.16 7.547l5.293 5.293 4.633-4.633a1 1 0 0 0 0-1.414zM8.746 13.547 3.453 8.254 1.914 9.793a1 1 0 0 0 0 1.414l2.5 2.5a1 1 0 0 0 .707.293H7.88a1 1 0 0 0 .707-.293z"/>
+                </svg>
+              </button>
+              <button id="textBtn" type="button" class="mini iconBtn" aria-label="text" title="텍스트">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true">
+                  <path fill="currentColor" d="M12.258 3h-8.51l-.083 2.46h.479c.26-1.544.758-1.783 2.693-1.845l.424-.013v7.827c0 .663-.144.82-1.3.923v.52h4.082v-.52c-1.162-.103-1.306-.26-1.306-.923V3.602l.431.013c1.934.062 2.434.301 2.693 1.846h.479z"/>
+                </svg>
+              </button>
+              <button id="laserBtn" type="button" class="mini iconBtn" aria-label="laser" title="레이저">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true">
+                  <path fill="currentColor" d="M8.5.5a.5.5 0 0 0-1 0v.518A7 7 0 0 0 1.018 7.5H.5a.5.5 0 0 0 0 1h.518A7 7 0 0 0 7.5 14.982v.518a.5.5 0 0 0 1 0v-.518A7 7 0 0 0 14.982 8.5h.518a.5.5 0 0 0 0-1h-.518A7 7 0 0 0 8.5 1.018zm-6.48 7A6 6 0 0 1 7.5 2.02v.48a.5.5 0 0 0 1 0v-.48a6 6 0 0 1 5.48 5.48h-.48a.5.5 0 0 0 0 1h.48a6 6 0 0 1-5.48 5.48v-.48a.5.5 0 0 0-1 0v.48A6 6 0 0 1 2.02 8.5h.48a.5.5 0 0 0 0-1zM8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4"/>
+                </svg>
+              </button>
+              <button id="cursorShareBtn" type="button" class="mini" title="커서공유">커서공유</button>
             </div>
           </div>
           <div class="spacer"></div>
           <div class="group">
             <button id="undoBtn" type="button" class="mini iconBtn" aria-label="undo" title="Undo">
-              <svg viewBox="0 0 16 16" aria-hidden="true">
-                <path
-                  fill="currentColor"
-                  d="M8 3a5 5 0 1 1-4.546 2.916.5.5 0 1 1 .909-.416A4 4 0 1 0 8 4H5.707l.147.146a.5.5 0 0 1-.708.708l-1-1a.5.5 0 0 1 0-.708l1-1a.5.5 0 1 1 .708.708L5.707 3H8z"
-                />
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true">
+                <path fill="currentColor" fill-rule="evenodd" d="M8 3a5 5 0 1 1-4.546 2.914.5.5 0 0 0-.908-.417A6 6 0 1 0 8 2z"/>
+                <path fill="currentColor" d="M8 4.466V.534a.25.25 0 0 0-.41-.192L5.23 2.308a.25.25 0 0 0 0 .384l2.36 1.966A.25.25 0 0 0 8 4.466"/>
               </svg>
             </button>
             <button id="redoBtn" type="button" class="mini iconBtn" aria-label="redo" title="Redo">
-              <svg viewBox="0 0 16 16" aria-hidden="true">
-                <path
-                  fill="currentColor"
-                  d="M8 3a5 5 0 1 0 4.546 2.916.5.5 0 0 0-.909-.416A4 4 0 1 1 8 4h2.293l-.147.146a.5.5 0 0 0 .708.708l1-1a.5.5 0 0 0 0-.708l-1-1a.5.5 0 1 0-.708.708L10.293 3H8z"
-                />
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true">
+                <path fill="currentColor" fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2z"/>
+                <path fill="currentColor" d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466"/>
               </svg>
             </button>
             <button id="clearBtn" type="button" class="mini danger">주석 전체삭제</button>
@@ -152,7 +180,7 @@
         <div id="touchNavBottom">
           <button id="touchPrevBtn" type="button">◀</button>
           <button id="touchMenuBtn" type="button">⋯</button>
-          <button id="touchNextBtn" type="button">▶</button>
+            <button id="touchMenuBtn" type="button">세션</button>
         </div>
 
         <aside id="participantsPanel" class="hidden">

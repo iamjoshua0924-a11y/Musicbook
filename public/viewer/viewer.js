@@ -48,6 +48,55 @@ function getOrCreateNickname() {
   return '';
 }
 
+function isMobileLike() {
+  const isCoarse = window.matchMedia('(pointer: coarse)').matches;
+  return window.matchMedia('(max-width: 980px)').matches || isCoarse;
+}
+
+function openJoinModal({ nickname = '', roomCode = '' } = {}) {
+  const overlay = document.getElementById('joinModal');
+  const nickField = document.getElementById('joinNickField');
+  const roomField = document.getElementById('joinRoomField');
+  const okBtn = document.getElementById('joinOkBtn');
+  const cancelBtn = document.getElementById('joinCancelBtn');
+  if (!overlay || !nickField || !roomField || !okBtn || !cancelBtn) return Promise.resolve(null);
+
+  nickField.value = String(nickname || '');
+  roomField.value = String(roomCode || '');
+  overlay.classList.remove('hidden');
+  setTimeout(() => (nickField.value ? roomField.focus() : nickField.focus()), 0);
+
+  return new Promise((resolve) => {
+    const cleanup = (v) => {
+      overlay.classList.add('hidden');
+      okBtn.onclick = null;
+      cancelBtn.onclick = null;
+      nickField.onkeydown = null;
+      roomField.onkeydown = null;
+      resolve(v);
+    };
+    const tryOk = () => {
+      const nick = String(nickField.value || '').trim();
+      if (!nick) return flashHud('닉네임을 입력해 주세요', 1200);
+      const room = safeRoomCode(roomField.value);
+      cleanup({ nick, room });
+    };
+    okBtn.onclick = tryOk;
+    cancelBtn.onclick = () => cleanup(null);
+    nickField.onkeydown = (e) => {
+      if (e.key === 'Enter') {
+        if (nickField.value.trim()) roomField.focus();
+        else tryOk();
+      }
+      if (e.key === 'Escape') cleanup(null);
+    };
+    roomField.onkeydown = (e) => {
+      if (e.key === 'Enter') tryOk();
+      if (e.key === 'Escape') cleanup(null);
+    };
+  });
+}
+
 async function ensureNickname() {
   // 사용자가 한번이라도 저장한 닉네임이면 그대로 사용
   const saved = localStorage.getItem('mb_presence_nick') || localStorage.getItem('mb_nickname');
@@ -62,12 +111,28 @@ async function ensureNickname() {
 
 async function ensureNicknameForVisitorAlways() {
   const saved = localStorage.getItem('mb_presence_nick') || localStorage.getItem('mb_nickname') || '';
-  const nick = await openInputModalRequired({
-    title: '닉네임 설정',
-    placeholder: '닉네임을 입력하세요',
-    value: saved || '익명',
-    minLen: 1
-  });
+  // 모바일에서는 닉네임 + 세션코드까지 한 번에 입력할 수 있게 한다.
+  if (isMobileLike()) {
+    const v = await openJoinModal({ nickname: saved || '', roomCode: safeRoomCode(qs('room')) || '' });
+    const finalNick = String(v?.nick || saved || '').trim() || '익명';
+    localStorage.setItem('mb_presence_nick', finalNick);
+    localStorage.setItem('mb_nickname', finalNick);
+    // room code가 있으면 즉시 join 시도(세션코드가 없으면 닉네임만 저장)
+    if (v?.room) {
+      // URL에도 반영
+      setRoomToUrl(v.room);
+      // socket auth 적용
+      try {
+        socket.auth = { ...(socket.auth || {}), nickname: finalNick };
+        socket.disconnect();
+        socket.connect();
+      } catch {}
+      // 실제 join은 init()에서 desiredRoom 로직이 처리하도록 qs(room)을 채워준다.
+    }
+    return finalNick;
+  }
+
+  const nick = await openInputModalRequired({ title: '닉네임 설정', placeholder: '닉네임을 입력하세요', value: saved || '익명', minLen: 1 });
   const finalNick = String(nick || '').trim() || '익명';
   localStorage.setItem('mb_presence_nick', finalNick);
   localStorage.setItem('mb_nickname', finalNick);
@@ -904,11 +969,26 @@ document.getElementById('sessionFloatBtn')?.addEventListener('click', async () =
 
   // If URL already has room, auto join (no modal) - MUST-1.
   const urlRoom = safeRoomCode(qs('room'));
-  const nick = await ensureNickname();
-  state.nickname = nick;
-  authState.displayName = authState.displayName || nick;
-  socket.auth = { ...(socket.auth || {}), nickname: nick };
-  if (urlRoom) return joinSession(urlRoom);
+  // 모바일에서는 닉+룸 동시 입력 지원
+  if (isMobileLike()) {
+    const savedNick = localStorage.getItem('mb_presence_nick') || localStorage.getItem('mb_nickname') || state.nickname || '';
+    const v = await openJoinModal({ nickname: savedNick, roomCode: urlRoom || '' });
+    if (!v) return;
+    const nick = String(v.nick || '').trim();
+    state.nickname = nick;
+    localStorage.setItem('mb_presence_nick', nick);
+    localStorage.setItem('mb_nickname', nick);
+    authState.displayName = authState.displayName || nick;
+    socket.auth = { ...(socket.auth || {}), nickname: nick };
+    const room = safeRoomCode(v.room || urlRoom);
+    if (room) return joinSession(room);
+  } else {
+    const nick = await ensureNickname();
+    state.nickname = nick;
+    authState.displayName = authState.displayName || nick;
+    socket.auth = { ...(socket.auth || {}), nickname: nick };
+    if (urlRoom) return joinSession(urlRoom);
+  }
 
   const input = await openInputModal({ title: '세션 참여', placeholder: 'Room Code를 입력하세요', value: '' });
   const roomCode = safeRoomCode(input);
@@ -1072,7 +1152,7 @@ document.getElementById('touchNextBtn')?.addEventListener('click', () => {
   updateUrlState();
 });
 document.getElementById('touchMenuBtn')?.addEventListener('click', () => {
-  document.getElementById('fab')?.click();
+  document.body.classList.toggle('sheet-open');
 });
 
 // Tap zones (GAS style): left=prev, right=next, center=toggle palette
@@ -1080,7 +1160,7 @@ document.getElementById('tapZoneLeft')?.addEventListener('click', () => changePa
 document.getElementById('tapZoneRight')?.addEventListener('click', () => changePage(state.pageNo + state.spreadCount, 'tap'));
 document.getElementById('tapZoneCenter')?.addEventListener('click', () => {
   // 중앙 탭: 옵션/팔레트 토글
-  document.getElementById('fab')?.click();
+  document.body.classList.toggle('sheet-open');
 });
 
 document.getElementById('fullscreenBtn').addEventListener('click', async () => {
@@ -1830,6 +1910,19 @@ document.getElementById('toggleLinkBtn')?.addEventListener('click', () => {
   const next = !document.body.classList.contains('link-collapsed');
   document.body.classList.toggle('link-collapsed', next);
   localStorage.setItem('mb_viewer_linkCollapsed', next ? '1' : '0');
+});
+
+// touch-mode quick toggles (inside bottom sheet)
+document.getElementById('mobileToggleLinkBtn')?.addEventListener('click', () => {
+  const next = !document.body.classList.contains('link-collapsed');
+  document.body.classList.toggle('link-collapsed', next);
+  localStorage.setItem('mb_viewer_linkCollapsed', next ? '1' : '0');
+});
+document.getElementById('mobileToggleViewBtn')?.addEventListener('click', () => {
+  document.getElementById('viewBar')?.classList.toggle('isHidden');
+});
+document.getElementById('mobileToggleToolBtn')?.addEventListener('click', () => {
+  document.getElementById('toolBar')?.classList.toggle('isHidden');
 });
 
 // Wheel zoom (Ctrl + wheel)

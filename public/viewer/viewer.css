@@ -253,7 +253,12 @@ body.light .cursor-marker{
   align-items:center;
   justify-content:center;
 }
-body.touch-mode.landscape #fab{ display:flex; }
+/* 기존 #fab은 악보를 가리는 경우가 있어, 하단 메뉴(⋯)로만 제어 */
+body.touch-mode.landscape #fab{ display:none; }
+
+/* touch-mode에서만 모바일 옵션 토글 row 표시 */
+#mobileCtlBar{ display:none; }
+body.touch-mode #mobileCtlBar{ display:flex; }
 
 /* ===== prompt 대체 입력 모달 ===== */
 .modalOverlay{

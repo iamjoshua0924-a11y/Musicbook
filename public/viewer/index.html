@@ -37,6 +37,17 @@
 
       <!-- Toolbar (desktop). In touch-mode, this becomes a bottom sheet via CSS. -->
       <div class="toolbarShell" id="toolbarShell">
+        <!-- touch-mode quick toggles -->
+        <div class="toolbarRow" id="mobileCtlBar">
+          <div class="group">
+            <span class="label">옵션</span>
+            <div class="seg">
+              <button id="mobileToggleLinkBtn" type="button" class="mini">링크</button>
+              <button id="mobileToggleViewBtn" type="button" class="mini">보기</button>
+              <button id="mobileToggleToolBtn" type="button" class="mini">도구</button>
+            </div>
+          </div>
+        </div>
         <div class="toolbarRow" id="viewBar">
           <div class="group">
             <span class="label">보기</span>
@@ -165,6 +176,20 @@
         <div class="modalActions">
           <button id="inputModalCancelBtn" type="button">취소</button>
           <button id="inputModalOkBtn" type="button" class="primary">확인</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 모바일: 닉네임 + 세션코드 동시 입력 -->
+    <div class="modalOverlay hidden" id="joinModal">
+      <div class="modalBox">
+        <div class="modalTitle">세션 참여</div>
+        <input id="joinNickField" class="modalInput" placeholder="닉네임" />
+        <div style="height:10px;"></div>
+        <input id="joinRoomField" class="modalInput" placeholder="참여 세션 코드(선택)" />
+        <div class="modalActions">
+          <button id="joinCancelBtn" type="button">취소</button>
+          <button id="joinOkBtn" type="button" class="primary">확인</button>
         </div>
       </div>
     </div>

@@ -2,27 +2,37 @@
 <html lang="ko">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Viewer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes" />
+    <title>Score Viewer</title>
     <link rel="stylesheet" href="/public/viewer/viewer.css" />
   </head>
   <body>
     <div id="viewer-wrapper">
       <header id="topbar">
         <div class="left">
-          <strong>Viewer</strong>
-          <span id="fileIdBadge"></span>
+          <div class="brand">Score Viewer</div>
+          <span id="fileIdBadge" class="muted"></span>
         </div>
         <div class="right">
+          <div class="inputRow">
+            <input id="linkInput" type="text" placeholder="구글드라이브 PDF 링크 또는 fileId" />
+            <button id="openBtn" type="button" class="primary">열기</button>
+            <button id="themeBtn" type="button">테마</button>
+            <button id="touchBtn" type="button">터치</button>
+          </div>
           <div class="pageControls">
             <button id="prevBtn" type="button">이전</button>
             <span id="pageLabel">1</span>
             <span id="pageTotal">/ ?</span>
             <button id="nextBtn" type="button">다음</button>
           </div>
+          <div class="sliders">
+            <label class="muted">겹침 <span id="overlapLabel">0px</span></label>
+            <input id="overlapRange" type="range" min="0" max="40" value="0" />
+          </div>
           <label class="toggle">
             <input type="checkbox" id="sessionToggle" />
-            <span>주석공유 세션 참여</span>
+            <span>세션 참여</span>
           </label>
           <button id="createSessionBtn" type="button">세션 만들기</button>
           <span id="sessionBadge" class="badge hidden"></span>
@@ -38,6 +48,9 @@
             <!-- page views injected by viewer.js -->
           </div>
           <div id="pageHud" class="hidden"></div>
+          <div id="tapZoneLeft"></div>
+          <div id="tapZoneCenter"></div>
+          <div id="tapZoneRight"></div>
         </div>
 
         <button id="fab">✎</button>
@@ -119,10 +132,10 @@
       </main>
     </div>
 
-    <!-- pdf.js + fabric.js (CDN) -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.7.76/pdf.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.7.76/pdf.worker.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/6.6.0/fabric.min.js"></script>
+    <!-- pdf.js + fabric.js (CDN, GAS 원본과 동일 계열) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <script src="/public/viewer/viewer.js"></script>
   </body>

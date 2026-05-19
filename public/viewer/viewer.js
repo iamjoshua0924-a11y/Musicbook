@@ -160,6 +160,45 @@ if (initialRoom) {
 // ---- UI wiring --------------------------------------------------------------------
 setText('fileIdBadge', state.fileId ? `fileId: ${state.fileId}` : 'fileId: (없음)');
 
+// theme (persist)
+function applyTheme(theme) {
+  document.body.classList.toggle('light', theme === 'light');
+}
+const savedTheme = localStorage.getItem('mb_viewer_theme') || 'light';
+applyTheme(savedTheme);
+document.getElementById('themeBtn')?.addEventListener('click', () => {
+  const next = document.body.classList.contains('light') ? 'dark' : 'light';
+  localStorage.setItem('mb_viewer_theme', next);
+  applyTheme(next);
+});
+
+// touch-mode (manual + auto)
+let manualTouch = localStorage.getItem('mb_viewer_touch') === '1';
+function applyTouchMode(on) {
+  document.body.classList.toggle('touch-mode', Boolean(on));
+  localStorage.setItem('mb_viewer_touch', on ? '1' : '0');
+}
+document.getElementById('touchBtn')?.addEventListener('click', () => {
+  manualTouch = !document.body.classList.contains('touch-mode');
+  applyTouchMode(manualTouch);
+});
+
+// overlap slider (GAS style)
+function setSpreadOverlapPx(px) {
+  const v = Math.max(0, Math.min(40, Number(px) || 0));
+  document.documentElement.style.setProperty('--spreadOverlapPx', `${v}px`);
+  const label = document.getElementById('overlapLabel');
+  if (label) label.textContent = `${v}px`;
+  localStorage.setItem('mb_viewer_overlap', String(v));
+}
+const savedOverlap = Number(localStorage.getItem('mb_viewer_overlap') || '0');
+setSpreadOverlapPx(savedOverlap);
+const overlapRange = document.getElementById('overlapRange');
+if (overlapRange) {
+  overlapRange.value = String(savedOverlap);
+  overlapRange.addEventListener('input', (e) => setSpreadOverlapPx(e.target.value));
+}
+
 document.getElementById('sessionToggle').addEventListener('change', (e) => {
   const on = e.target.checked;
   if (on) {
@@ -208,8 +247,7 @@ function extractDriveFileId(input) {
   return '';
 }
 
-document.getElementById('openFromLinkBtn').addEventListener('click', () => {
-  const input = prompt('Drive 링크 또는 fileId를 입력하세요:', '') || '';
+function openByInput(input) {
   const fileId = extractDriveFileId(input);
   if (!fileId) return alert('fileId를 추출하지 못했습니다. Drive 링크 또는 fileId를 확인해 주세요.');
 
@@ -223,6 +261,20 @@ document.getElementById('openFromLinkBtn').addEventListener('click', () => {
     const roomParam = state.isInSession && roomCode ? `?room=${roomCode}` : '';
     window.location.href = `${window.location.origin}/viewer/${fileId}${roomParam}`;
   }
+}
+
+document.getElementById('openFromLinkBtn').addEventListener('click', () => {
+  const input = prompt('Drive 링크 또는 fileId를 입력하세요:', '') || '';
+  openByInput(input);
+});
+
+// New: inline open input (GAS style)
+document.getElementById('openBtn')?.addEventListener('click', () => {
+  const input = document.getElementById('linkInput')?.value || '';
+  openByInput(input);
+});
+document.getElementById('linkInput')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('openBtn')?.click();
 });
 
 // Pedal/keyboard mapping (requirement). Only page turner broadcasts.
@@ -236,6 +288,18 @@ window.addEventListener('keydown', (e) => {
 document.getElementById('fab').addEventListener('click', () => {
   const panel = document.getElementById('fabPanel');
   panel.classList.toggle('hidden');
+});
+
+// Tap zones (GAS style): left=prev, right=next, center=toggle palette
+document.getElementById('tapZoneLeft')?.addEventListener('click', () => changePage(state.pageNo - state.spreadCount, 'tap'));
+document.getElementById('tapZoneRight')?.addEventListener('click', () => changePage(state.pageNo + state.spreadCount, 'tap'));
+document.getElementById('tapZoneCenter')?.addEventListener('click', () => {
+  // if not drawing, toggle focus; else toggle palette
+  if (document.body.classList.contains('drawing-active')) {
+    document.getElementById('fab')?.click();
+  } else {
+    document.getElementById('focusModeBtn')?.click();
+  }
 });
 
 document.getElementById('fullscreenBtn').addEventListener('click', async () => {
@@ -268,7 +332,7 @@ function changePage(next, source) {
 
 // ---- PDF.js rendering + Fabric overlay (multi-page spread) -------------------------
 // eslint-disable-next-line no-undef
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.7.76/pdf.worker.min.js';
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
 const els = {
   pdfPreview: document.getElementById('pdf-preview'),
@@ -587,8 +651,15 @@ function applyToolToCanvas(fab) {
   }
 }
 
+function syncDrawingActiveClass() {
+  const drawingTools = ['pen', 'highlighter', 'eraser', 'shape', 'text'];
+  const active = !state.locked && drawingTools.includes(state.tool);
+  document.body.classList.toggle('drawing-active', active);
+}
+
 function applyToolToAll() {
   for (const v of viewMap.values()) applyToolToCanvas(v.fabric);
+  syncDrawingActiveClass();
 }
 
 function snapshotPage(pageNo) {
@@ -914,8 +985,11 @@ window.addEventListener('keydown', (e) => {
 
 // Live mode (mobile/tablet)
 function updateLiveMode() {
-  const isLive = window.matchMedia('(max-width: 980px)').matches || window.matchMedia('(pointer: coarse)').matches;
+  const isCoarse = window.matchMedia('(pointer: coarse)').matches;
+  const isLive = window.matchMedia('(max-width: 980px)').matches || isCoarse;
   document.body.classList.toggle('live-mode', isLive);
+  // auto enable touch-mode on touch devices unless user explicitly turned it off
+  if (!manualTouch && isCoarse) applyTouchMode(true);
 }
 updateLiveMode();
 window.addEventListener('resize', updateLiveMode);

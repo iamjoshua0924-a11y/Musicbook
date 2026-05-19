@@ -539,13 +539,15 @@ const state = {
   redoStack: {},
   tool: 'pen',
   shape: null, // 'line'|'rect'|'circle' (when tool==='shape')
+  brushSize: 3,
+  brushColor: '#ff2d55',
+  textFontSize: 22,
 
   // view modes
   spreadCount: 2, // 1~4 (기본 2p)
   fitMode: true,
   zoom: 1,
   locked: false,
-  textFontSize: 22,
   activeDrawPageNo: 1
 };
 
@@ -642,13 +644,6 @@ function updateTurnerToggleAccess() {
     btn.classList.toggle('disabled', !canToggle);
   });
   if (state.isInSession && !canUseToolsNow()) setSessionUiDefaultsIfNeeded();
-
-  const reqBtn = document.getElementById('requestToolBtn');
-  if (reqBtn) reqBtn.classList.toggle('hidden', !(state.isInSession && !canUseToolsNow()));
-
-  // mobile bottom sheet controls
-  const mReqBtn = document.getElementById('mobileRequestToolBtn');
-  if (mReqBtn) mReqBtn.classList.toggle('hidden', !(state.isInSession && !canUseToolsNow()));
 }
 
 function updateSongBookPickVisibility() {
@@ -900,35 +895,15 @@ document.getElementById('themeBtn')?.addEventListener('click', () => {
   applyTheme(next);
 });
 
-// touch-mode (manual + auto)
-let manualTouch = localStorage.getItem('mb_viewer_touch') === '1';
-function applyTouchMode(on) {
-  document.body.classList.toggle('touch-mode', Boolean(on));
-  localStorage.setItem('mb_viewer_touch', on ? '1' : '0');
-}
-
+// touch-mode (auto only; desktop toggle removed)
 function applyTouchModeAuto(on) {
-  // auto mode: don't persist (사용자가 명시적으로 끈 경우를 존중)
   document.body.classList.toggle('touch-mode', Boolean(on));
 }
-document.getElementById('touchBtn')?.addEventListener('click', () => {
-  manualTouch = !document.body.classList.contains('touch-mode');
-  applyTouchMode(manualTouch);
-});
 
 document.getElementById('participantsToggleBtn')?.addEventListener('click', () => {
   const body = document.getElementById('participantsBody');
   if (!body) return;
   setParticipantsCollapsed(!body.classList.contains('isHidden'));
-});
-
-document.getElementById('requestToolBtn')?.addEventListener('click', () => {
-  if (!state.isInSession || !state.roomCode) return;
-  if (state.isPageTurner || state.isToolAuthorized) return;
-  socket.emit('session:tool:request', { roomCode: state.roomCode }, (ack) => {
-    if (!ack?.ok) return flashHud('요청 실패', 1200);
-    flashHud('도구 권한 요청을 보냈습니다', 1400);
-  });
 });
 
 document.getElementById('songBookPickBtn')?.addEventListener('click', () => {
@@ -1030,8 +1005,7 @@ document.getElementById('createSessionFloatBtn')?.addEventListener('click', () =
     .catch(() => {});
 });
 
-document.getElementById('prevBtn').addEventListener('click', () => changePage(state.pageNo - pageTurnStep(), 'local'));
-document.getElementById('nextBtn').addEventListener('click', () => changePage(state.pageNo + pageTurnStep(), 'local'));
+// (prev/next 버튼 제거: 키/터치/스와이프로 넘김)
 
 function extractDriveFileId(input) {
   const s = String(input || '').trim();
@@ -1074,11 +1048,20 @@ document.getElementById('linkInput')?.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') document.getElementById('openBtn')?.click();
 });
 
-// ---- Key bindings (바이블: 기본 매핑 + 사용자 지정) ---------------------------------
+// ---- Key bindings (키보드 + MIDI) ---------------------------------------------------
 const DEFAULT_NEXT_KEYS = ['ArrowRight', 'PageDown', ' ']; // Space는 e.key === ' '
 const DEFAULT_PREV_KEYS = ['ArrowLeft', 'PageUp'];
 const KEY_STORAGE = { next: 'mb_viewer_key_next', prev: 'mb_viewer_key_prev' };
 let captureKeyMode = null; // 'next' | 'prev'
+
+function formatBindToken(token) {
+  const t = String(token || '').trim();
+  if (!t) return '';
+  if (t === ' ') return 'Space';
+  if (t.startsWith('MIDI:note:')) return `MIDI Note ${t.split(':')[2]}`;
+  if (t.startsWith('MIDI:cc:')) return `MIDI CC ${t.split(':')[2]}`;
+  return t;
+}
 
 function loadBoundKeys() {
   const prev = (localStorage.getItem(KEY_STORAGE.prev) || '').split(',').map((x) => x.trim()).filter(Boolean);
@@ -1095,27 +1078,20 @@ function saveBoundKey(which, key) {
 
 function setBindLabels() {
   const keys = loadBoundKeys();
-  setText('bindPrevLabel', keys.prev.map((k) => (k === ' ' ? 'Space' : k)).join('/'));
-  setText('bindNextLabel', keys.next.map((k) => (k === ' ' ? 'Space' : k)).join('/'));
+  setText('bindPrevLabel', keys.prev.map((k) => formatBindToken(k)).join('/'));
+  setText('bindNextLabel', keys.next.map((k) => formatBindToken(k)).join('/'));
 }
 setBindLabels();
 
 document.getElementById('bindPrevBtn')?.addEventListener('click', () => {
   captureKeyMode = 'prev';
   setHidden('pageHud', false);
-  setText('pageHud', '이전 키를 누르세요(ESC 취소)');
+  setText('pageHud', '이전 입력(키 또는 MIDI)을 누르세요(ESC 취소)');
 });
 document.getElementById('bindNextBtn')?.addEventListener('click', () => {
   captureKeyMode = 'next';
   setHidden('pageHud', false);
-  setText('pageHud', '다음 키를 누르세요(ESC 취소)');
-});
-document.getElementById('bindResetBtn')?.addEventListener('click', () => {
-  localStorage.removeItem(KEY_STORAGE.prev);
-  localStorage.removeItem(KEY_STORAGE.next);
-  setBindLabels();
-  setHidden('pageHud', false);
-  setText('pageHud', '키 바인딩 초기화 완료');
+  setText('pageHud', '다음 입력(키 또는 MIDI)을 누르세요(ESC 취소)');
 });
 
 // Pedal/keyboard mapping (requirement). Only page turner broadcasts.
@@ -1147,6 +1123,55 @@ window.addEventListener('keydown', (e) => {
     updateUrlState();
   }
 });
+
+// MIDI mapping (optional): map note/CC to prev/next.
+let midiAccess = null;
+function midiTokenFromMsg(data) {
+  if (!data || data.length < 2) return '';
+  const status = data[0] & 0xf0;
+  const d1 = data[1];
+  const d2 = data[2] ?? 0;
+  // Note on (velocity > 0)
+  if (status === 0x90 && d2 > 0) return `MIDI:note:${d1}`;
+  // Control change (value > 0)
+  if (status === 0xb0 && d2 > 0) return `MIDI:cc:${d1}`;
+  return '';
+}
+function attachMidiInputs(access) {
+  if (!access?.inputs) return;
+  for (const input of access.inputs.values()) {
+    input.onmidimessage = (ev) => {
+      const token = midiTokenFromMsg(ev?.data);
+      if (!token) return;
+      if (captureKeyMode) {
+        saveBoundKey(captureKeyMode, token);
+        captureKeyMode = null;
+        setBindLabels();
+        setHidden('pageHud', false);
+        setText('pageHud', '저장됨');
+        return;
+      }
+      const { prev, next } = loadBoundKeys();
+      if (next.includes(token)) {
+        changePage(state.pageNo + pageTurnStep(), 'midi');
+        updateUrlState();
+      }
+      if (prev.includes(token)) {
+        changePage(state.pageNo - pageTurnStep(), 'midi');
+        updateUrlState();
+      }
+    };
+  }
+}
+async function initMidi() {
+  try {
+    if (!navigator?.requestMIDIAccess) return;
+    midiAccess = await navigator.requestMIDIAccess();
+    attachMidiInputs(midiAccess);
+    midiAccess.onstatechange = () => attachMidiInputs(midiAccess);
+  } catch {}
+}
+initMidi();
 
 // Mobile-only floating menu button: touch-mode에서만 하단 패널(간단 시트) 토글
 document.getElementById('fab')?.addEventListener('click', () => {
@@ -1218,8 +1243,8 @@ function changePage(next, source) {
 }
 
 function pageTurnStep() {
-  // 요구사항: 2p 보기에서도 1-2 -> 2-3 처럼 1페이지씩 이동
-  return 1;
+  // 사용자 설정: 한번에(스프레드 단위) / 한페이지씩
+  return state.turnUnit === 'spread' ? Math.max(1, Number(state.spreadCount) || 1) : 1;
 }
 
 // ---- PDF.js rendering + Fabric overlay (multi-page spread) -------------------------
@@ -1316,31 +1341,20 @@ function makeView(pageNo) {
   let laserPlacing = false;
   let laserObj = null;
   let laserPoints = [];
-  // --- Eraser (delete nearby objects) ---------------------------------------------
-  let erasing = false;
-  let erasedCount = 0;
   // late-bound (pushUndo/broadcast are declared later)
   let vPushUndo = () => {};
   let vBroadcast = () => {};
 
   const getPointer = (opt) => fabricCanvas.getPointer(opt.e);
   const commonStyle = () => {
-    const size = Number(document.getElementById('brushSize').value || 3);
-    const color = document.getElementById('colorPicker').value || '#ff2d55';
+    const size = Number(state.brushSize || 3);
+    const color = String(state.brushColor || '#ff2d55');
     return { stroke: color, fill: 'rgba(0,0,0,0)', strokeWidth: Math.max(1, size) };
   };
 
   fabricCanvas.on('mouse:down', (opt) => {
     state.activeDrawPageNo = pageNo;
     if (state.locked) return;
-
-    if (state.tool === 'eraser') {
-      const p = getPointer(opt);
-      const size = Number(document.getElementById('brushSize').value || 3);
-      erasing = true;
-      erasedCount += eraseAtPoint(fabricCanvas, p, Math.max(10, size * 2.4));
-      return;
-    }
 
     if (state.tool === 'laser') {
       const p = getPointer(opt);
@@ -1354,7 +1368,7 @@ function makeView(pageNo) {
 
     if (state.tool === 'text') {
       const p = getPointer(opt);
-      const color = document.getElementById('colorPicker').value || '#ff2d55';
+      const color = String(state.brushColor || '#ff2d55');
       const it = new fabric.IText('텍스트', {
         left: p.x,
         top: p.y,
@@ -1416,12 +1430,6 @@ function makeView(pageNo) {
 
   fabricCanvas.on('mouse:move', (opt) => {
     if (state.locked) return;
-    if (erasing) {
-      const p = getPointer(opt);
-      const size = Number(document.getElementById('brushSize').value || 3);
-      erasedCount += eraseAtPoint(fabricCanvas, p, Math.max(10, size * 2.4));
-      return;
-    }
     if (laserPlacing && laserObj) {
       const p = getPointer(opt);
       laserPoints.push({ x: p.x, y: p.y });
@@ -1455,15 +1463,6 @@ function makeView(pageNo) {
 
   fabricCanvas.on('mouse:up', () => {
     if (state.locked) return;
-    if (erasing) {
-      erasing = false;
-      if (erasedCount > 0) {
-        erasedCount = 0;
-        vPushUndo();
-        vBroadcast();
-      }
-      return;
-    }
     if (laserPlacing) {
       laserPlacing = false;
       const lo = laserObj;
@@ -1547,7 +1546,7 @@ function makeView(pageNo) {
     const active = fabricCanvas.getActiveObject?.();
     if (!active) return;
     if (active.type === 'i-text') {
-      document.getElementById('fontSize').value = String(active.fontSize || 22);
+      // font size UI removed; keep state only
     }
   };
   fabricCanvas.on('selection:created', syncSelectionUI);
@@ -1557,8 +1556,8 @@ function makeView(pageNo) {
 
 function applyToolToCanvas(fab) {
   if (!fab) return;
-  const size = Number(document.getElementById('brushSize').value || 3);
-  const color = document.getElementById('colorPicker').value || '#ff2d55';
+  const size = Number(state.brushSize || 3);
+  const color = String(state.brushColor || '#ff2d55');
 
   // selection defaults
   const makeSelectable = (on) => {
@@ -1591,10 +1590,6 @@ function applyToolToCanvas(fab) {
       : 'rgba(255, 235, 59, 0.28)';
     fab.freeDrawingBrush.color = rgba;
     makeSelectable(false);
-  } else if (state.tool === 'eraser') {
-    // 커스텀 지우개: "근처 오브젝트 삭제" 방식(검정펜 fallback 금지)
-    fab.isDrawingMode = false;
-    makeSelectable(false);
   } else if (state.tool === 'select') {
     fab.isDrawingMode = false;
     makeSelectable(true);
@@ -1610,7 +1605,7 @@ function applyToolToCanvas(fab) {
 }
 
 function syncDrawingActiveClass() {
-  const drawingTools = ['pen', 'highlighter', 'eraser', 'shape', 'text', 'laser'];
+  const drawingTools = ['pen', 'highlighter', 'shape', 'text', 'laser'];
   const active = !state.locked && drawingTools.includes(state.tool);
   document.body.classList.toggle('drawing-active', active);
 }
@@ -1738,9 +1733,7 @@ const ro = new ResizeObserver(
 );
 ro.observe(els.pdfContainer);
 
-// Palette tools
-document.getElementById('brushSize').addEventListener('input', () => applyToolToAll());
-document.getElementById('colorPicker').addEventListener('input', () => applyToolToAll());
+// (브러시 UI 제거: 기본 값 사용)
 
 function setTool(tool, shape = null) {
   if (state.isInSession && !canUseToolsNow()) {
@@ -1763,7 +1756,7 @@ document.getElementById('cursorShareBtn')?.addEventListener('click', () => {
   else startCursorShare();
 });
 document.getElementById('laserBtn')?.addEventListener('click', () => setTool('laser'));
-document.getElementById('eraserBtn').addEventListener('click', () => setTool('eraser'));
+// (지우개 버튼 제거)
 document.getElementById('selectBtn').addEventListener('click', () => setTool('select'));
 document.getElementById('lineBtn').addEventListener('click', () => setTool('shape', 'line'));
 document.getElementById('rectBtn').addEventListener('click', () => setTool('shape', 'rect'));
@@ -1807,14 +1800,23 @@ function redoForActivePage() {
 document.getElementById('undoBtn').addEventListener('click', undoForActivePage);
 document.getElementById('redoBtn').addEventListener('click', redoForActivePage);
 document.getElementById('clearBtn').addEventListener('click', () => {
-  const pageNo = state.activeDrawPageNo || state.pageNo;
-  state.undoStack[pageNo] ||= [];
-  const current = snapshotPage(pageNo);
-  if (current) state.undoStack[pageNo].push(current);
-  state.redoStack[pageNo] = [];
-  state.annoStore[pageNo] = { json: { objects: [] }, w: 1, h: 1 };
-  applySnapshotToPage(pageNo, { json: { objects: [] }, w: 1, h: 1 });
-  broadcastDebouncedByPage.get(pageNo)?.();
+  // "전체" = 현재 파일의 모든 주석(그려진 페이지들)을 삭제
+  const empty = { json: { objects: [] }, w: 1, h: 1 };
+  const touchedPages = new Set();
+  Object.keys(state.annoStore || {}).forEach((k) => touchedPages.add(Number(k)));
+  // 아무것도 없으면 현재 스프레드만이라도 clear
+  if (!touchedPages.size) getSpreadPages(state.pageNo).forEach((p) => touchedPages.add(p));
+
+  touchedPages.forEach((pageNo) => {
+    if (!pageNo) return;
+    state.undoStack[pageNo] ||= [];
+    const current = snapshotPage(pageNo);
+    if (current) state.undoStack[pageNo].push(current);
+    state.redoStack[pageNo] = [];
+    state.annoStore[pageNo] = empty;
+    if (viewMap.has(pageNo)) applySnapshotToPage(pageNo, empty);
+    broadcastDebouncedByPage.get(pageNo)?.();
+  });
 });
 
 // View controls
@@ -1847,6 +1849,18 @@ document.getElementById('spread2Btn').addEventListener('click', () => setSpread(
 document.getElementById('spread3Btn').addEventListener('click', () => setSpread(3));
 document.getElementById('spread4Btn').addEventListener('click', () => setSpread(4));
 
+// Page turn unit (한번에/한페이지씩)
+state.turnUnit = localStorage.getItem('mb_viewer_turn_unit') || 'single'; // 'single' | 'spread'
+function setTurnUnit(v) {
+  state.turnUnit = v === 'spread' ? 'spread' : 'single';
+  localStorage.setItem('mb_viewer_turn_unit', state.turnUnit);
+  document.getElementById('turnUnitSpreadBtn')?.classList.toggle('active', state.turnUnit === 'spread');
+  document.getElementById('turnUnitSingleBtn')?.classList.toggle('active', state.turnUnit === 'single');
+}
+document.getElementById('turnUnitSpreadBtn')?.addEventListener('click', () => setTurnUnit('spread'));
+document.getElementById('turnUnitSingleBtn')?.addEventListener('click', () => setTurnUnit('single'));
+setTurnUnit(state.turnUnit);
+
 document.getElementById('zoomInBtn').addEventListener('click', () => {
   state.fitMode = false;
   state.zoom = Math.min(3, state.zoom * 1.15);
@@ -1869,36 +1883,12 @@ document.getElementById('fitBtn').addEventListener('click', () => {
   updateUrlState();
 });
 
-function toggleLock() {
-  state.locked = !state.locked;
-  document.getElementById('lockFloatBtn').textContent = state.locked ? '잠금해제' : '잠금';
-  document.getElementById('lockFloatBtn').classList.toggle('active', state.locked);
-  applyToolToAll();
-}
-
-document.getElementById('lockFloatBtn')?.addEventListener('click', toggleLock);
-
 function getActiveView() {
   const pageNo = state.activeDrawPageNo || state.pageNo;
   return viewMap.get(pageNo);
 }
 
-// Text size option: when text tool is enabled, change default + selected text (if any)
-document.getElementById('fontSize')?.addEventListener('input', (e) => {
-  const fs = Number(e.target.value || 22);
-  state.textFontSize = clamp(fs, 12, 60);
-  const v = getActiveView();
-  const obj = v?.fabric?.getActiveObject?.();
-  if (v?.fabric && obj?.type === 'i-text') {
-    obj.set('fontSize', state.textFontSize);
-    v.fabric.requestRenderAll();
-  }
-});
-document.getElementById('fontSize')?.addEventListener('change', () => {
-  const v = getActiveView();
-  v?.pushUndo?.();
-  v?.broadcast?.();
-});
+// (텍스트 크기 UI 제거: 기본값 사용)
 
 // Delete key (selection mode)
 window.addEventListener('keydown', (e) => {
@@ -1944,30 +1934,7 @@ document.getElementById('toggleLinkBtn')?.addEventListener('click', () => {
   localStorage.setItem('mb_viewer_linkCollapsed', next ? '1' : '0');
 });
 
-// touch-mode quick toggles (inside bottom sheet)
-document.getElementById('mobileToggleLinkBtn')?.addEventListener('click', () => {
-  const next = !document.body.classList.contains('link-collapsed');
-  document.body.classList.toggle('link-collapsed', next);
-  localStorage.setItem('mb_viewer_linkCollapsed', next ? '1' : '0');
-});
-document.getElementById('mobileToggleViewBtn')?.addEventListener('click', () => {
-  document.getElementById('viewBar')?.classList.toggle('isHidden');
-});
-document.getElementById('mobileToggleToolBtn')?.addEventListener('click', () => {
-  document.getElementById('toolBar')?.classList.toggle('isHidden');
-});
-
-document.getElementById('mobileParticipantsBtn')?.addEventListener('click', () => {
-  // 모바일에서 세션목록 패널 토글
-  const panel = document.getElementById('participantsPanel');
-  if (!panel) return;
-  panel.classList.toggle('hidden');
-});
-
-document.getElementById('mobileRequestToolBtn')?.addEventListener('click', () => {
-  // 데스크톱의 도구요청과 동일 동작
-  document.getElementById('requestToolBtn')?.click();
-});
+// (mobileCtlBar 제거됨)
 
 // Wheel zoom (Ctrl + wheel)
 els.pdfContainer.addEventListener(

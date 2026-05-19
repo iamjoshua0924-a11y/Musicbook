@@ -19,17 +19,14 @@
           </div>
         </div>
         <div class="right">
-          <button id="themeBtn" type="button">테마</button>
-          <button id="touchBtn" type="button">터치</button>
           <div id="topToggles" class="topToggles">
             <button id="toggleLinkBtn" title="링크 입력줄 접기/펼치기">링크칸</button>
             <button id="toggleViewBtn" title="보기/넘김/확대 줄 접기/펼치기">보기</button>
             <button id="toggleToolBtn" title="주석 도구 줄 접기/펼치기">도구</button>
-            <button id="requestToolBtn" class="hidden" title="페이지터너에게 도구권한 요청">도구요청</button>
             <button id="sessionFloatBtn" title="세션 참여/나가기">세션</button>
             <button id="createSessionFloatBtn" title="세션 만들기">만들기</button>
-            <button id="lockFloatBtn" title="잠금">잠금</button>
             <button id="fullscreenBtn" type="button">전체화면</button>
+            <button id="themeBtn" type="button">테마</button>
           </div>
           <span id="sessionBadge" class="badge hidden"></span>
           <span id="turnerBadge" class="badge hidden"></span>
@@ -38,19 +35,6 @@
 
       <!-- Toolbar (desktop). In touch-mode, this becomes a bottom sheet via CSS. -->
       <div class="toolbarShell" id="toolbarShell">
-        <!-- touch-mode quick toggles -->
-        <div class="toolbarRow" id="mobileCtlBar">
-          <div class="group">
-            <span class="label">옵션</span>
-            <div class="seg">
-              <button id="mobileToggleLinkBtn" type="button" class="mini">링크</button>
-              <button id="mobileToggleViewBtn" type="button" class="mini">보기</button>
-              <button id="mobileToggleToolBtn" type="button" class="mini">도구</button>
-              <button id="mobileParticipantsBtn" type="button" class="mini">세션목록</button>
-              <button id="mobileRequestToolBtn" type="button" class="mini hidden">도구요청</button>
-            </div>
-          </div>
-        </div>
         <div class="toolbarRow" id="viewBar">
           <div class="group">
             <span class="label">보기</span>
@@ -63,10 +47,11 @@
           </div>
 
           <div class="group">
-            <span class="label">페이지</span>
-            <button id="prevBtn" type="button" class="mini">이전</button>
-            <span class="muted"><span id="pageLabel">1</span><span id="pageTotal">/ ?</span></span>
-            <button id="nextBtn" type="button" class="mini">다음</button>
+            <span class="label">넘김</span>
+            <div class="seg">
+              <button id="turnUnitSpreadBtn" type="button" class="mini">한번에</button>
+              <button id="turnUnitSingleBtn" type="button" class="mini">한페이지씩</button>
+            </div>
           </div>
 
           <div class="group">
@@ -82,13 +67,19 @@
             <button id="zoomInBtn" type="button" class="mini">+</button>
           </div>
 
-          <div class="group">
-            <span class="label">키</span>
-            <button id="bindPrevBtn" type="button" class="mini">이전 키</button>
+          <div class="spacer"></div>
+
+          <div class="group" id="pageInfoGroup">
+            <span class="label">페이지</span>
+            <span class="kv"><span id="pageLabel">1</span><span id="pageTotal">/ ?</span></span>
+          </div>
+
+          <div class="group" id="keyMapGroup">
+            <span class="label">키매핑</span>
+            <button id="bindPrevBtn" type="button" class="mini">이전</button>
             <span class="kv" id="bindPrevLabel">ArrowLeft/PageUp</span>
-            <button id="bindNextBtn" type="button" class="mini">다음 키</button>
+            <button id="bindNextBtn" type="button" class="mini">다음</button>
             <span class="kv" id="bindNextLabel">ArrowRight/PageDown/Space</span>
-            <button id="bindResetBtn" type="button" class="mini">초기화</button>
           </div>
         </div>
 
@@ -99,32 +90,19 @@
               <button id="selectBtn" type="button" class="mini">선택</button>
               <button id="penBtn" type="button" class="mini">펜</button>
               <button id="highlighterBtn" type="button" class="mini">형광펜</button>
-              <button id="cursorShareBtn" type="button" class="mini">커서공유</button>
-              <button id="laserBtn" type="button" class="mini">레이저</button>
-              <button id="eraserBtn" type="button" class="mini">지우개</button>
               <button id="lineBtn" type="button" class="mini">선</button>
               <button id="rectBtn" type="button" class="mini">사각</button>
               <button id="circleBtn" type="button" class="mini">원</button>
               <button id="textBtn" type="button" class="mini">텍스트</button>
+              <button id="laserBtn" type="button" class="mini">레이저</button>
+              <button id="cursorShareBtn" type="button" class="mini">커서공유</button>
             </div>
           </div>
-
-          <div class="group" id="brushGroup">
-            <span class="label">굵기</span>
-            <input id="brushSize" type="range" min="1" max="20" value="3" />
-            <span class="label">색</span>
-            <input id="colorPicker" type="color" value="#ff2d55" />
-          </div>
-
+          <div class="spacer"></div>
           <div class="group">
             <button id="undoBtn" type="button" class="mini">Undo</button>
             <button id="redoBtn" type="button" class="mini">Redo</button>
-            <button id="clearBtn" type="button" class="mini danger">현재 화면 주석 전체삭제</button>
-          </div>
-
-          <div class="group" id="textOptionGroup">
-            <span class="label">글자</span>
-            <input id="fontSize" type="range" min="12" max="60" value="22" />
+            <button id="clearBtn" type="button" class="mini danger">주석 전체삭제</button>
           </div>
         </div>
       </div>

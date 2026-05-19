@@ -145,6 +145,13 @@ body.light .floatToggles button{
   align-items:center;
 }
 .toolbarRow .spacer{ flex: 1 1 auto; min-width: 8px; }
+
+#undoBtn,#redoBtn{
+  font-size: 18px;
+  line-height: 1;
+  width: 46px;
+  text-align: center;
+}
 .group{
   display:inline-flex;
   gap:6px;

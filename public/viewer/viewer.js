@@ -1094,6 +1094,14 @@ document.getElementById('bindNextBtn')?.addEventListener('click', () => {
   setText('pageHud', '다음 입력(키 또는 MIDI)을 누르세요(ESC 취소)');
 });
 
+document.getElementById('bindResetBtn')?.addEventListener('click', () => {
+  localStorage.removeItem(KEY_STORAGE.prev);
+  localStorage.removeItem(KEY_STORAGE.next);
+  setBindLabels();
+  setHidden('pageHud', false);
+  setText('pageHud', '키 바인딩 초기화 완료');
+});
+
 // Pedal/keyboard mapping (requirement). Only page turner broadcasts.
 window.addEventListener('keydown', (e) => {
   if (captureKeyMode) {
@@ -1341,6 +1349,9 @@ function makeView(pageNo) {
   let laserPlacing = false;
   let laserObj = null;
   let laserPoints = [];
+  // --- Eraser (delete nearby objects) ---------------------------------------------
+  let erasing = false;
+  let erasedCount = 0;
   // late-bound (pushUndo/broadcast are declared later)
   let vPushUndo = () => {};
   let vBroadcast = () => {};
@@ -1355,6 +1366,14 @@ function makeView(pageNo) {
   fabricCanvas.on('mouse:down', (opt) => {
     state.activeDrawPageNo = pageNo;
     if (state.locked) return;
+
+    if (state.tool === 'eraser') {
+      const p = getPointer(opt);
+      erasing = true;
+      const size = Number(state.brushSize || 3);
+      erasedCount += eraseAtPoint(fabricCanvas, p, Math.max(10, size * 2.4));
+      return;
+    }
 
     if (state.tool === 'laser') {
       const p = getPointer(opt);
@@ -1430,6 +1449,12 @@ function makeView(pageNo) {
 
   fabricCanvas.on('mouse:move', (opt) => {
     if (state.locked) return;
+    if (erasing) {
+      const p = getPointer(opt);
+      const size = Number(state.brushSize || 3);
+      erasedCount += eraseAtPoint(fabricCanvas, p, Math.max(10, size * 2.4));
+      return;
+    }
     if (laserPlacing && laserObj) {
       const p = getPointer(opt);
       laserPoints.push({ x: p.x, y: p.y });
@@ -1463,6 +1488,15 @@ function makeView(pageNo) {
 
   fabricCanvas.on('mouse:up', () => {
     if (state.locked) return;
+    if (erasing) {
+      erasing = false;
+      if (erasedCount > 0) {
+        erasedCount = 0;
+        vPushUndo();
+        vBroadcast();
+      }
+      return;
+    }
     if (laserPlacing) {
       laserPlacing = false;
       const lo = laserObj;
@@ -1590,6 +1624,10 @@ function applyToolToCanvas(fab) {
       : 'rgba(255, 235, 59, 0.28)';
     fab.freeDrawingBrush.color = rgba;
     makeSelectable(false);
+  } else if (state.tool === 'eraser') {
+    // 커스텀 지우개: "근처 오브젝트 삭제" 방식
+    fab.isDrawingMode = false;
+    makeSelectable(false);
   } else if (state.tool === 'select') {
     fab.isDrawingMode = false;
     makeSelectable(true);
@@ -1605,7 +1643,7 @@ function applyToolToCanvas(fab) {
 }
 
 function syncDrawingActiveClass() {
-  const drawingTools = ['pen', 'highlighter', 'shape', 'text', 'laser'];
+  const drawingTools = ['pen', 'highlighter', 'eraser', 'shape', 'text', 'laser'];
   const active = !state.locked && drawingTools.includes(state.tool);
   document.body.classList.toggle('drawing-active', active);
 }
@@ -1756,7 +1794,7 @@ document.getElementById('cursorShareBtn')?.addEventListener('click', () => {
   else startCursorShare();
 });
 document.getElementById('laserBtn')?.addEventListener('click', () => setTool('laser'));
-// (지우개 버튼 제거)
+document.getElementById('eraserBtn')?.addEventListener('click', () => setTool('eraser'));
 document.getElementById('selectBtn').addEventListener('click', () => setTool('select'));
 document.getElementById('lineBtn').addEventListener('click', () => setTool('shape', 'line'));
 document.getElementById('rectBtn').addEventListener('click', () => setTool('shape', 'rect'));

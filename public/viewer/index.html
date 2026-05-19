@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Viewer</title>
+    <link rel="stylesheet" href="/public/viewer/viewer.css" />
+  </head>
+  <body>
+    <div id="viewer-wrapper">
+      <header id="topbar">
+        <div class="left">
+          <strong>Viewer</strong>
+          <span id="fileIdBadge"></span>
+        </div>
+        <div class="right">
+          <label class="toggle">
+            <input type="checkbox" id="sessionToggle" />
+            <span>주석공유 세션 참여</span>
+          </label>
+          <button id="createSessionBtn" type="button">세션 만들기</button>
+          <span id="sessionBadge" class="badge hidden"></span>
+          <span id="turnerBadge" class="badge hidden"></span>
+          <button id="fullscreenBtn" type="button">전체화면</button>
+        </div>
+      </header>
+
+      <main id="stage">
+        <div id="pdf-container">
+          <iframe id="pdf-preview" class="hidden"></iframe>
+          <div id="pdf-placeholder">
+            <p>이 뷰어는 현재 “백엔드/룸/권한 스코프” 구현을 위한 최소 동작 버전입니다.</p>
+            <p>PDF 스트리밍 URL: <code id="pdfUrlText"></code></p>
+            <p>
+              <input id="driveInput" placeholder="Drive 링크 또는 fileId 붙여넣기" style="width: min(560px, 90vw)" />
+              <button id="openBtn" type="button">열기</button>
+            </p>
+            <p>
+              <button id="prevBtn" type="button">이전</button>
+              <span id="pageLabel">1</span>
+              <button id="nextBtn" type="button">다음</button>
+            </p>
+          </div>
+        </div>
+
+        <button id="fab">✎</button>
+        <div id="fabPanel" class="hidden">
+          <div class="panelTitle">주석 팔레트</div>
+          <button id="undoBtn" type="button">Undo(스텁)</button>
+          <button id="clearBtn" type="button">전체삭제(스텁)</button>
+        </div>
+
+        <aside id="participantsPanel" class="hidden">
+          <div class="panelTitle">세션 접속자</div>
+          <div id="participantsList"></div>
+        </aside>
+      </main>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/public/viewer/viewer.js"></script>
+  </body>
+</html>

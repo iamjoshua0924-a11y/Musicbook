@@ -10,7 +10,6 @@ const { KEYS, getJson } = require('../services/syncStatus');
 const { start: startCsvImport, getStatus: getCsvImportStatus } = require('../services/csvImportRunner');
 
 const { driveToThumb } = require('../services/legacyCsvImport');
-const { start: startCsvImport, getStatus: getCsvImportStatus } = require('../services/csvImportRunner');
 
 const router = express.Router();
 

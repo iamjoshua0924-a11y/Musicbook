@@ -1158,6 +1158,7 @@ document.getElementById('touchNextBtn')?.addEventListener('click', () => {
 });
 document.getElementById('touchMenuBtn')?.addEventListener('click', () => {
   document.body.classList.toggle('sheet-open');
+  flashHud(document.body.classList.contains('sheet-open') ? '메뉴 열림' : '메뉴 닫힘', 700);
 });
 
 // Tap zones (GAS style): left=prev, right=next, center=toggle palette
@@ -1895,10 +1896,8 @@ function updateLiveMode() {
   const isLive = window.matchMedia('(max-width: 980px)').matches || isCoarse;
   document.body.classList.toggle('live-mode', isLive);
   document.body.classList.toggle('landscape', window.matchMedia('(orientation: landscape)').matches);
-  // auto enable touch-mode on small screens unless user explicitly turned it off
-  const pref = localStorage.getItem('mb_viewer_touch'); // '1' | '0' | null
-  const userForcedOff = pref === '0';
-  if (!userForcedOff && isLive) applyTouchModeAuto(true);
+  // 모바일 UX는 live-mode 기준으로 항상 시트 UI가 필요해서 자동 활성(사용자 설정과 무관)
+  if (isLive) applyTouchModeAuto(true);
 }
 updateLiveMode();
 window.addEventListener('resize', updateLiveMode);

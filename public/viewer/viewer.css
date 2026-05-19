@@ -256,9 +256,10 @@ body.light .cursor-marker{
 /* 기존 #fab은 악보를 가리는 경우가 있어, 하단 메뉴(⋯)로만 제어 */
 body.touch-mode.landscape #fab{ display:none; }
 
-/* touch-mode에서만 모바일 옵션 토글 row 표시 */
+/* touch-mode/live-mode에서만 모바일 옵션 토글 row 표시 */
 #mobileCtlBar{ display:none; }
-body.touch-mode #mobileCtlBar{ display:flex; }
+body.touch-mode #mobileCtlBar,
+body.live-mode #mobileCtlBar{ display:flex; }
 
 /* ===== prompt 대체 입력 모달 ===== */
 .modalOverlay{
@@ -452,11 +453,13 @@ body.perf-mode #pageHud{
   display:none !important;
 }
 
-/* touch-mode에서는 데스크톱 토글 버튼 숨김 */
-body.touch-mode .floatToggles{ display:none !important; }
+/* touch-mode/live-mode에서는 데스크톱 토글 버튼 숨김 */
+body.touch-mode .floatToggles,
+body.live-mode .floatToggles{ display:none !important; }
 
-/* touch-mode: toolbar는 하단 시트처럼 동작(간단 버전) */
-body.touch-mode .toolbarShell{
+/* touch-mode/live-mode: toolbar는 하단 시트처럼 동작(간단 버전) */
+body.touch-mode .toolbarShell,
+body.live-mode .toolbarShell{
   position:fixed;
   left:0; right:0;
   bottom:0;
@@ -466,7 +469,8 @@ body.touch-mode .toolbarShell{
   transform:translateY(100%);
   transition:transform .25s ease;
 }
-body.touch-mode.sheet-open .toolbarShell{
+body.touch-mode.sheet-open .toolbarShell,
+body.live-mode.sheet-open .toolbarShell{
   transform:translateY(0);
 }
 
@@ -509,10 +513,14 @@ body.touch-mode.sheet-open .toolbarShell{
   font-weight:900;
   pointer-events:auto;
 }
-body.touch-mode #touchHeader{ display:block; }
-body.touch-mode #touchNavBottom{ display:flex; }
-body.touch-mode.landscape #touchHeader{ padding-top: 6px; }
-body.touch-mode.landscape #touchNavBottom{ padding-bottom: 6px; }
+body.touch-mode #touchHeader,
+body.live-mode #touchHeader{ display:block; }
+body.touch-mode #touchNavBottom,
+body.live-mode #touchNavBottom{ display:flex; }
+body.touch-mode.landscape #touchHeader,
+body.live-mode.landscape #touchHeader{ padding-top: 6px; }
+body.touch-mode.landscape #touchNavBottom,
+body.live-mode.landscape #touchNavBottom{ padding-bottom: 6px; }
 
 /* Tap zones for page turning (touch mode only) */
 #tapZoneLeft,#tapZoneRight,#tapZoneCenter{
@@ -526,7 +534,10 @@ body.touch-mode.landscape #touchNavBottom{ padding-bottom: 6px; }
 #tapZoneCenter{ left:28%; width:44%; }
 body.touch-mode #tapZoneLeft,
 body.touch-mode #tapZoneRight,
-body.touch-mode #tapZoneCenter{ pointer-events:auto; }
+body.touch-mode #tapZoneCenter,
+body.live-mode #tapZoneLeft,
+body.live-mode #tapZoneRight,
+body.live-mode #tapZoneCenter{ pointer-events:auto; }
 body.drawing-active #tapZoneLeft,
 body.drawing-active #tapZoneRight,
 body.drawing-active #tapZoneCenter{ pointer-events:none !important; }

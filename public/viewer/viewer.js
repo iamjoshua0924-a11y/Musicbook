@@ -38,6 +38,20 @@ async function ensureNickname() {
   return nick;
 }
 
+async function ensureNicknameForVisitorAlways() {
+  const saved = localStorage.getItem('mb_presence_nick') || localStorage.getItem('mb_nickname') || '';
+  const nick = await openInputModalRequired({
+    title: '닉네임 설정',
+    placeholder: '닉네임을 입력하세요',
+    value: saved || '익명',
+    minLen: 1
+  });
+  const finalNick = String(nick || '').trim() || '익명';
+  localStorage.setItem('mb_presence_nick', finalNick);
+  localStorage.setItem('mb_nickname', finalNick);
+  return finalNick;
+}
+
 function getRoomMap() {
   try {
     return JSON.parse(localStorage.getItem('mb_viewer_room_map') || '{}') || {};
@@ -92,6 +106,7 @@ function openInputModal({ title, placeholder = '', value = '' } = {}) {
       okBtn.onclick = null;
       cancelBtn.onclick = null;
       field.onkeydown = null;
+      cancelBtn.style.display = '';
       resolve(result);
     };
     okBtn.onclick = () => cleanup(field.value);
@@ -99,6 +114,42 @@ function openInputModal({ title, placeholder = '', value = '' } = {}) {
     field.onkeydown = (e) => {
       if (e.key === 'Enter') cleanup(field.value);
       else if (e.key === 'Escape') cleanup(null);
+    };
+  });
+}
+
+function openInputModalRequired({ title, placeholder = '', value = '', minLen = 1 } = {}) {
+  const overlay = document.getElementById('inputModal');
+  const titleEl = document.getElementById('inputModalTitle');
+  const field = document.getElementById('inputModalField');
+  const okBtn = document.getElementById('inputModalOkBtn');
+  const cancelBtn = document.getElementById('inputModalCancelBtn');
+  if (!overlay || !titleEl || !field || !okBtn || !cancelBtn) return Promise.resolve(String(value || '').trim());
+
+  titleEl.textContent = String(title || '입력');
+  field.placeholder = String(placeholder || '');
+  field.value = String(value || '');
+  cancelBtn.style.display = 'none';
+  overlay.classList.remove('hidden');
+  setTimeout(() => field.focus(), 0);
+
+  return new Promise((resolve) => {
+    const tryOk = () => {
+      const v = String(field.value || '').trim();
+      if (v.length < minLen) {
+        field.focus();
+        flashHud('닉네임을 입력해 주세요', 1200);
+        return;
+      }
+      overlay.classList.add('hidden');
+      okBtn.onclick = null;
+      field.onkeydown = null;
+      cancelBtn.style.display = '';
+      resolve(v);
+    };
+    okBtn.onclick = tryOk;
+    field.onkeydown = (e) => {
+      if (e.key === 'Enter') tryOk();
     };
   });
 }
@@ -2055,6 +2106,17 @@ async function init() {
   }
 
   await loadMe();
+  // 방문자(익명)로 /viewer 접속 시: 무조건 닉네임을 설정하도록 강제
+  if (authState.role === 'viewer') {
+    const nick = await ensureNicknameForVisitorAlways();
+    state.nickname = nick;
+    authState.displayName = nick;
+    try {
+      socket.auth = { ...(socket.auth || {}), nickname: nick };
+      socket.disconnect();
+      socket.connect();
+    } catch {}
+  }
   // 로그인 사용자면 displayName 우선, 아니면 닉네임(공유키) 사용
   if (!authState.displayName) authState.displayName = state.nickname || '익명';
   updateSongBookPickVisibility();

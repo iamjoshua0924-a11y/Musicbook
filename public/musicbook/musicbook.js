@@ -10,6 +10,11 @@ const state = {
   requests: [],
   requestManageMode: false,
   selectedRequestIds: new Set(),
+  availabilityUserId: '',
+  availabilitySet: null,
+
+  sessionRoomCode: '',
+  isPageTurner: false,
 
   sortField: 'createdAt',
   sortDir: 'desc',
@@ -101,6 +106,8 @@ function applySongFilters() {
   const mood = $('moodFilter').value;
   const vocal = $('vocalFilter').value;
   const latestOnly = $('latestOnlyToggle').checked;
+  const availUserId = $('availUserFilter')?.value || '';
+  const availOnly = $('availOnlyToggle')?.checked;
 
   const hideTags = $('hideTagsToggle').checked;
 
@@ -113,6 +120,11 @@ function applySongFilters() {
   if (vocal) list = list.filter((s) => s.vocal === vocal);
   if (q) {
     list = list.filter((s) => (s.searchText || '').includes(q) || (s.title || '').toLowerCase().includes(q) || (s.artist || '').toLowerCase().includes(q));
+  }
+
+  // Availability filter (optional; session/admin oriented)
+  if (availUserId && state.availabilityUserId === availUserId && state.availabilitySet) {
+    if (availOnly) list = list.filter((s) => state.availabilitySet.has(s.googleFileId));
   }
 
   // sort
@@ -144,8 +156,16 @@ function renderSongCards(hideTags) {
     const el = document.createElement('div');
     el.className = 'song-card';
     const title = s.displayTitle || s.title || '(제목없음)';
+    const availUserId = $('availUserFilter')?.value || '';
+    const availChip =
+      availUserId && state.availabilityUserId === availUserId && state.availabilitySet
+        ? state.availabilitySet.has(s.googleFileId)
+          ? `<span class="chip">가능</span>`
+          : `<span class="chip">불가</span>`
+        : '';
+
     el.innerHTML = `
-      <div class="song-title">${esc(title)} ${s.isLatest ? `<span class="chip">NEW!</span>` : ''}</div>
+      <div class="song-title">${esc(title)} ${s.isLatest ? `<span class="chip">NEW!</span>` : ''} ${availChip}</div>
       <div class="song-artist">${esc(s.artist || '')}</div>
       ${hideTags ? '' : `
         <div class="song-tags">
@@ -158,7 +178,17 @@ function renderSongCards(hideTags) {
     `;
     el.onclick = () => {
       if (!s.googleFileId) return;
-      window.location.href = `/viewer/${encodeURIComponent(s.googleFileId)}`;
+      // If joined in a live session and this user is page turner, broadcast follow-file.
+      const roomCode = state.sessionRoomCode;
+      if (roomCode && state.isPageTurner) {
+        state._socket?.emit?.('session:follow:file', { roomCode, fileId: s.googleFileId }, () => {
+          window.location.href = `/viewer/${encodeURIComponent(s.googleFileId)}?room=${encodeURIComponent(roomCode)}`;
+        });
+      } else if (roomCode) {
+        window.location.href = `/viewer/${encodeURIComponent(s.googleFileId)}?room=${encodeURIComponent(roomCode)}`;
+      } else {
+        window.location.href = `/viewer/${encodeURIComponent(s.googleFileId)}`;
+      }
     };
     wrap.appendChild(el);
   });
@@ -293,6 +323,11 @@ function applyRoleUI() {
   $('clearRequestsBtn').style.display = isAdmin ? 'inline-flex' : 'none';
 
   $('authButton').textContent = state.role === 'viewer' ? '세션 / 관리자 로그인' : '로그아웃';
+
+  // Availability filter visibility: only for session/admin
+  const showAvail = isPriv;
+  $('availUserFilter').style.display = showAvail ? 'inline-flex' : 'none';
+  $('availOnlyWrap').style.display = showAvail ? 'inline-flex' : 'none';
 }
 
 async function refreshSession() {
@@ -306,7 +341,12 @@ async function refreshSession() {
   }
   applyRoleUI();
   // update presence role on socket (best-effort)
-  state._socket?.emit?.('main:join', { nickname: localStorage.getItem('mb_presence_nick') || state.displayName, role: state.role });
+  state._socket?.emit?.('main:join', {
+    nickname: localStorage.getItem('mb_presence_nick') || state.displayName,
+    role: state.role,
+    displayName: state.displayName,
+    profilePhoto: $('profilePhoto')?.src || ''
+  });
 }
 
 async function doLogin() {
@@ -318,6 +358,7 @@ async function doLogin() {
   closeModal('loginModal');
   $('loginPw').value = '';
   await refreshSession();
+  await loadAvailabilityUsersIfNeeded();
   toast('로그인 완료');
 }
 
@@ -474,6 +515,26 @@ function wireEvents() {
   $('editTitleBtn').onclick = () => openEditModal('titleImage', '타이틀 이미지 URL', state.main?.titleImage);
   $('syncAllBtn').onclick = () => syncDrive(false).catch(() => {});
   $('syncFastBtn').onclick = () => syncDrive(true).catch(() => {});
+
+  // session controls on main page
+  $('sessionCreateBtn').onclick = () => {
+    const socket = state._socket;
+    if (!socket) return;
+    socket.emit('session:create', {}, (ack) => {
+      if (!ack?.ok) return toast('세션 생성 실패');
+      joinLiveSession(String(ack.roomCode || ''));
+      toast(`세션 생성: ${ack.roomCode}`);
+    });
+  };
+  $('sessionJoinBtn').onclick = () => {
+    const code = (prompt('Room Code를 입력하세요:', state.sessionRoomCode || '') || '').trim().toUpperCase();
+    if (!code) return;
+    joinLiveSession(code);
+  };
+
+  // availability filter
+  $('availUserFilter').onchange = () => loadAvailability().catch(() => {});
+  $('availOnlyToggle').onchange = () => applySongFilters();
 }
 
 function attachSockets() {
@@ -487,11 +548,18 @@ function attachSockets() {
   });
 
   // Join main presence room
-  socket.emit('main:join', { nickname, role: state.role });
+  socket.emit('main:join', { nickname, role: state.role, displayName: state.displayName, profilePhoto: $('profilePhoto')?.src || '' });
   state._socket = socket;
 
   socket.on('presence:list', (p) => {
     renderPresence(p?.items || []);
+  });
+
+  // session state events (page turner)
+  socket.on('session:pageTurner:state', (p) => {
+    if (!state.sessionRoomCode) return;
+    state.isPageTurner = p?.pageTurnerSocketId === socket.id;
+    $('turnerBadge').style.display = state.isPageTurner ? 'inline-flex' : 'none';
   });
 }
 
@@ -512,13 +580,84 @@ function renderPresence(items) {
     const el = document.createElement('div');
     el.className = 'presence-item';
     el.innerHTML = `
-      <div>
-        <div>${esc(p.nickname || '익명')}</div>
-        <div class="presence-sub">${esc(p.role || 'viewer')}</div>
+      <div style="display:flex; gap:10px; align-items:center;">
+        ${p.profilePhoto ? `<img class="presence-photo" src="${esc(p.profilePhoto)}" alt="" />` : `<div class="presence-photo"></div>`}
+        <div>
+          <div>${esc(p.displayName || p.nickname || '익명')}</div>
+          <div class="presence-sub">${esc(p.role || 'viewer')}</div>
+        </div>
       </div>
     `;
     wrap.appendChild(el);
   });
+}
+
+function getRoomFromUrl() {
+  return new URLSearchParams(window.location.search).get('room') || '';
+}
+
+function setRoomToUrl(roomCode) {
+  const url = new URL(window.location.href);
+  if (roomCode) url.searchParams.set('room', roomCode);
+  else url.searchParams.delete('room');
+  window.history.replaceState(null, '', url.toString());
+}
+
+function joinLiveSession(roomCode) {
+  const code = String(roomCode || '').trim().toUpperCase();
+  if (!code) return;
+  state.sessionRoomCode = code;
+  $('sessionBadge').style.display = 'inline-flex';
+  $('sessionBadge').textContent = `세션: ${code}`;
+  setRoomToUrl(code);
+  state._socket?.emit?.('session:join', { roomCode: code, nickname: localStorage.getItem('mb_presence_nick') || state.displayName }, (ack) => {
+    if (!ack?.ok) {
+      toast('세션 참여 실패');
+      return;
+    }
+    state.isPageTurner = Boolean(ack.isPageTurner);
+    $('turnerBadge').style.display = state.isPageTurner ? 'inline-flex' : 'none';
+  });
+}
+
+async function loadAvailability() {
+  const userId = $('availUserFilter').value;
+  state.availabilityUserId = userId;
+  state.availabilitySet = null;
+  if (!userId) {
+    applySongFilters();
+    return;
+  }
+  const data = await apiGet(`/api/availability?userId=${encodeURIComponent(userId)}`);
+  if (!data.ok) {
+    toast('가능곡 로드 실패');
+    return;
+  }
+  const set = new Set();
+  (data.items || []).forEach((a) => {
+    if (a.available) set.add(a.googleFileId);
+  });
+  state.availabilitySet = set;
+  applySongFilters();
+}
+
+async function loadAvailabilityUsersIfNeeded() {
+  // session/admin only: build dropdown from /api/admin/users
+  if (state.role === 'viewer') return;
+  const r = await apiGet('/api/admin/users');
+  if (!r.ok) return;
+  const sel = $('availUserFilter');
+  const current = sel.value;
+  sel.innerHTML = `<option value="">가능곡(유저 선택)</option>`;
+  (r.items || [])
+    .filter((u) => u.role === 'session' || u.role === 'admin')
+    .forEach((u) => {
+      const opt = document.createElement('option');
+      opt.value = u.userId;
+      opt.textContent = `${u.userId} (${u.role})`;
+      sel.appendChild(opt);
+    });
+  if (current) sel.value = current;
 }
 
 async function bootstrap() {
@@ -527,10 +666,15 @@ async function bootstrap() {
     wireEvents();
     attachSockets();
     await refreshSession();
+    await loadAvailabilityUsersIfNeeded();
     await loadMainPage();
     await loadSongs(true);
     applySongFilters();
     await loadRequests(true);
+
+    // Auto-join live session if ?room exists (main-page convenience)
+    const roomFromUrl = getRoomFromUrl().trim().toUpperCase();
+    if (roomFromUrl) joinLiveSession(roomFromUrl);
   } finally {
     showLoading(false);
     document.body.classList.remove('preload');

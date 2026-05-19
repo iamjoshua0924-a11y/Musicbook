@@ -61,6 +61,10 @@
           </div>
 
           <button class="floating-btn black-btn" id="authButton" type="button">세션 / 관리자 로그인</button>
+          <button class="floating-btn" id="sessionCreateBtn" type="button">세션 만들기</button>
+          <button class="floating-btn" id="sessionJoinBtn" type="button">세션 참여</button>
+          <div class="session-badge" id="sessionBadge" style="display:none;"></div>
+          <div class="session-badge turner-badge" id="turnerBadge" style="display:none;">현재 당신이 페이지터너입니다</div>
           <button class="floating-btn" id="adminToggleBtn" type="button" style="display: none">관리자 버튼</button>
           <button class="floating-btn" id="profileButton" type="button" style="display: none">프로필 관리</button>
         </div>
@@ -132,6 +136,14 @@
                 <label class="inline-check">
                   <input type="checkbox" id="latestOnlyToggle" />
                   최신곡만
+                </label>
+
+                <select id="availUserFilter" class="select" style="display:none;">
+                  <option value="">가능곡(유저 선택)</option>
+                </select>
+                <label class="inline-check" id="availOnlyWrap" style="display:none;">
+                  <input type="checkbox" id="availOnlyToggle" />
+                  가능곡만
                 </label>
 
                 <div class="random-controls">

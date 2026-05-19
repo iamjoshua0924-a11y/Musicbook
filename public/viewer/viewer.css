@@ -360,6 +360,18 @@ body[data-tool="shape"] #brushGroup{
   z-index: 1001;
 }
 
+/* live-mode: 패널을 하단 시트/모달처럼 보이게 */
+body.live-mode #participantsPanel{
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  top: auto;
+  bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  width: auto;
+  max-height: 45vh;
+  z-index: 5300;
+}
+
 .panelTitle { font-weight: 700; margin-bottom: 8px; }
 .panelTitleRow{
   display:flex;
@@ -439,7 +451,7 @@ body[data-tool="shape"] #brushGroup{
 
 /* Mobile / tablet live mode (minimal UI) */
 .live-mode #topbar { display: none; }
-.live-mode #participantsPanel { display: none !important; }
+/* participantsPanel은 모바일에서도 필요(세션목록/권한요청) */
 
 /* Focus mode: hide side UI */
 

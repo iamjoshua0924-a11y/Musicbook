@@ -645,6 +645,10 @@ function updateTurnerToggleAccess() {
 
   const reqBtn = document.getElementById('requestToolBtn');
   if (reqBtn) reqBtn.classList.toggle('hidden', !(state.isInSession && !canUseToolsNow()));
+
+  // mobile bottom sheet controls
+  const mReqBtn = document.getElementById('mobileRequestToolBtn');
+  if (mReqBtn) mReqBtn.classList.toggle('hidden', !(state.isInSession && !canUseToolsNow()));
 }
 
 function updateSongBookPickVisibility() {
@@ -683,6 +687,8 @@ function joinSession(roomCode) {
     setText('sessionBadge', `세션: ${state.roomCode}`);
     setText('touchRoomBadge', `ROOM ${state.roomCode}`);
     setHidden('participantsPanel', false);
+    // 모바일에서는 기본으로 패널을 접어둠(필요 시 '세션목록' 버튼으로 열기)
+    if (isMobileLike()) setHidden('participantsPanel', true);
     // request initial annotations
     if (state.fileId) socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId: state.fileId });
     setSessionUiDefaultsIfNeeded();
@@ -1949,6 +1955,18 @@ document.getElementById('mobileToggleViewBtn')?.addEventListener('click', () => 
 });
 document.getElementById('mobileToggleToolBtn')?.addEventListener('click', () => {
   document.getElementById('toolBar')?.classList.toggle('isHidden');
+});
+
+document.getElementById('mobileParticipantsBtn')?.addEventListener('click', () => {
+  // 모바일에서 세션목록 패널 토글
+  const panel = document.getElementById('participantsPanel');
+  if (!panel) return;
+  panel.classList.toggle('hidden');
+});
+
+document.getElementById('mobileRequestToolBtn')?.addEventListener('click', () => {
+  // 데스크톱의 도구요청과 동일 동작
+  document.getElementById('requestToolBtn')?.click();
 });
 
 // Wheel zoom (Ctrl + wheel)

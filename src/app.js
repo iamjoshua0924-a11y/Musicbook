@@ -39,11 +39,15 @@ function createApp() {
 
   // Pages
   app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+    res.sendFile(path.join(__dirname, '..', 'public', 'musicbook', 'index.html'));
   });
 
   app.get('/viewer/:fileId', (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'public', 'viewer', 'index.html'));
+  });
+
+  app.get('/admin', (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'public', 'admin', 'index.html'));
   });
 
   // API routes
@@ -53,4 +57,3 @@ function createApp() {
 }
 
 module.exports = { createApp };
-

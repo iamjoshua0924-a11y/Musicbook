@@ -17,6 +17,8 @@ async function main() {
   });
 
   attachSockets(io);
+  // Expose io to routes for broadcasting (MVP).
+  app.locals.io = io;
 
   server.listen(port, () => {
     // eslint-disable-next-line no-console
@@ -29,4 +31,3 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
-

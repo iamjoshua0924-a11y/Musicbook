@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>관리자 로그인</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; padding: 24px; }
+      .box { max-width: 420px; border: 1px solid #eee; border-radius: 14px; padding: 16px; }
+      input { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 10px; margin: 6px 0; }
+      button { padding: 10px 12px; border-radius: 10px; border: 0; background: #111; color: #fff; width: 100%; cursor: pointer; }
+      a { color: #111; }
+      .muted { color: #777; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <a href="/">← 노래책으로</a>
+    <h1>세션/관리자 로그인</h1>
+    <div class="box">
+      <div class="muted">초기 버전: 로그인 API만 연결(권한 UI는 다음 단계에서 확장)</div>
+      <input id="userId" placeholder="ID" />
+      <input id="password" placeholder="Password" type="password" />
+      <button id="loginBtn">로그인</button>
+      <pre id="out" class="muted"></pre>
+    </div>
+    <script>
+      document.getElementById('loginBtn').onclick = async () => {
+        const userId = document.getElementById('userId').value.trim();
+        const password = document.getElementById('password').value;
+        const res = await fetch('/api/admin/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, password })
+        });
+        const data = await res.json();
+        document.getElementById('out').textContent = JSON.stringify(data, null, 2);
+        if (data.ok) location.href = '/';
+      };
+    </script>
+  </body>
+</html>
+

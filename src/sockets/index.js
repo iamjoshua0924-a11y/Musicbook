@@ -1,4 +1,5 @@
 const ViewerAnnoSnapshot = require('../models/ViewerAnnoSnapshot');
+const Request = require('../models/Request');
 const { SessionStore } = require('./sessionStore');
 
 const store = new SessionStore();
@@ -250,7 +251,15 @@ function attachSockets(io) {
       }
     });
   });
+
+  // Helper: broadcast current requests to all (simple MVP).
+  const broadcastRequests = async () => {
+    const items = await Request.find({}).sort({ createdAt: -1 }).limit(500).lean();
+    io.emit('requests:updated', { items });
+  };
+
+  // Expose for routes to trigger later (hooked in app via io reference in next iteration).
+  io.broadcastRequests = broadcastRequests;
 }
 
 module.exports = { attachSockets };
-

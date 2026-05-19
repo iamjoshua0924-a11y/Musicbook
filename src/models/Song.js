@@ -13,11 +13,13 @@ const SongSchema = new mongoose.Schema(
     googleFileId: { type: String, required: true, unique: true, index: true },
     driveUrl: { type: String, default: '' },
     folderPath: { type: String, default: '' },
+    parseError: { type: String, default: '' },
 
     isLatest: { type: Boolean, default: false },
     hidden: { type: Boolean, default: false },
 
     searchText: { type: String, default: '', index: true },
+    driveModifiedTime: { type: Date, default: null },
 
     createdAt: { type: Date, default: () => new Date() },
     updatedAt: { type: Date, default: () => new Date() }
@@ -31,4 +33,3 @@ SongSchema.pre('save', function preSave(next) {
 });
 
 module.exports = mongoose.model('Song', SongSchema);
-

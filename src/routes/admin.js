@@ -2,6 +2,8 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const User = require('../models/User');
 const { requireLogin, requireAdmin } = require('../middleware/auth');
+const { driveRootFolderId } = require('../config/env');
+const { syncDriveFolderTree } = require('../services/driveSync');
 
 const router = express.Router();
 
@@ -53,5 +55,15 @@ router.get('/admin/users', requireAdmin, async (req, res) => {
   res.json({ ok: true, items });
 });
 
-module.exports = router;
+// Drive sync (admin/session only; for now admin only)
+router.post('/admin/sync/drive', requireAdmin, async (req, res) => {
+  const rootFolderId = String(req.body?.rootFolderId || driveRootFolderId || '').trim();
+  try {
+    const result = await syncDriveFolderTree({ rootFolderId });
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: String(e.message || 'SYNC_FAILED') });
+  }
+});
 
+module.exports = router;

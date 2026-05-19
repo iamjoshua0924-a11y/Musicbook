@@ -37,5 +37,8 @@ function buildPreviewUrl(fileId) {
   return `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/preview`;
 }
 
-module.exports = { getDriveClient, getFileMetadata, buildPreviewUrl };
+function buildViewUrl(fileId) {
+  return `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/view`;
+}
 
+module.exports = { getDriveClient, getFileMetadata, buildPreviewUrl, buildViewUrl };

@@ -503,8 +503,9 @@ function pickCardMatches(q) {
 function openFileInRoom(fileId, originalLink = '') {
   const roomCode = state.roomCode;
   if (state.isInSession && state.isPageTurner && roomCode) {
-    socket.emit('session:follow:file', { roomCode, fileId, originalLink: String(originalLink || '').trim() }, () => {
-      window.location.href = `${window.location.origin}/viewer/${fileId}?room=${encodeURIComponent(roomCode)}`;
+    // 페이지터너는 브로드캐스트만 하고, 실제 이동은 follow:file 이벤트로 통일(중복 네비게이션/루프 방지)
+    socket.emit('session:follow:file', { roomCode, fileId, originalLink: String(originalLink || '').trim() }, (ack) => {
+      if (!ack?.ok) alert('세션 곡 전환 브로드캐스트 실패(권한 확인)');
     });
   } else {
     window.location.href = `${window.location.origin}/viewer/${fileId}?room=${encodeURIComponent(roomCode)}`;
@@ -744,12 +745,13 @@ function extractDriveFileId(input) {
 function openByInput(input) {
   const fileId = extractDriveFileId(input);
   if (!fileId) return alert('fileId를 추출하지 못했습니다. Drive 링크 또는 fileId를 확인해 주세요.');
+  // 이미 같은 파일을 보고 있으면 다시 네비게이션하지 않음(무한 루프/리프레시 방지)
+  if (state.fileId && String(fileId) === String(state.fileId)) return;
 
   const roomCode = state.roomCode;
   if (state.isInSession && state.isPageTurner && roomCode) {
     socket.emit('session:follow:file', { roomCode, fileId, originalLink: String(input || '').trim() }, (ack) => {
       if (!ack?.ok) alert('세션 곡 전환 브로드캐스트 실패(권한 확인)');
-      window.location.href = `${window.location.origin}/viewer/${fileId}?room=${roomCode}`;
     });
   } else {
     const roomParam = state.isInSession && roomCode ? `?room=${roomCode}` : '';
@@ -1794,13 +1796,15 @@ socket.on('session:follow:file', (p) => {
   if (!state.isInSession) return;
   const fileId = p?.fileId;
   if (!fileId) return;
-  // 바이블(D): originalLink가 있으면 링크 기반 오픈으로 preview 폴백까지 최대한 동일하게 재현
-  const originalLink = String(p?.originalLink || '').trim();
-  if (originalLink) return openByInput(originalLink);
+  // 무한 리부팅 방지: 이미 같은 파일이면 아무것도 하지 않음
+  if (String(fileId) === String(state.fileId || '')) return;
 
-  // fallback: Navigate to keep URL canonical, preserving room param (requirement).
-  const nextUrl = `${window.location.origin}/viewer/${fileId}?room=${state.roomCode}`;
-  if (fileId !== state.fileId) window.location.href = nextUrl;
+  // originalLink가 있어도 재-broadcast 되지 않도록 "추출→직접 네비게이션"만 수행
+  const originalLink = String(p?.originalLink || '').trim();
+  const targetId = originalLink ? extractDriveFileId(originalLink) || fileId : fileId;
+
+  const nextUrl = `${window.location.origin}/viewer/${targetId}?room=${state.roomCode}`;
+  window.location.href = nextUrl;
 });
 
 // Whiteboard sync

@@ -7,6 +7,22 @@ const store = new SessionStore();
 // Presence (main page) - in-memory only
 const presence = new Map(); // socketId -> { nickname, role, displayName, profilePhoto, ts }
 
+// Whiteboard rate-limit (per socket, best-effort)
+const wbRate = new Map(); // socketId -> { ts, count }
+function wbAllow(socketId) {
+  const now = Date.now();
+  const w = wbRate.get(socketId) || { ts: now, count: 0 };
+  // rolling 1s bucket
+  if (now - w.ts > 1000) {
+    w.ts = now;
+    w.count = 0;
+  }
+  w.count += 1;
+  wbRate.set(socketId, w);
+  // allow up to 20 updates/sec per socket
+  return w.count <= 20;
+}
+
 function emitPresence(io) {
   const items = Array.from(presence.entries()).map(([socketId, p]) => ({
     socketId,
@@ -245,6 +261,8 @@ function attachSockets(io) {
 
     // --- Whiteboard snapshot sync (page-based SSOT) --------------------------------
     socket.on('wb:page:update', async (payload, ack) => {
+      // protect server from floods
+      if (!wbAllow(socket.id)) return ack?.({ ok: false, error: 'RATE_LIMIT' });
       const roomCode = String(payload?.roomCode || '').trim().toUpperCase();
       const fileId = String(payload?.fileId || '').trim();
       const pageNo = String(payload?.pageNo || '').trim();
@@ -253,6 +271,15 @@ function attachSockets(io) {
       const room = store.rooms.get(roomCode);
       if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
       if (!fileId || !pageNo) return ack?.({ ok: false, error: 'BAD_REQUEST' });
+      if (!pageSnapshot || typeof pageSnapshot !== 'object') return ack?.({ ok: false, error: 'BAD_REQUEST' });
+
+      // size guard (very rough)
+      try {
+        const size = JSON.stringify(pageSnapshot?.json || {}).length;
+        if (size > 300000) return ack?.({ ok: false, error: 'PAYLOAD_TOO_LARGE' });
+      } catch {
+        return ack?.({ ok: false, error: 'BAD_REQUEST' });
+      }
 
       let fileAnno = room.annotationsByFile.get(fileId);
       if (!fileAnno) {
@@ -293,6 +320,7 @@ function attachSockets(io) {
         presence.delete(socket.id);
         emitPresence(io);
       }
+      wbRate.delete(socket.id);
       // Remove from all joined session rooms.
       for (const roomCode of socket.data.joinedRooms || []) {
         const room = store.rooms.get(roomCode);

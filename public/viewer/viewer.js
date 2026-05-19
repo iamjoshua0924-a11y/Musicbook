@@ -79,6 +79,19 @@ const state = {
   activeDrawPageNo: 1
 };
 
+// ---- Auth context (optional) ------------------------------------------------------
+const authState = { role: 'viewer', displayName: state.nickname, profilePhoto: '' };
+
+async function loadMe() {
+  try {
+    const me = await fetch('/api/admin/me', { credentials: 'include' }).then((r) => r.json());
+    if (me?.ok) {
+      authState.role = me.user.role;
+      authState.displayName = me.user.displayName || me.user.userId;
+    }
+  } catch {}
+}
+
 // ---- Socket -----------------------------------------------------------------------
 const socket = io({
   auth: { nickname: state.nickname }
@@ -96,9 +109,9 @@ function joinSession(roomCode) {
     {
       roomCode: state.roomCode,
       nickname: state.nickname,
-      role: 'viewer',
-      displayName: state.nickname,
-      profilePhoto: ''
+      role: authState.role,
+      displayName: authState.displayName,
+      profilePhoto: authState.profilePhoto
     },
     (ack) => {
     if (!ack?.ok) {
@@ -1058,7 +1071,9 @@ socket.on('wb:page:update', (p) => {
 
 // ---- Init -------------------------------------------------------------------------
 if (state.fileId) {
-  loadPdf(state.fileId).catch(() => {});
+  loadMe().finally(() => {
+    loadPdf(state.fileId).catch(() => {});
+  });
 } else {
   alert('fileId가 없습니다. /viewer/:fileId 로 접속해 주세요.');
 }

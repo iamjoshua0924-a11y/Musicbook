@@ -1,5 +1,6 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 const User = require('../models/User');
 const { requireLogin, requireAdmin, requireSessionOrAdmin } = require('../middleware/auth');
 const { driveRootFolderId, adminBootstrapToken } = require('../config/env');
@@ -82,7 +83,24 @@ router.post('/admin/login', async (req, res) => {
   const user = await User.findOne({ userId, active: { $ne: false } }).lean();
   if (!user) return res.status(401).json({ ok: false, error: 'INVALID_CREDENTIALS' });
 
-  const ok = await bcrypt.compare(password, user.passwordHash);
+  let ok = false;
+  try {
+    ok = await bcrypt.compare(password, user.passwordHash);
+  } catch {
+    ok = false;
+  }
+
+  // Migration fallback: legacy SHA-256 hash (from GAS sheet) -> auto-upgrade to bcrypt.
+  if (!ok && user.legacyPasswordHash) {
+    const sha = crypto.createHash('sha256').update(password).digest('hex');
+    if (sha === user.legacyPasswordHash) {
+      ok = true;
+      // Upgrade bcrypt hash in background
+      const passwordHash = await bcrypt.hash(password, 10);
+      await User.updateOne({ _id: user._id }, { $set: { passwordHash } });
+    }
+  }
+
   if (!ok) return res.status(401).json({ ok: false, error: 'INVALID_CREDENTIALS' });
 
   req.session.user = { id: String(user._id), userId: user.userId, role: user.role, displayName: user.displayName };

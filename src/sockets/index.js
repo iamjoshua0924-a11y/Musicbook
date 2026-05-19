@@ -375,12 +375,28 @@ function attachSockets(io) {
       const hide = Boolean(payload?.hide);
       const xNorm = Number(payload?.xNorm);
       const yNorm = Number(payload?.yNorm);
+      const pageNo = Number(payload?.pageNo || 0);
+      const xPageNorm = Number(payload?.xPageNorm);
+      const yPageNorm = Number(payload?.yPageNorm);
       if (!hide) {
-        if (!Number.isFinite(xNorm) || !Number.isFinite(yNorm)) return ack?.({ ok: false, error: 'BAD_REQUEST' });
-        if (xNorm < -0.2 || xNorm > 1.2 || yNorm < -0.2 || yNorm > 1.2) return ack?.({ ok: false, error: 'BAD_REQUEST' });
+        const legacyOk = Number.isFinite(xNorm) && Number.isFinite(yNorm);
+        const pageOk = pageNo > 0 && Number.isFinite(xPageNorm) && Number.isFinite(yPageNorm);
+        if (!legacyOk && !pageOk) return ack?.({ ok: false, error: 'BAD_REQUEST' });
+        if (legacyOk && (xNorm < -0.2 || xNorm > 1.2 || yNorm < -0.2 || yNorm > 1.2)) return ack?.({ ok: false, error: 'BAD_REQUEST' });
+        if (pageOk && (xPageNorm < -0.2 || xPageNorm > 1.2 || yPageNorm < -0.2 || yPageNorm > 1.2)) return ack?.({ ok: false, error: 'BAD_REQUEST' });
       }
 
-      io.to(toSessionRoomName(roomCode)).emit('viewer:cursor', { fileId, xNorm, yNorm, hide });
+      io.to(toSessionRoomName(roomCode)).emit('viewer:cursor', {
+        fileId,
+        hide,
+        // legacy
+        xNorm,
+        yNorm,
+        // new
+        pageNo: pageNo || undefined,
+        xPageNorm: Number.isFinite(xPageNorm) ? xPageNorm : undefined,
+        yPageNorm: Number.isFinite(yPageNorm) ? yPageNorm : undefined
+      });
       ack?.({ ok: true });
     });
 

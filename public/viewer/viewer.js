@@ -350,8 +350,11 @@ function setCursorMarker(el, { xNorm, yNorm, visible }) {
   const container = document.getElementById('pdf-container');
   if (!container) return;
   const r = container.getBoundingClientRect();
-  const x = r.left + r.width * clamp(Number(xNorm || 0), 0, 1);
-  const y = r.top + r.height * clamp(Number(yNorm || 0), 0, 1);
+  // allow both normalized coords and absolute px (relative to container)
+  const xPx = Number.isFinite(Number(xNorm)) ? r.width * clamp(Number(xNorm || 0), 0, 1) : null;
+  const yPx = Number.isFinite(Number(yNorm)) ? r.height * clamp(Number(yNorm || 0), 0, 1) : null;
+  const x = r.left + (xPx ?? 0);
+  const y = r.top + (yPx ?? 0);
 
   // 높이: 화면에 비례(너무 작/크지 않게) - 기존 대비 1/2
   const h = clamp(r.height * 0.11, 40, 110);
@@ -359,6 +362,34 @@ function setCursorMarker(el, { xNorm, yNorm, visible }) {
   el.style.left = `${Math.round(x - r.left)}px`;
   el.style.top = `${Math.round(y - r.top)}px`;
   el.style.display = 'block';
+}
+
+function findPageAtPoint(clientX, clientY) {
+  const pages = getSpreadPages(state.pageNo);
+  const candidates = pages.map((p) => ({ pageNo: p, view: viewMap.get(p) })).filter((x) => x.view?.root);
+  if (!candidates.length) return null;
+
+  // 1) direct hit
+  for (const c of candidates) {
+    const rect = c.view.root.getBoundingClientRect();
+    if (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) {
+      return { pageNo: c.pageNo, rect };
+    }
+  }
+  // 2) choose nearest rect (distance to rect)
+  let best = null;
+  let bestD = Infinity;
+  for (const c of candidates) {
+    const rect = c.view.root.getBoundingClientRect();
+    const x = clamp(clientX, rect.left, rect.right);
+    const y = clamp(clientY, rect.top, rect.bottom);
+    const d = (clientX - x) ** 2 + (clientY - y) ** 2;
+    if (d < bestD) {
+      bestD = d;
+      best = { pageNo: c.pageNo, rect };
+    }
+  }
+  return best;
 }
 
 function updateCursorShareUI() {
@@ -375,8 +406,10 @@ function stopCursorShare(sendHide = false) {
   ensureCursorEls();
   if (localCursorEl) localCursorEl.style.display = 'none';
   if (cursorMoveHandler) {
-    document.getElementById('pdf-container')?.removeEventListener('mousemove', cursorMoveHandler);
-    document.getElementById('pdf-container')?.removeEventListener('touchmove', cursorMoveHandler);
+    const c = document.getElementById('pdf-container');
+    c?.removeEventListener('pointermove', cursorMoveHandler);
+    c?.removeEventListener('mousemove', cursorMoveHandler);
+    c?.removeEventListener('touchmove', cursorMoveHandler);
   }
   cursorMoveHandler = null;
   updateCursorShareUI();
@@ -407,20 +440,29 @@ function startCursorShare() {
     const r = container.getBoundingClientRect();
     let clientX = 0;
     let clientY = 0;
-    if (e.touches && e.touches[0]) {
-      clientX = e.touches[0].clientX;
-      clientY = e.touches[0].clientY;
-    } else {
-      clientX = e.clientX;
-      clientY = e.clientY;
-    }
-    const xNorm = r.width ? (clientX - r.left) / r.width : 0;
-    const yNorm = r.height ? (clientY - r.top) / r.height : 0;
+    const t = e.touches && e.touches[0] ? e.touches[0] : null;
+    clientX = t ? t.clientX : e.clientX;
+    clientY = t ? t.clientY : e.clientY;
+
+    const hit = findPageAtPoint(clientX, clientY);
+    if (!hit?.rect) return;
+    const rect = hit.rect;
+    const pageNo = hit.pageNo;
+    const xPageNorm = rect.width ? (clientX - rect.left) / rect.width : 0;
+    const yPageNorm = rect.height ? (clientY - rect.top) / rect.height : 0;
+
+    // local marker placement uses container-local px
+    const xLocal = (rect.left - r.left) + clamp(xPageNorm, 0, 1) * rect.width;
+    const yLocal = (rect.top - r.top) + clamp(yPageNorm, 0, 1) * rect.height;
+    const xNorm = r.width ? xLocal / r.width : 0;
+    const yNorm = r.height ? yLocal / r.height : 0;
 
     setCursorMarker(localCursorEl, { xNorm, yNorm, visible: true });
-    socket.emit('viewer:cursor', { roomCode: state.roomCode, fileId: state.fileId, xNorm, yNorm });
+    socket.emit('viewer:cursor', { roomCode: state.roomCode, fileId: state.fileId, pageNo, xPageNorm, yPageNorm });
   };
 
+  container.addEventListener('pointermove', cursorMoveHandler, { passive: true });
+  // fallback
   container.addEventListener('mousemove', cursorMoveHandler, { passive: true });
   container.addEventListener('touchmove', cursorMoveHandler, { passive: true });
 }
@@ -2178,6 +2220,32 @@ socket.on('viewer:cursor', (p) => {
   if (p?.fileId && state.fileId && String(p.fileId) !== String(state.fileId)) return;
   ensureCursorEls();
   if (p?.hide) return setCursorMarker(remoteCursorEl, { visible: false });
+
+  // New format: page-based cursor (preferred)
+  const pageNo = Number(p?.pageNo || 0);
+  const xPageNorm = Number(p?.xPageNorm);
+  const yPageNorm = Number(p?.yPageNorm);
+  if (pageNo && Number.isFinite(xPageNorm) && Number.isFinite(yPageNorm)) {
+    // 모바일 viewer는 커서가 있는 페이지로 따라간다.
+    if (isMobileViewer() && pageNo !== state.pageNo) {
+      followToPage(pageNo, 'cursor').catch(() => {});
+      // followToPage가 async라 이후 렌더 타이밍은 다음 메시지에서 자연히 맞춰짐
+      // (즉시 표시 필요하면 await로 바꿀 수 있지만, 이벤트 빈도가 높아 비권장)
+    }
+    const v = viewMap.get(pageNo);
+    if (!v?.root) return;
+    const container = document.getElementById('pdf-container');
+    if (!container) return;
+    const cr = container.getBoundingClientRect();
+    const pr = v.root.getBoundingClientRect();
+    const xLocal = (pr.left - cr.left) + clamp(xPageNorm, 0, 1) * pr.width;
+    const yLocal = (pr.top - cr.top) + clamp(yPageNorm, 0, 1) * pr.height;
+    const xNorm = cr.width ? xLocal / cr.width : 0;
+    const yNorm = cr.height ? yLocal / cr.height : 0;
+    return setCursorMarker(remoteCursorEl, { xNorm, yNorm, visible: true });
+  }
+
+  // Legacy fallback: container-based normalized cursor
   setCursorMarker(remoteCursorEl, { xNorm: p?.xNorm, yNorm: p?.yNorm, visible: true });
 });
 

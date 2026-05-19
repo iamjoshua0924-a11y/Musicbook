@@ -258,8 +258,8 @@ function setCursorMarker(el, { xNorm, yNorm, visible }) {
   const x = r.left + r.width * clamp(Number(xNorm || 0), 0, 1);
   const y = r.top + r.height * clamp(Number(yNorm || 0), 0, 1);
 
-  // 높이: 화면에 비례(너무 작/크지 않게)
-  const h = clamp(r.height * 0.22, 80, 220);
+  // 높이: 화면에 비례(너무 작/크지 않게) - 기존 대비 1/2
+  const h = clamp(r.height * 0.11, 40, 110);
   el.style.height = `${Math.round(h)}px`;
   el.style.left = `${Math.round(x - r.left)}px`;
   el.style.top = `${Math.round(y - r.top)}px`;
@@ -1613,6 +1613,8 @@ function setTool(tool, shape = null) {
     flashHud('도구 권한이 없습니다(도구요청 버튼으로 요청)', 1400);
     return;
   }
+  // 커서공유는 "표시 모드"이므로, 다른 도구로 전환하면 자동 중단
+  if (state.cursorShareOn) stopCursorShare(true);
   state.tool = tool;
   state.shape = shape;
   document.body.dataset.tool = tool;

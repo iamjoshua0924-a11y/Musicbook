@@ -172,8 +172,8 @@ button.danger{ background:rgba(255,107,107,0.14); border-color:rgba(255,107,107,
 /* 커서 공유(세로 형광펜 라인) */
 .cursor-marker{
   position: absolute;
-  width: 14px;
-  height: 160px;
+  width: 7px;
+  height: 80px;
   border-radius: 10px;
   background: rgba(255, 255, 0, 0.22);
   border: 1px solid rgba(255, 255, 0, 0.50);

@@ -300,7 +300,10 @@ function renderSongCards(hideTags) {
     el.innerHTML = `
       <div class="song-card-header">
         <div>
-          <div class="song-card-title">${esc(title)}</div>
+          <div class="song-card-title">
+            <span>${esc(title)}</span>
+            ${c.isLatest ? `<span class="new-badge">new!</span>` : ''}
+          </div>
           <div class="song-card-artist">${esc(c.artist || '')}</div>
         </div>
         <div class="song-card-right">

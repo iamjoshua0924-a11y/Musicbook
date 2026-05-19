@@ -5,6 +5,28 @@ function qs(name) {
   return new URLSearchParams(window.location.search).get(name);
 }
 
+function extractDriveFileIdFromAny(input) {
+  const s = String(input || '').trim();
+  if (!s) return '';
+  const m1 = s.match(/\/file\/d\/([^/]+)/);
+  if (m1) return m1[1];
+  try {
+    const u = new URL(s, window.location.origin);
+    const id = u.searchParams.get('id');
+    if (id) return id;
+  } catch {}
+  return '';
+}
+
+function normalizeProfilePhotoUrl(url, size = 80) {
+  const s = String(url || '').trim();
+  if (!s) return '';
+  if (s.includes('drive.google.com/thumbnail')) return s;
+  const id = extractDriveFileIdFromAny(s);
+  if (!id) return s;
+  return `https://drive.google.com/thumbnail?id=${encodeURIComponent(id)}&sz=w${Number(size) || 80}`;
+}
+
 function getFileIdFromPath() {
   const parts = window.location.pathname.split('/').filter(Boolean);
   // supports /viewer or /viewer/:fileId
@@ -1349,8 +1371,8 @@ function makeView(pageNo) {
         });
       }
 
-      // 2초 유지 후 2초간 페이드아웃
-      if (lo) scheduleFadeOutAndRemove(fabricCanvas, lo, 2000, 2000);
+      // 1초 유지 후 짧게 페이드아웃(요구사항)
+      if (lo) scheduleFadeOutAndRemove(fabricCanvas, lo, 1000, 400);
       return;
     }
     if (!isPlacing) return;
@@ -1924,11 +1946,12 @@ socket.on('session:participants', (p) => {
     row.className = 'participant-row';
     const name = m.displayName || m.nickname || '익명';
     const initial = String(name || '').trim().slice(0, 1) || '?';
+    const photo = normalizeProfilePhotoUrl(m.profilePhoto || '', 80);
     row.innerHTML = `
       <span class="participant-left">
         ${
-          m.profilePhoto
-            ? `<span class="participant-avatar"><img src="${String(m.profilePhoto)}" alt="" /></span>`
+          photo
+            ? `<span class="participant-avatar"><img src="${String(photo)}" alt="" /></span>`
             : `<span class="participant-avatar">${initial}</span>`
         }
         <span class="participant-name">${name}</span>
@@ -2062,7 +2085,8 @@ socket.on('viewer:laser', (p) => {
   const obj = makeLaserGroup(pts);
   v.fabric.add(obj);
   v.fabric.requestRenderAll();
-  scheduleFadeOutAndRemove(v.fabric, obj, 2000, 2000);
+  // 1초 유지 후 짧게 페이드아웃(요구사항)
+  scheduleFadeOutAndRemove(v.fabric, obj, 1000, 400);
 });
 
 socket.on('session:follow:file', (p) => {

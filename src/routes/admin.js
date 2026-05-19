@@ -9,6 +9,9 @@ const { runDriveSync, stopDriveSync, getDriveRootFolderId } = require('../servic
 const { KEYS, getJson } = require('../services/syncStatus');
 const { start: startCsvImport, getStatus: getCsvImportStatus } = require('../services/csvImportRunner');
 
+const { driveToThumb } = require('../services/legacyCsvImport');
+const { start: startCsvImport, getStatus: getCsvImportStatus } = require('../services/csvImportRunner');
+
 const router = express.Router();
 
 router.get('/admin/me', requireLogin, async (req, res) => {
@@ -81,7 +84,8 @@ router.patch('/admin/profile', requireLogin, async (req, res) => {
   if (!user) return res.status(401).json({ ok: false, error: 'UNAUTHORIZED' });
 
   if (displayName) user.displayName = displayName;
-  user.profilePhoto = profilePhoto;
+  // Accept Drive share links (/view) and store as thumbnail URL so <img> can render
+  user.profilePhoto = profilePhoto ? driveToThumb(profilePhoto, 240) : '';
   user.updatedAt = new Date();
   await user.save();
 

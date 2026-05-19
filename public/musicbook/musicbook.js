@@ -44,6 +44,31 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+function extractDriveFileIdFromAny(input) {
+  const s = String(input || '').trim();
+  if (!s) return '';
+  // drive.google.com/file/d/<id>/view
+  const m1 = s.match(/\/file\/d\/([^/]+)/);
+  if (m1) return m1[1];
+  // open?id=<id>
+  try {
+    const u = new URL(s, window.location.origin);
+    const id = u.searchParams.get('id');
+    if (id) return id;
+  } catch {}
+  return '';
+}
+
+function normalizeProfilePhotoUrl(url, size = 240) {
+  const s = String(url || '').trim();
+  if (!s) return '';
+  // If it's already a thumbnail URL or direct image URL, keep as-is.
+  if (s.includes('drive.google.com/thumbnail')) return s;
+  const id = extractDriveFileIdFromAny(s);
+  if (!id) return s;
+  return `https://drive.google.com/thumbnail?id=${encodeURIComponent(id)}&sz=w${Number(size) || 240}`;
+}
+
 function normLower(s) {
   const v = String(s ?? '');
   try {
@@ -104,8 +129,9 @@ async function apiJson(url, method, body) {
 function updateProfileImage(id, url) {
   const image = $(id);
   if (!image) return;
-  image.classList.toggle('active', Boolean(url));
-  image.src = url || '';
+  const finalUrl = normalizeProfilePhotoUrl(url || '', id === 'profilePhoto' ? 80 : 240);
+  image.classList.toggle('active', Boolean(finalUrl));
+  image.src = finalUrl || '';
 }
 
 function openUrlOrToast(url, label) {
@@ -288,8 +314,9 @@ function renderSongCards(hideTags) {
           .map((u) => {
             const name = String(u.displayName || u.userId || '').trim();
             const initial = name ? name.slice(0, 1) : '?';
-            return u.profilePhoto
-              ? `<span class="mini-avatar" title="${esc(name)}"><img src="${esc(u.profilePhoto)}" alt="" /></span>`
+            const photo = normalizeProfilePhotoUrl(u.profilePhoto || '', 80);
+            return photo
+              ? `<span class="mini-avatar" title="${esc(name)}"><img src="${esc(photo)}" alt="" /></span>`
               : `<span class="mini-avatar" title="${esc(name)}">${esc(initial)}</span>`;
           })
           .join('')}
@@ -1215,7 +1242,8 @@ function renderPresence(items) {
   const avatarCircle = (name, photo) => {
     const n = String(name || '').trim();
     const initial = n ? n.slice(0, 1) : '?';
-    if (photo) return `<span class="presence-avatar"><img src="${esc(photo)}" alt="" /></span>`;
+    const finalPhoto = normalizeProfilePhotoUrl(photo || '', 80);
+    if (finalPhoto) return `<span class="presence-avatar"><img src="${esc(finalPhoto)}" alt="" /></span>`;
     return `<span class="presence-avatar">${esc(initial)}</span>`;
   };
 
@@ -1299,9 +1327,10 @@ function renderSessionMembers(members) {
     el.className = 'presence-item';
     const name = m.displayName || m.nickname || '익명';
     const initial = String(name || '').trim().slice(0, 1) || '?';
+    const photo = normalizeProfilePhotoUrl(m.profilePhoto || '', 80);
     el.innerHTML = `
       <div style="display:flex; gap:10px; align-items:center;">
-        ${m.profilePhoto ? `<span class="presence-avatar"><img src="${esc(m.profilePhoto)}" alt="" /></span>` : `<span class="presence-avatar">${esc(initial)}</span>`}
+        ${photo ? `<span class="presence-avatar"><img src="${esc(photo)}" alt="" /></span>` : `<span class="presence-avatar">${esc(initial)}</span>`}
         <div>
           <div>${esc(name)} ${m.isPageTurner ? '<span class="chip">터너</span>' : ''}</div>
           <div class="presence-sub">${esc(m.role || 'viewer')}</div>

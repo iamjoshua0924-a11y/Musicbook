@@ -44,6 +44,16 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+function normLower(s) {
+  const v = String(s ?? '');
+  try {
+    // 한글 조합(NFD/NFC) 차이로 includes가 실패하는 케이스 방지
+    return v.normalize('NFC').toLowerCase();
+  } catch {
+    return v.toLowerCase();
+  }
+}
+
 function showLoading(on) {
   $('loadingScreen').classList.toggle('active', Boolean(on));
 }
@@ -130,7 +140,10 @@ async function loadSongs(force = false) {
   if (!data.ok) throw new Error('songs load failed');
   state.songCardsAll = (data.items || []).map((c) => ({
     ...c,
-    keyLabel: (c.keys || []).filter(Boolean).join('/') || '-'
+    keyLabel: (c.keys || []).filter(Boolean).join('/') || '-',
+    _searchNorm: normLower(c.searchText || ''),
+    _titleNorm: normLower(c.title || ''),
+    _artistNorm: normLower(c.artist || '')
   }));
   if (!state.songCardsAll.length) {
     $('resultCount').textContent = '곡 데이터가 없습니다. /admin에서 Drive 동기화를 실행해 주세요.';
@@ -141,7 +154,13 @@ async function loadSongFiles(force = false) {
   if (!force && state.songFilesAll.length) return;
   const data = await apiGet('/api/songs?limit=5000');
   if (!data.ok) throw new Error('songs load failed');
-  state.songFilesAll = data.items || [];
+  state.songFilesAll = (data.items || []).map((s) => ({
+    ...s,
+    _searchNorm: normLower(s.searchText || ''),
+    _titleNorm: normLower(s.title || ''),
+    _displayTitleNorm: normLower(s.displayTitle || ''),
+    _artistNorm: normLower(s.artist || '')
+  }));
 }
 
 async function loadAvailableVocalSet(userId) {
@@ -172,7 +191,7 @@ async function loadMyAvailabilitySet() {
 }
 
 function applySongFilters() {
-  const q = $('searchInput').value.trim().toLowerCase();
+  const q = normLower($('searchInput').value.trim());
   const genre = $('genreFilter').value;
   const mood = $('moodFilter').value;
   const vocal = $('vocalFilter').value;
@@ -188,10 +207,10 @@ function applySongFilters() {
   if (q)
     list = list.filter(
       (s) =>
-        (s.searchText || '').includes(q) ||
-        (s.title || '').toLowerCase().includes(q) ||
-        (s.displayTitle || '').toLowerCase().includes(q) ||
-        (s.artist || '').toLowerCase().includes(q)
+          (s._searchNorm || normLower(s.searchText || '')).includes(q) ||
+          (s._titleNorm || normLower(s.title || '')).includes(q) ||
+          (s._displayTitleNorm || normLower(s.displayTitle || '')).includes(q) ||
+          (s._artistNorm || normLower(s.artist || '')).includes(q)
     );
 
     const f = state.sortField;
@@ -216,7 +235,10 @@ function applySongFilters() {
   if (vocal) list = list.filter((c) => c.vocal === vocal);
   if (q)
     list = list.filter(
-      (c) => (c.searchText || '').includes(q) || (c.title || '').toLowerCase().includes(q) || (c.artist || '').toLowerCase().includes(q)
+      (c) =>
+        (c._searchNorm || normLower(c.searchText || '')).includes(q) ||
+        (c._titleNorm || normLower(c.title || '')).includes(q) ||
+        (c._artistNorm || normLower(c.artist || '')).includes(q)
     );
 
   // 가능보컬 필터: variants 중 하나라도 해당 유저가 available이면 노출

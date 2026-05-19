@@ -473,6 +473,15 @@ socket.on('connect', () => {
 // ---- Song picker (노래책에서 고르기) ------------------------------------------------
 let songCardsCache = null;
 
+function normLower(s) {
+  const v = String(s ?? '');
+  try {
+    return v.normalize('NFC').toLowerCase();
+  } catch {
+    return v.toLowerCase();
+  }
+}
+
 function openSongPickModal() {
   setHidden('songPickModal', false);
   const input = document.getElementById('songPickSearch');
@@ -498,15 +507,22 @@ async function loadSongCardsIfNeeded() {
   }
   const r = await apiGet('/api/songs/cards');
   if (!r?.ok) throw new Error('LOAD_FAILED');
-  songCardsCache = r.items || [];
+  songCardsCache = (r.items || []).map((c) => ({
+    ...c,
+    _searchNorm: normLower(c.searchText || ''),
+    _titleNorm: normLower(c.title || ''),
+    _artistNorm: normLower(c.artist || '')
+  }));
   document.getElementById('songPickHint').textContent = `총 ${songCardsCache.length}곡 · 검색해서 선택`;
 }
 
 function pickCardMatches(q) {
-  const qq = String(q || '').trim().toLowerCase();
+  const qq = normLower(String(q || '').trim());
   if (!songCardsCache) return [];
   if (!qq) return songCardsCache.slice(0, 30);
-  return songCardsCache.filter((c) => (c.searchText || '').includes(qq)).slice(0, 40);
+  return songCardsCache
+    .filter((c) => (c._searchNorm || '').includes(qq) || (c._titleNorm || '').includes(qq) || (c._artistNorm || '').includes(qq))
+    .slice(0, 40);
 }
 
 function openFileInRoom(fileId, originalLink = '') {

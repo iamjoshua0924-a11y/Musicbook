@@ -24,6 +24,21 @@ function wbAllow(socketId) {
   return w.count <= 20;
 }
 
+// Cursor share rate-limit (per socket, best-effort)
+const cursorRate = new Map(); // socketId -> { ts, count }
+function cursorAllow(socketId) {
+  const now = Date.now();
+  const w = cursorRate.get(socketId) || { ts: now, count: 0 };
+  if (now - w.ts > 1000) {
+    w.ts = now;
+    w.count = 0;
+  }
+  w.count += 1;
+  cursorRate.set(socketId, w);
+  // allow up to 35 updates/sec per socket
+  return w.count <= 35;
+}
+
 function emitPresence(io) {
   const items = Array.from(presence.entries()).map(([socketId, p]) => ({
     socketId,
@@ -345,6 +360,28 @@ function attachSockets(io) {
       ack?.({ ok: true });
     });
 
+    // Cursor share (transient) - page turner only
+    socket.on('viewer:cursor', (payload, ack) => {
+      if (!cursorAllow(socket.id)) return ack?.({ ok: false, error: 'RATE_LIMIT' });
+      const roomCode = String(payload?.roomCode || '').trim().toUpperCase();
+      const fileId = String(payload?.fileId || '').trim();
+      const room = store.rooms.get(roomCode);
+      if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
+      if (room.pageTurnerSocketId !== socket.id) return ack?.({ ok: false, error: 'FORBIDDEN' });
+      if (!fileId) return ack?.({ ok: false, error: 'FILE_REQUIRED' });
+
+      const hide = Boolean(payload?.hide);
+      const xNorm = Number(payload?.xNorm);
+      const yNorm = Number(payload?.yNorm);
+      if (!hide) {
+        if (!Number.isFinite(xNorm) || !Number.isFinite(yNorm)) return ack?.({ ok: false, error: 'BAD_REQUEST' });
+        if (xNorm < -0.2 || xNorm > 1.2 || yNorm < -0.2 || yNorm > 1.2) return ack?.({ ok: false, error: 'BAD_REQUEST' });
+      }
+
+      io.to(toSessionRoomName(roomCode)).emit('viewer:cursor', { fileId, xNorm, yNorm, hide });
+      ack?.({ ok: true });
+    });
+
     // --- Follow file (song change sync) ---------------------------------------------
     socket.on('session:follow:file', async (payload, ack) => {
       const roomCode = String(payload?.roomCode || '').trim().toUpperCase();
@@ -433,6 +470,7 @@ function attachSockets(io) {
         emitPresence(io);
       }
       wbRate.delete(socket.id);
+      cursorRate.delete(socket.id);
       // Remove from all joined session rooms.
       for (const roomCode of socket.data.joinedRooms || []) {
         const room = store.rooms.get(roomCode);

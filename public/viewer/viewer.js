@@ -172,6 +172,113 @@ function flashHud(msg, ms = 1200) {
   }, ms);
 }
 
+// ---- Cursor share (vertical highlighter line) -------------------------------------
+let localCursorEl = null;
+let remoteCursorEl = null;
+let cursorMoveHandler = null;
+let lastCursorEmitAt = 0;
+
+function ensureCursorEls() {
+  const container = document.getElementById('pdf-container');
+  if (!container) return;
+  if (!localCursorEl) {
+    localCursorEl = document.createElement('div');
+    localCursorEl.className = 'cursor-marker';
+    localCursorEl.id = 'cursorMarkerLocal';
+    container.appendChild(localCursorEl);
+  }
+  if (!remoteCursorEl) {
+    remoteCursorEl = document.createElement('div');
+    remoteCursorEl.className = 'cursor-marker';
+    remoteCursorEl.id = 'cursorMarkerRemote';
+    container.appendChild(remoteCursorEl);
+  }
+}
+
+function setCursorMarker(el, { xNorm, yNorm, visible }) {
+  if (!el) return;
+  if (!visible) {
+    el.style.display = 'none';
+    return;
+  }
+  const container = document.getElementById('pdf-container');
+  if (!container) return;
+  const r = container.getBoundingClientRect();
+  const x = r.left + r.width * clamp(Number(xNorm || 0), 0, 1);
+  const y = r.top + r.height * clamp(Number(yNorm || 0), 0, 1);
+
+  // 높이: 화면에 비례(너무 작/크지 않게)
+  const h = clamp(r.height * 0.22, 80, 220);
+  el.style.height = `${Math.round(h)}px`;
+  el.style.left = `${Math.round(x - r.left)}px`;
+  el.style.top = `${Math.round(y - r.top)}px`;
+  el.style.display = 'block';
+}
+
+function updateCursorShareUI() {
+  const btn = document.getElementById('cursorShareBtn');
+  if (!btn) return;
+  const canUse = state.isInSession ? Boolean(state.isPageTurner) : false;
+  btn.disabled = !canUse;
+  btn.classList.toggle('disabled', !canUse);
+  btn.classList.toggle('active', Boolean(state.cursorShareOn));
+}
+
+function stopCursorShare(sendHide = false) {
+  state.cursorShareOn = false;
+  ensureCursorEls();
+  if (localCursorEl) localCursorEl.style.display = 'none';
+  if (cursorMoveHandler) {
+    document.getElementById('pdf-container')?.removeEventListener('mousemove', cursorMoveHandler);
+    document.getElementById('pdf-container')?.removeEventListener('touchmove', cursorMoveHandler);
+  }
+  cursorMoveHandler = null;
+  updateCursorShareUI();
+  if (sendHide && state.isInSession && state.isPageTurner && state.roomCode && state.fileId) {
+    socket.emit('viewer:cursor', { roomCode: state.roomCode, fileId: state.fileId, hide: true });
+  }
+}
+
+function startCursorShare() {
+  if (!state.isInSession || !state.isPageTurner) {
+    flashHud('커서공유는 페이지터너만 사용 가능합니다', 1400);
+    return;
+  }
+  ensureCursorEls();
+  state.cursorShareOn = true;
+  updateCursorShareUI();
+
+  const container = document.getElementById('pdf-container');
+  if (!container) return;
+
+  cursorMoveHandler = (e) => {
+    if (!state.cursorShareOn) return;
+    if (!state.isInSession || !state.isPageTurner || !state.roomCode || !state.fileId) return;
+    const now = Date.now();
+    if (now - lastCursorEmitAt < 33) return; // ~30fps throttle
+    lastCursorEmitAt = now;
+
+    const r = container.getBoundingClientRect();
+    let clientX = 0;
+    let clientY = 0;
+    if (e.touches && e.touches[0]) {
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else {
+      clientX = e.clientX;
+      clientY = e.clientY;
+    }
+    const xNorm = r.width ? (clientX - r.left) / r.width : 0;
+    const yNorm = r.height ? (clientY - r.top) / r.height : 0;
+
+    setCursorMarker(localCursorEl, { xNorm, yNorm, visible: true });
+    socket.emit('viewer:cursor', { roomCode: state.roomCode, fileId: state.fileId, xNorm, yNorm });
+  };
+
+  container.addEventListener('mousemove', cursorMoveHandler, { passive: true });
+  container.addEventListener('touchmove', cursorMoveHandler, { passive: true });
+}
+
 function makeLaserGroup(points) {
   const pts = points || [];
   const outline = new fabric.Polyline(pts, {
@@ -278,6 +385,7 @@ const state = {
   isInSession: false,
   isPageTurner: false,
   isToolAuthorized: false,
+  cursorShareOn: false,
   nickname: getOrCreateNickname(),
   overlapPx: 0,
 
@@ -1463,6 +1571,10 @@ function setTool(tool, shape = null) {
 
 document.getElementById('penBtn').addEventListener('click', () => setTool('pen'));
 document.getElementById('highlighterBtn').addEventListener('click', () => setTool('highlighter'));
+document.getElementById('cursorShareBtn')?.addEventListener('click', () => {
+  if (state.cursorShareOn) stopCursorShare(true);
+  else startCursorShare();
+});
 document.getElementById('laserBtn')?.addEventListener('click', () => setTool('laser'));
 document.getElementById('eraserBtn').addEventListener('click', () => setTool('eraser'));
 document.getElementById('selectBtn').addEventListener('click', () => setTool('select'));
@@ -1740,6 +1852,7 @@ socket.on('session:pageTurner:state', (p) => {
     setHidden('touchTurnerBadge', true);
   }
   updateTurnerToggleAccess();
+  updateCursorShareUI();
   updatePageLabels();
 });
 
@@ -1750,6 +1863,7 @@ socket.on('session:participants', (p) => {
     if (me) state.isToolAuthorized = Boolean(me.isToolAuthorized) || state.isPageTurner;
   } catch {}
   updateTurnerToggleAccess();
+  updateCursorShareUI();
   const list = document.getElementById('participantsList');
   list.innerHTML = '';
   (p?.members || []).forEach((m) => {
@@ -1810,6 +1924,14 @@ socket.on('session:participants', (p) => {
     }
     list.appendChild(row);
   });
+});
+
+socket.on('viewer:cursor', (p) => {
+  if (!state.isInSession) return;
+  if (p?.fileId && state.fileId && String(p.fileId) !== String(state.fileId)) return;
+  ensureCursorEls();
+  if (p?.hide) return setCursorMarker(remoteCursorEl, { visible: false });
+  setCursorMarker(remoteCursorEl, { xNorm: p?.xNorm, yNorm: p?.yNorm, visible: true });
 });
 
 socket.on('session:tool:request', (p) => {

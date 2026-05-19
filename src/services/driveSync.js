@@ -47,7 +47,7 @@ async function listChildren(drive, folderId, pageToken) {
   return res.data;
 }
 
-async function syncDriveFolderTree({ rootFolderId, latestDays = 30, limit = 5000, incrementalSince = null, pruneMissing = true }) {
+async function syncDriveFolderTree({ rootFolderId, latestDays = 30, limit = 5000, incrementalSince = null, pruneMissing = true, shouldAbort } = {}) {
   if (!rootFolderId) throw new Error('ROOT_FOLDER_ID_REQUIRED');
   const drive = getDriveClient();
   const artistFreqMap = await buildArtistFreqMap();
@@ -61,14 +61,23 @@ async function syncDriveFolderTree({ rootFolderId, latestDays = 30, limit = 5000
   const incSinceDate = incrementalSince ? new Date(incrementalSince) : null;
 
   while (queue.length) {
+    if (typeof shouldAbort === 'function' && shouldAbort()) {
+      return { processed, skipped, hiddenCount: 0, reachedLimit: false, aborted: true, startedAt };
+    }
     const { folderId, path } = queue.shift();
     let pageToken = undefined;
 
     do {
+      if (typeof shouldAbort === 'function' && shouldAbort()) {
+        return { processed, skipped, hiddenCount: 0, reachedLimit: false, aborted: true, startedAt };
+      }
       const data = await listChildren(drive, folderId, pageToken);
       const files = data.files || [];
 
       for (const f of files) {
+        if (typeof shouldAbort === 'function' && shouldAbort()) {
+          return { processed, skipped, hiddenCount: 0, reachedLimit: false, aborted: true, startedAt };
+        }
         if (processed >= limit) return { processed, reachedLimit: true };
         const mime = f.mimeType || '';
         if (mime === 'application/vnd.google-apps.folder') {
@@ -180,6 +189,9 @@ async function syncDriveFolderTree({ rootFolderId, latestDays = 30, limit = 5000
 
   let hiddenCount = 0;
   if (pruneMissing) {
+    if (typeof shouldAbort === 'function' && shouldAbort()) {
+      return { processed, skipped, hiddenCount: 0, reachedLimit: false, aborted: true, startedAt };
+    }
     const r = await Song.updateMany(
       { syncRootId: rootFolderId, lastSeenAt: { $lt: startedAt }, hidden: { $ne: true } },
       { $set: { hidden: true } }

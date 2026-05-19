@@ -5,7 +5,7 @@ const User = require('../models/User');
 const Setting = require('../models/Setting');
 const Song = require('../models/Song');
 const { requireLogin, requireAdmin, requireSessionOrAdmin } = require('../middleware/auth');
-const { runDriveSync, getDriveRootFolderId } = require('../services/driveSyncRunner');
+const { runDriveSync, stopDriveSync, getDriveRootFolderId } = require('../services/driveSyncRunner');
 const { KEYS, getJson } = require('../services/syncStatus');
 const { importSongsSelective } = require('../services/legacyCsvImport');
 
@@ -177,6 +177,12 @@ router.post('/admin/sync/drive', requireAdmin, async (req, res) => {
   } catch (e) {
     res.status(400).json({ ok: false, error: String(e.message || 'SYNC_FAILED') });
   }
+});
+
+// Drive sync stop (best-effort)
+router.post('/admin/sync/stop', requireAdmin, async (_req, res) => {
+  const r = stopDriveSync();
+  res.json({ ok: true, ...r });
 });
 
 // Drive sync root folder config (stored in DB)

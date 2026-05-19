@@ -4,6 +4,7 @@ const { syncDriveFolderTree } = require('./driveSync');
 const { KEYS, setJson, getJson } = require('./syncStatus');
 
 let running = false;
+let abortRequested = false;
 
 async function getDriveRootFolderId() {
   const s = await Setting.findOne({ key: 'driveRootFolderId' }).lean();
@@ -13,6 +14,7 @@ async function getDriveRootFolderId() {
 async function runDriveSync({ latestDays = 30, limit = 5000, pruneMissing = true, incremental = true, rootFolderId = '' } = {}) {
   if (running) return { ok: false, error: 'ALREADY_RUNNING' };
   running = true;
+  abortRequested = false;
   try {
     const finalRoot = String(rootFolderId || (await getDriveRootFolderId()) || '').trim();
     if (!finalRoot) return { ok: false, error: 'ROOT_FOLDER_ID_REQUIRED' };
@@ -23,8 +25,35 @@ async function runDriveSync({ latestDays = 30, limit = 5000, pruneMissing = true
     const startedAt = new Date().toISOString();
     await setJson(KEYS.driveSyncStatus, { startedAt, running: true, rootFolderId: finalRoot, latestDays, limit, pruneMissing, incremental });
 
-    const result = await syncDriveFolderTree({ rootFolderId: finalRoot, latestDays, limit, incrementalSince, pruneMissing });
+    const result = await syncDriveFolderTree({
+      rootFolderId: finalRoot,
+      latestDays,
+      limit,
+      incrementalSince,
+      pruneMissing,
+      shouldAbort: () => abortRequested
+    });
     const endedAt = new Date().toISOString();
+
+    if (result?.aborted) {
+      const status = {
+        ok: false,
+        aborted: true,
+        startedAt,
+        endedAt,
+        running: false,
+        rootFolderId: finalRoot,
+        latestDays,
+        limit,
+        pruneMissing,
+        incremental,
+        processed: result.processed ?? 0,
+        skipped: result.skipped ?? 0,
+        hiddenCount: result.hiddenCount ?? 0
+      };
+      await setJson(KEYS.driveSyncStatus, status);
+      return status;
+    }
 
     const status = {
       ok: true,
@@ -50,8 +79,13 @@ async function runDriveSync({ latestDays = 30, limit = 5000, pruneMissing = true
     return { ok: false, error: String(e.message || 'SYNC_FAILED') };
   } finally {
     running = false;
+    abortRequested = false;
   }
 }
 
-module.exports = { runDriveSync, getDriveRootFolderId };
+function stopDriveSync() {
+  abortRequested = true;
+  return { ok: true };
+}
 
+module.exports = { runDriveSync, stopDriveSync, getDriveRootFolderId };

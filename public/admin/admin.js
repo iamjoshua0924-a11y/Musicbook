@@ -1,4 +1,5 @@
 const $ = (id) => document.getElementById(id);
+let syncRunning = false;
 
 async function apiGet(url) {
   const res = await fetch(url, { credentials: 'include' });
@@ -90,12 +91,18 @@ async function loadSyncStatus() {
   const s = r.status;
   if (!s) {
     $('syncStatusLine').textContent = '-';
+    syncRunning = false;
+    const btn = $('syncBtn');
+    if (btn) btn.textContent = '동기화 실행';
     return;
   }
   const msg = s.running
     ? `RUNNING · startedAt=${s.startedAt}`
     : `endedAt=${s.endedAt || '-'} · processed=${s.processed ?? '-'} · skipped=${s.skipped ?? '-'} · hidden=${s.hiddenCount ?? '-'}`;
   $('syncStatusLine').textContent = msg;
+  syncRunning = Boolean(s.running);
+  const btn = $('syncBtn');
+  if (btn) btn.textContent = syncRunning ? '동기화 중지' : '동기화 실행';
 }
 
 async function loadParseErrors() {
@@ -161,7 +168,15 @@ function wire() {
 
   $('saveMainBtn').onclick = () => saveMain().catch(() => {});
   $('saveRootFolderBtn').onclick = () => saveDriveRoot().catch(() => {});
-  $('syncBtn').onclick = () => syncDrive().catch(() => {});
+  $('syncBtn').onclick = async () => {
+    if (syncRunning) {
+      const r = await apiJson('/api/admin/sync/stop', 'POST', {});
+      $('syncOut').textContent = JSON.stringify(r, null, 2);
+      await loadSyncStatus();
+      return;
+    }
+    await syncDrive();
+  };
   $('reloadParseErrorsBtn').onclick = () => loadParseErrors().catch(() => {});
 
   $('importSongsCsvBtn').onclick = async () => {

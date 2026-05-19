@@ -101,11 +101,25 @@ function normalizeSongFileName({ filenameNoExt, artistFreqMap } = {}) {
         parseError: 'NO_HYPHEN_SPLIT_BY_SPACE'
       };
     }
+    // 파싱오류 케이스 처리(요구사항):
+    // - "제목(조성)"만 있는 경우: 아티스트는 공백으로 두고, 제목은 괄호 포함 원문을 유지
+    //   (키 태그는 비워서 UI에서 '-'로 표시)
+    if (kOnly.found) {
+      const titleWithKey = raw; // 괄호 포함 원문 유지
+      return {
+        title: titleWithKey,
+        key: '',
+        artist: '',
+        normalized: `${titleWithKey}// //`,
+        parseError: 'FILENAME_PARSE_FAILED_TITLE_WITH_KEY'
+      };
+    }
+    // 제목만 달랑 있는 경우(조성 없음): key는 비워서 '-' 처리, artist도 공백
     return {
       title: stripped,
-      key: kOnly.key || '',
+      key: '',
       artist: '',
-      normalized: `${stripped}//${kOnly.key || ''}//`,
+      normalized: `${stripped}// //`,
       parseError: 'FILENAME_PARSE_FAILED'
     };
   }

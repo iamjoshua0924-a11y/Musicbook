@@ -57,6 +57,7 @@ const state = {
   isInSession: false,
   isPageTurner: false,
   nickname: getOrCreateNickname(),
+  overlapPx: 0,
 
   pdfDoc: null,
   pdfScale: 1,
@@ -164,7 +165,8 @@ setText('fileIdBadge', state.fileId ? `fileId: ${state.fileId}` : 'fileId: (없�
 function applyTheme(theme) {
   document.body.classList.toggle('light', theme === 'light');
 }
-const savedTheme = localStorage.getItem('mb_viewer_theme') || 'light';
+// 기본 테마는 GAS 레퍼런스처럼 dark
+const savedTheme = localStorage.getItem('mb_viewer_theme') || 'dark';
 applyTheme(savedTheme);
 document.getElementById('themeBtn')?.addEventListener('click', () => {
   const next = document.body.classList.contains('light') ? 'dark' : 'light';
@@ -186,6 +188,7 @@ document.getElementById('touchBtn')?.addEventListener('click', () => {
 // overlap slider (GAS style)
 function setSpreadOverlapPx(px) {
   const v = Math.max(0, Math.min(40, Number(px) || 0));
+  state.overlapPx = v;
   document.documentElement.style.setProperty('--spreadOverlapPx', `${v}px`);
   const label = document.getElementById('overlapLabel');
   if (label) label.textContent = `${v}px`;
@@ -196,7 +199,10 @@ setSpreadOverlapPx(savedOverlap);
 const overlapRange = document.getElementById('overlapRange');
 if (overlapRange) {
   overlapRange.value = String(savedOverlap);
-  overlapRange.addEventListener('input', (e) => setSpreadOverlapPx(e.target.value));
+  overlapRange.addEventListener('input', (e) => {
+    setSpreadOverlapPx(e.target.value);
+    emitViewerSettings('overlap');
+  });
 }
 
 document.getElementById('sessionToggle').addEventListener('change', (e) => {
@@ -263,11 +269,6 @@ function openByInput(input) {
   }
 }
 
-document.getElementById('openFromLinkBtn').addEventListener('click', () => {
-  const input = prompt('Drive 링크 또는 fileId를 입력하세요:', '') || '';
-  openByInput(input);
-});
-
 // New: inline open input (GAS style)
 document.getElementById('openBtn')?.addEventListener('click', () => {
   const input = document.getElementById('linkInput')?.value || '';
@@ -285,9 +286,9 @@ window.addEventListener('keydown', (e) => {
   if (prevKeys.includes(e.key)) changePage(state.pageNo - state.spreadCount, 'kbd');
 });
 
-document.getElementById('fab').addEventListener('click', () => {
-  const panel = document.getElementById('fabPanel');
-  panel.classList.toggle('hidden');
+// Mobile-only floating menu button: touch-mode에서만 하단 패널(간단 시트) 토글
+document.getElementById('fab')?.addEventListener('click', () => {
+  document.body.classList.toggle('sheet-open');
 });
 
 // Tap zones (GAS style): left=prev, right=next, center=toggle palette
@@ -312,9 +313,7 @@ document.getElementById('fullscreenBtn').addEventListener('click', async () => {
   }
 });
 
-document.getElementById('fullscreenBtn2').addEventListener('click', async () => {
-  document.getElementById('fullscreenBtn').click();
-});
+// fullscreenBtn2 제거(상단 버튼으로 통일)
 
 function changePage(next, source) {
   // pageNo means "leftmost page" in spread mode
@@ -420,6 +419,10 @@ function makeView(pageNo) {
   let isPlacing = false;
   let placingObj = null;
   let origin = null;
+  // --- Laser pointer (transient) --------------------------------------------------
+  let laserPlacing = false;
+  let laserObj = null;
+  let laserPoints = [];
   // late-bound (pushUndo/broadcast are declared later)
   let vPushUndo = () => {};
   let vBroadcast = () => {};
@@ -434,6 +437,29 @@ function makeView(pageNo) {
   fabricCanvas.on('mouse:down', (opt) => {
     state.activeDrawPageNo = pageNo;
     if (state.locked) return;
+
+    if (state.tool === 'laser') {
+      const p = getPointer(opt);
+      laserPlacing = true;
+      laserPoints = [{ x: p.x, y: p.y }, { x: p.x + 0.01, y: p.y + 0.01 }];
+      laserObj = new fabric.Polyline(laserPoints, {
+        fill: '',
+        stroke: '#ffffff',
+        strokeWidth: 3,
+        opacity: 0.96,
+        strokeLineCap: 'round',
+        strokeLineJoin: 'round',
+        selectable: false,
+        evented: false,
+        objectCaching: false,
+        shadow: new fabric.Shadow({ color: 'rgba(255,0,0,0.65)', blur: 10, offsetX: 0, offsetY: 0 })
+      });
+      // mark transient so it won't be saved/broadcasted
+      laserObj._transient = true;
+      fabricCanvas.add(laserObj);
+      fabricCanvas.requestRenderAll();
+      return;
+    }
 
     if (state.tool === 'text') {
       const p = getPointer(opt);
@@ -497,6 +523,15 @@ function makeView(pageNo) {
 
   fabricCanvas.on('mouse:move', (opt) => {
     if (state.locked) return;
+    if (laserPlacing && laserObj) {
+      const p = getPointer(opt);
+      laserPoints.push({ x: p.x, y: p.y });
+      // keep it light
+      if (laserPoints.length > 200) laserPoints.shift();
+      laserObj.set({ points: laserPoints });
+      fabricCanvas.requestRenderAll();
+      return;
+    }
     if (!isPlacing || !placingObj || !origin) return;
     const p = getPointer(opt);
 
@@ -521,6 +556,36 @@ function makeView(pageNo) {
 
   fabricCanvas.on('mouse:up', () => {
     if (state.locked) return;
+    if (laserPlacing) {
+      laserPlacing = false;
+      const lo = laserObj;
+      const pts = laserPoints;
+      laserObj = null;
+      laserPoints = [];
+
+      // Broadcast to room for "page turner laser" (5초 후 자동 삭제)
+      if (lo && state.isInSession && state.roomCode && state.fileId && state.isPageTurner) {
+        socket.emit('viewer:laser', {
+          roomCode: state.roomCode,
+          fileId: state.fileId,
+          pageNo,
+          w: fabricCanvas.getWidth(),
+          h: fabricCanvas.getHeight(),
+          points: pts
+        });
+      }
+
+      // remove after 5s locally
+      if (lo) {
+        setTimeout(() => {
+          try {
+            fabricCanvas.remove(lo);
+            fabricCanvas.requestRenderAll();
+          } catch {}
+        }, 5000);
+      }
+      return;
+    }
     if (!isPlacing) return;
     isPlacing = false;
     placingObj = null;
@@ -644,6 +709,10 @@ function applyToolToCanvas(fab) {
   } else if (state.tool === 'select') {
     fab.isDrawingMode = false;
     makeSelectable(true);
+  } else if (state.tool === 'laser') {
+    // transient pointer (custom mouse events)
+    fab.isDrawingMode = false;
+    makeSelectable(false);
   } else if (state.tool === 'shape' || state.tool === 'text') {
     // placement happens on mouse events
     fab.isDrawingMode = false;
@@ -652,7 +721,7 @@ function applyToolToCanvas(fab) {
 }
 
 function syncDrawingActiveClass() {
-  const drawingTools = ['pen', 'highlighter', 'eraser', 'shape', 'text'];
+  const drawingTools = ['pen', 'highlighter', 'eraser', 'shape', 'text', 'laser'];
   const active = !state.locked && drawingTools.includes(state.tool);
   document.body.classList.toggle('drawing-active', active);
 }
@@ -792,6 +861,7 @@ function setTool(tool, shape = null) {
 
 document.getElementById('penBtn').addEventListener('click', () => setTool('pen'));
 document.getElementById('highlighterBtn').addEventListener('click', () => setTool('highlighter'));
+document.getElementById('laserBtn')?.addEventListener('click', () => setTool('laser'));
 document.getElementById('eraserBtn').addEventListener('click', () => setTool('eraser'));
 document.getElementById('selectBtn').addEventListener('click', () => setTool('select'));
 document.getElementById('lineBtn').addEventListener('click', () => setTool('shape', 'line'));
@@ -847,9 +917,29 @@ document.getElementById('clearBtn').addEventListener('click', () => {
 });
 
 // View controls
+function emitViewerSettings(reason = '') {
+  if (!state.isInSession || !state.roomCode || !state.fileId) return;
+  if (!state.isPageTurner) return;
+  socket.emit('viewer:settings', {
+    roomCode: state.roomCode,
+    fileId: state.fileId,
+    reason,
+    settings: {
+      spreadCount: state.spreadCount,
+      fitMode: state.fitMode,
+      zoom: state.zoom,
+      perfMode: state.perfMode,
+      overlapPx: state.overlapPx
+    }
+  });
+}
+
 function setSpread(n) {
   state.spreadCount = n;
+  // GAS처럼 버튼 active 처리
+  [1, 2, 3, 4].forEach((x) => document.getElementById(`spread${x}Btn`)?.classList.toggle('active', x === n));
   changePage(state.pageNo, 'spread');
+  emitViewerSettings('spread');
 }
 document.getElementById('spread1Btn').addEventListener('click', () => setSpread(1));
 document.getElementById('spread2Btn').addEventListener('click', () => setSpread(2));
@@ -860,16 +950,19 @@ document.getElementById('zoomInBtn').addEventListener('click', () => {
   state.fitMode = false;
   state.zoom = Math.min(3, state.zoom * 1.15);
   renderSpread(state.pageNo).catch(() => {});
+  emitViewerSettings('zoom');
 });
 document.getElementById('zoomOutBtn').addEventListener('click', () => {
   state.fitMode = false;
   state.zoom = Math.max(0.5, state.zoom / 1.15);
   renderSpread(state.pageNo).catch(() => {});
+  emitViewerSettings('zoom');
 });
 document.getElementById('fitBtn').addEventListener('click', () => {
   state.fitMode = true;
   state.zoom = 1;
   renderSpread(state.pageNo).catch(() => {});
+  emitViewerSettings('fit');
 });
 
 document.getElementById('focusModeBtn').addEventListener('click', () => {
@@ -879,6 +972,7 @@ document.getElementById('focusModeBtn').addEventListener('click', () => {
 document.getElementById('perfModeBtn').addEventListener('click', () => {
   state.perfMode = !state.perfMode;
   renderSpread(state.pageNo).catch(() => {});
+  emitViewerSettings('perf');
 });
 
 document.getElementById('lockModeBtn').addEventListener('click', () => {
@@ -988,11 +1082,20 @@ function updateLiveMode() {
   const isCoarse = window.matchMedia('(pointer: coarse)').matches;
   const isLive = window.matchMedia('(max-width: 980px)').matches || isCoarse;
   document.body.classList.toggle('live-mode', isLive);
+  document.body.classList.toggle('landscape', window.matchMedia('(orientation: landscape)').matches);
   // auto enable touch-mode on touch devices unless user explicitly turned it off
   if (!manualTouch && isCoarse) applyTouchMode(true);
 }
 updateLiveMode();
 window.addEventListener('resize', updateLiveMode);
+
+// Desktop toggles (GAS 원본)
+document.getElementById('toggleViewBtn')?.addEventListener('click', () => {
+  document.getElementById('viewBar')?.classList.toggle('isHidden');
+});
+document.getElementById('toggleToolBtn')?.addEventListener('click', () => {
+  document.getElementById('toolBar')?.classList.toggle('isHidden');
+});
 
 // Wheel zoom (Ctrl + wheel)
 els.pdfContainer.addEventListener(
@@ -1062,13 +1165,14 @@ els.pdfContainer.addEventListener(
   { passive: true }
 );
 
-// FAB auto-close when clicking outside
+// touch-mode bottom sheet auto-close when clicking outside
 document.addEventListener('click', (e) => {
+  if (!document.body.classList.contains('sheet-open')) return;
   const fab = document.getElementById('fab');
-  const panel = document.getElementById('fabPanel');
-  if (panel.classList.contains('hidden')) return;
-  if (panel.contains(e.target) || fab.contains(e.target)) return;
-  panel.classList.add('hidden');
+  const shell = document.getElementById('toolbarShell');
+  if (fab?.contains(e.target)) return;
+  if (shell?.contains(e.target)) return;
+  document.body.classList.remove('sheet-open');
 });
 
 // ---- Socket event handlers ---------------------------------------------------------
@@ -1078,6 +1182,8 @@ socket.on('session:pageTurner:state', (p) => {
   if (state.isPageTurner) {
     setHidden('turnerBadge', false);
     setText('turnerBadge', '현재 당신이 페이지터너입니다');
+    // 턴너가 된 순간 현재 보기설정도 동기화(요구사항)
+    emitViewerSettings('turner_state');
   } else {
     setHidden('turnerBadge', true);
   }
@@ -1120,6 +1226,7 @@ socket.on('session:pageTurner:sync_request', (p) => {
       pageNo: state.pageNo,
       reason: 'turner_sync'
     });
+    emitViewerSettings('turner_sync');
   }
 });
 
@@ -1133,6 +1240,60 @@ socket.on('viewer:page_change', (p) => {
   state.activeDrawPageNo = state.pageNo;
   updatePageLabels();
   renderSpread(state.pageNo).catch(() => {});
+});
+
+socket.on('viewer:settings', (p) => {
+  if (!state.isInSession) return;
+  // followers only
+  if (state.isPageTurner) return;
+  if (!p?.settings) return;
+  if (p?.fileId && p.fileId !== state.fileId) return;
+  const s = p.settings;
+  if (typeof s.spreadCount === 'number') state.spreadCount = clamp(s.spreadCount, 1, 4);
+  if (typeof s.fitMode === 'boolean') state.fitMode = s.fitMode;
+  if (typeof s.zoom === 'number') state.zoom = clamp(s.zoom, 0.5, 3);
+  if (typeof s.perfMode === 'boolean') state.perfMode = s.perfMode;
+  if (typeof s.overlapPx === 'number') setSpreadOverlapPx(s.overlapPx);
+  [1, 2, 3, 4].forEach((x) => document.getElementById(`spread${x}Btn`)?.classList.toggle('active', x === state.spreadCount));
+  renderSpread(state.pageNo).catch(() => {});
+});
+
+socket.on('viewer:laser', (p) => {
+  if (!state.isInSession) return;
+  if (!p?.pageNo || !p?.points || !Array.isArray(p.points)) return;
+  if (p?.fileId && p.fileId !== state.fileId) return;
+
+  const pageNo = Number(p.pageNo);
+  const v = viewMap.get(pageNo);
+  if (!v?.fabric) return;
+  const srcW = Number(p.w || v.fabric.getWidth());
+  const srcH = Number(p.h || v.fabric.getHeight());
+  const dstW = v.fabric.getWidth();
+  const dstH = v.fabric.getHeight();
+  const sx = srcW ? dstW / srcW : 1;
+  const sy = srcH ? dstH / srcH : 1;
+  const pts = p.points.slice(0, 240).map((pt) => ({ x: Number(pt.x) * sx, y: Number(pt.y) * sy }));
+  const obj = new fabric.Polyline(pts, {
+    fill: '',
+    stroke: '#ffffff',
+    strokeWidth: 3,
+    opacity: 0.96,
+    strokeLineCap: 'round',
+    strokeLineJoin: 'round',
+    selectable: false,
+    evented: false,
+    objectCaching: false,
+    shadow: new fabric.Shadow({ color: 'rgba(255,0,0,0.65)', blur: 10, offsetX: 0, offsetY: 0 })
+  });
+  obj._transient = true;
+  v.fabric.add(obj);
+  v.fabric.requestRenderAll();
+  setTimeout(() => {
+    try {
+      v.fabric.remove(obj);
+      v.fabric.requestRenderAll();
+    } catch {}
+  }, 5000);
 });
 
 socket.on('session:follow:file', (p) => {
@@ -1178,10 +1339,10 @@ async function init() {
     setText('fileIdBadge', 'fileId: (없음) — Drive 링크로 열기');
     setHidden('pageHud', false);
     setText('pageHud', 'Drive 링크로 악보를 열어주세요');
-    // auto open prompt once
+    // focus input
     setTimeout(() => {
-      document.getElementById('openFromLinkBtn')?.click();
-    }, 150);
+      document.getElementById('linkInput')?.focus();
+    }, 120);
     return;
   }
 

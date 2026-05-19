@@ -20,26 +20,110 @@
             <button id="themeBtn" type="button">테마</button>
             <button id="touchBtn" type="button">터치</button>
           </div>
-          <div class="pageControls">
-            <button id="prevBtn" type="button">이전</button>
-            <span id="pageLabel">1</span>
-            <span id="pageTotal">/ ?</span>
-            <button id="nextBtn" type="button">다음</button>
-          </div>
-          <div class="sliders">
-            <label class="muted">겹침 <span id="overlapLabel">0px</span></label>
-            <input id="overlapRange" type="range" min="0" max="40" value="0" />
-          </div>
-          <label class="toggle">
-            <input type="checkbox" id="sessionToggle" />
-            <span>세션 참여</span>
-          </label>
-          <button id="createSessionBtn" type="button">세션 만들기</button>
           <span id="sessionBadge" class="badge hidden"></span>
           <span id="turnerBadge" class="badge hidden"></span>
-          <button id="fullscreenBtn" type="button">전체화면</button>
         </div>
       </header>
+
+      <!-- Desktop toggles (GAS 원본 스타일) -->
+      <div class="floatToggles" id="floatToggles">
+        <button id="toggleViewBtn" title="보기/넘김/확대 줄 접기/펼치기">보기옵션 접기/열기</button>
+        <button id="toggleToolBtn" title="주석 도구 줄 접기/펼치기">도구반 접기/열기</button>
+        <button id="fullscreenBtn" type="button">전체화면</button>
+      </div>
+
+      <!-- Toolbar (desktop). In touch-mode, this becomes a bottom sheet via CSS. -->
+      <div class="toolbarShell" id="toolbarShell">
+        <div class="toolbarRow" id="viewBar">
+          <div class="group">
+            <span class="label">보기</span>
+            <div class="seg">
+              <button id="spread1Btn" type="button" class="mini">1p</button>
+              <button id="spread2Btn" type="button" class="mini">2p</button>
+              <button id="spread3Btn" type="button" class="mini">3p</button>
+              <button id="spread4Btn" type="button" class="mini">4p</button>
+            </div>
+          </div>
+
+          <div class="group">
+            <span class="label">페이지</span>
+            <button id="prevBtn" type="button" class="mini">이전</button>
+            <span class="muted"><span id="pageLabel">1</span><span id="pageTotal">/ ?</span></span>
+            <button id="nextBtn" type="button" class="mini">다음</button>
+          </div>
+
+          <div class="group">
+            <span class="label">겹침</span>
+            <input id="overlapRange" type="range" min="0" max="40" value="0" />
+            <span class="kv"><span id="overlapLabel">0px</span></span>
+          </div>
+
+          <div class="group">
+            <span class="label">줌</span>
+            <button id="zoomOutBtn" type="button" class="mini">-</button>
+            <button id="fitBtn" type="button" class="mini">100%</button>
+            <button id="zoomInBtn" type="button" class="mini">+</button>
+          </div>
+
+          <div class="group">
+            <span class="label">모드</span>
+            <button id="focusModeBtn" type="button" class="mini">포커스</button>
+            <button id="perfModeBtn" type="button" class="mini">연주모드</button>
+            <button id="lockModeBtn" type="button" class="mini">잠금</button>
+          </div>
+
+          <div class="group">
+            <label class="kv"><input type="checkbox" id="sessionToggle" /> 세션 참여</label>
+            <button id="createSessionBtn" type="button" class="mini">세션 만들기</button>
+          </div>
+        </div>
+
+        <div class="toolbarRow" id="toolBar">
+          <div class="group">
+            <span class="label">도구</span>
+            <div class="seg">
+              <button id="selectBtn" type="button" class="mini">선택</button>
+              <button id="penBtn" type="button" class="mini">펜</button>
+              <button id="highlighterBtn" type="button" class="mini">형광펜</button>
+              <button id="laserBtn" type="button" class="mini">레이저</button>
+              <button id="eraserBtn" type="button" class="mini">지우개</button>
+              <button id="lineBtn" type="button" class="mini">선</button>
+              <button id="rectBtn" type="button" class="mini">사각</button>
+              <button id="circleBtn" type="button" class="mini">원</button>
+              <button id="textBtn" type="button" class="mini">텍스트</button>
+            </div>
+          </div>
+
+          <div class="group">
+            <span class="label">굵기</span>
+            <input id="brushSize" type="range" min="1" max="20" value="3" />
+            <span class="label">색</span>
+            <input id="colorPicker" type="color" value="#ff2d55" />
+          </div>
+
+          <div class="group">
+            <button id="undoBtn" type="button" class="mini">Undo</button>
+            <button id="redoBtn" type="button" class="mini">Redo</button>
+            <button id="clearBtn" type="button" class="mini danger">현재 화면 주석 전체삭제</button>
+          </div>
+
+          <div class="group">
+            <span class="label">선택 편집</span>
+            <button id="bringFrontBtn" type="button" class="mini">앞으로</button>
+            <button id="sendBackBtn" type="button" class="mini">뒤로</button>
+            <button id="duplicateBtn" type="button" class="mini">복제</button>
+            <button id="deleteBtn" type="button" class="mini danger">삭제</button>
+          </div>
+
+          <div class="group">
+            <span class="label">선</span>
+            <input id="strokeColor" type="color" value="#ff2d55" />
+            <input id="strokeWidth" type="range" min="1" max="20" value="3" />
+            <span class="label">글자</span>
+            <input id="fontSize" type="range" min="12" max="60" value="22" />
+          </div>
+        </div>
+      </div>
 
       <main id="stage">
         <div id="pdf-container">
@@ -53,77 +137,8 @@
           <div id="tapZoneRight"></div>
         </div>
 
-        <button id="fab">✎</button>
-        <div id="fabPanel" class="hidden">
-          <div class="panelTitle">주석 팔레트</div>
-          <div class="row">
-            <button id="penBtn" type="button">펜</button>
-            <button id="highlighterBtn" type="button">형광펜</button>
-            <button id="eraserBtn" type="button">지우개</button>
-            <button id="selectBtn" type="button">선택</button>
-          </div>
-          <div class="row">
-            <button id="lineBtn" type="button">선</button>
-            <button id="rectBtn" type="button">사각</button>
-            <button id="circleBtn" type="button">원</button>
-            <button id="textBtn" type="button">텍스트</button>
-          </div>
-          <div class="row">
-            <label class="label">굵기</label>
-            <input id="brushSize" type="range" min="1" max="20" value="3" />
-          </div>
-          <div class="row">
-            <label class="label">색</label>
-            <input id="colorPicker" type="color" value="#ff2d55" />
-          </div>
-          <div class="row">
-            <button id="undoBtn" type="button">Undo</button>
-            <button id="redoBtn" type="button">Redo</button>
-            <button id="clearBtn" type="button">전체삭제</button>
-          </div>
-          <div class="row">
-            <label class="label">보기</label>
-            <button id="spread1Btn" type="button">1p</button>
-            <button id="spread2Btn" type="button">2p</button>
-            <button id="spread3Btn" type="button">3p</button>
-            <button id="spread4Btn" type="button">4p</button>
-          </div>
-          <div class="row">
-            <label class="label">줌</label>
-            <button id="zoomOutBtn" type="button">-</button>
-            <button id="fitBtn" type="button">FIT</button>
-            <button id="zoomInBtn" type="button">+</button>
-          </div>
-          <div class="row">
-            <label class="label">모드</label>
-            <button id="focusModeBtn" type="button">포커스</button>
-            <button id="perfModeBtn" type="button">퍼포먼스</button>
-            <button id="lockModeBtn" type="button">잠금</button>
-          </div>
-          <div class="row">
-            <button id="openFromLinkBtn" type="button">Drive 링크로 열기</button>
-            <button id="fullscreenBtn2" type="button">전체화면</button>
-          </div>
-          <div class="row" style="border-top:1px solid #eee; padding-top:8px;">
-            <div class="label">선택 편집</div>
-          </div>
-          <div class="row">
-            <button id="bringFrontBtn" type="button">앞으로</button>
-            <button id="sendBackBtn" type="button">뒤로</button>
-            <button id="duplicateBtn" type="button">복제</button>
-            <button id="deleteBtn" type="button">삭제</button>
-          </div>
-          <div class="row">
-            <label class="label">선 색</label>
-            <input id="strokeColor" type="color" value="#ff2d55" />
-            <label class="label">선 굵기</label>
-            <input id="strokeWidth" type="range" min="1" max="20" value="3" />
-          </div>
-          <div class="row">
-            <label class="label">글자</label>
-            <input id="fontSize" type="range" min="12" max="60" value="22" />
-          </div>
-        </div>
+        <!-- Mobile-only floating menu button (원본: touch-mode에서만) -->
+        <button id="fab" class="fabMore" aria-label="menu">⋯</button>
 
         <aside id="participantsPanel" class="hidden">
           <div class="panelTitle">세션 접속자</div>

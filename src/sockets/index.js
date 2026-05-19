@@ -158,6 +158,7 @@ function attachSockets(io) {
       if (room.currentFileId) {
         socket.emit('session:follow:file', { fileId: room.currentFileId });
         socket.emit('viewer:page_change', { fileId: room.currentFileId, pageNo: room.currentPageNo });
+        if (room.viewerSettings) socket.emit('viewer:settings', { fileId: room.currentFileId, settings: room.viewerSettings });
       }
 
       // Lazy-load snapshot for (room,file) when first participant arrives after restart
@@ -244,6 +245,53 @@ function attachSockets(io) {
 
       io.to(toSessionRoomName(roomCode)).emit('viewer:page_change', { fileId, pageNo });
       io.to(toSessionRoomName(roomCode)).emit('session:state', { roomCode, currentFileId: fileId, currentPageNo: pageNo });
+      ack?.({ ok: true });
+    });
+
+    // Viewer settings sync (spread/zoom/perf/overlap) - page turner authoritative.
+    socket.on('viewer:settings', async (payload, ack) => {
+      const roomCode = String(payload?.roomCode || '').trim().toUpperCase();
+      const fileId = String(payload?.fileId || '').trim();
+      const settings = payload?.settings;
+      const room = store.rooms.get(roomCode);
+      if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
+      if (room.pageTurnerSocketId !== socket.id) return ack?.({ ok: false, error: 'FORBIDDEN' });
+      if (!fileId) return ack?.({ ok: false, error: 'FILE_REQUIRED' });
+      if (!settings || typeof settings !== 'object') return ack?.({ ok: false, error: 'BAD_REQUEST' });
+
+      room.currentFileId = fileId;
+      room.viewerSettings = {
+        spreadCount: Math.max(1, Math.min(4, Number(settings.spreadCount || 1))),
+        fitMode: Boolean(settings.fitMode),
+        zoom: Math.max(0.5, Math.min(3, Number(settings.zoom || 1))),
+        perfMode: Boolean(settings.perfMode),
+        overlapPx: Math.max(0, Math.min(40, Number(settings.overlapPx || 0)))
+      };
+
+      io.to(toSessionRoomName(roomCode)).emit('viewer:settings', { fileId, settings: room.viewerSettings });
+      ack?.({ ok: true });
+    });
+
+    // Laser pointer (transient) - broadcast only, no persistence.
+    socket.on('viewer:laser', async (payload, ack) => {
+      const roomCode = String(payload?.roomCode || '').trim().toUpperCase();
+      const fileId = String(payload?.fileId || '').trim();
+      const pageNo = Number(payload?.pageNo || 0);
+      const points = payload?.points;
+      const room = store.rooms.get(roomCode);
+      if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
+      if (room.pageTurnerSocketId !== socket.id) return ack?.({ ok: false, error: 'FORBIDDEN' });
+      if (!fileId || !pageNo) return ack?.({ ok: false, error: 'BAD_REQUEST' });
+      if (!Array.isArray(points) || points.length < 2) return ack?.({ ok: false, error: 'BAD_REQUEST' });
+      if (points.length > 400) return ack?.({ ok: false, error: 'PAYLOAD_TOO_LARGE' });
+
+      io.to(toSessionRoomName(roomCode)).emit('viewer:laser', {
+        fileId,
+        pageNo,
+        w: Number(payload?.w || 0),
+        h: Number(payload?.h || 0),
+        points
+      });
       ack?.({ ok: true });
     });
 

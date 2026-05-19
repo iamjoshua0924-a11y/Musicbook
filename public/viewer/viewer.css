@@ -85,12 +85,76 @@ body.light button:hover{ border-color:rgba(0,0,0,0.22); }
 .toggle { display: inline-flex; gap: 6px; align-items: center; }
 .badge { padding: 2px 8px; border-radius: 999px; background: rgba(0,0,0,0.55); color: var(--text); font-size: 12px; border: 1px solid var(--border); }
 .hidden { display: none; }
+.isHidden{ display:none !important; }
 
 #stage {
   position: relative;
   flex: 1;
   overflow: hidden;
 }
+
+/* ===== Desktop Float Toggles (GAS 원본) ===== */
+.floatToggles{
+  position:fixed;
+  right:12px;
+  top:12px;
+  z-index:5000;
+  display:inline-flex;
+  gap:8px;
+  align-items:center;
+}
+.floatToggles button{
+  height:32px;
+  padding:8px 10px;
+  font-size:13px;
+  border-radius:10px;
+  line-height:1;
+  cursor:pointer;
+  color:var(--text);
+  background:rgba(17,18,20,0.78);
+  border:1px solid rgba(255,255,255,0.14);
+  backdrop-filter:blur(6px);
+  white-space:nowrap;
+}
+body.light .floatToggles button{
+  background:rgba(255,255,255,0.82);
+  border:1px solid rgba(0,0,0,0.14);
+  color:var(--text);
+}
+
+/* ===== Toolbar (보기옵션/주석도구) ===== */
+.toolbarShell{
+  background:var(--panel);
+  border-bottom:1px solid var(--border);
+  padding:10px 12px;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.toolbarRow{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  align-items:center;
+}
+.group{
+  display:inline-flex;
+  gap:6px;
+  padding:6px;
+  border:1px solid var(--border);
+  border-radius:12px;
+  background:rgba(255,255,255,0.03);
+  align-items:center;
+}
+.label{ color:var(--muted); font-size:12px; margin-right:4px; font-weight:800; }
+.seg button{ padding:8px 10px; border-radius:10px; height:32px; }
+.seg button.active{
+  border-color:rgba(122,162,255,0.6);
+  box-shadow:0 0 0 2px rgba(122,162,255,0.12) inset;
+}
+.mini{ padding:8px 10px; font-size:13px; height:32px; }
+button.danger{ background:rgba(255,107,107,0.14); border-color:rgba(255,107,107,0.35); }
+.kv{ display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); }
 
 #pdf-container {
   position: absolute;
@@ -144,41 +208,26 @@ body.light button:hover{ border-color:rgba(0,0,0,0.22); }
   font-weight: 800;
 }
 
-#fab {
-  position: absolute;
-  right: 16px;
-  bottom: 16px;
-  width: 52px;
-  height: 52px;
-  border-radius: 999px;
-  border: 0;
-  background: rgba(17,18,20,0.82);
-  color: var(--text);
-  font-size: 20px;
-  z-index: 1000;
+/* Mobile-only floating menu (원본: touch-mode.landscape에서만) */
+#fab{
+  position:fixed;
+  right:12px;
+  top:12px;
+  z-index:5000;
+  width:52px;
+  height:52px;
+  border-radius:16px;
+  border:1px solid var(--border);
+  background:rgba(17,18,20,0.78);
+  backdrop-filter:blur(8px);
+  color:var(--text);
+  font-size:26px;
+  font-weight:800;
+  display:none;
+  align-items:center;
+  justify-content:center;
 }
-
-#fabPanel {
-  position: absolute;
-  right: 16px;
-  bottom: 76px;
-  width: 220px;
-  padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: rgba(255,255,255,0.92);
-  z-index: 1001;
-}
-.row { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
-.label { font-size: 12px; font-weight: 700; color: #444; }
-.row button { padding: 8px 10px; border-radius: 10px; border: 1px solid #ddd; background: #fff; cursor: pointer; }
-.row input[type="range"] { width: 120px; }
-.row input[type="color"] { width: 44px; height: 34px; padding: 0; border-radius: 10px; border: 1px solid #ddd; }
-
-/* Bigger touch targets in live mode */
-.live-mode #fab { width: 60px; height: 60px; font-size: 22px; }
-.live-mode #fabPanel { width: 280px; }
-.live-mode .row button { padding: 10px 12px; }
+body.touch-mode.landscape #fab{ display:flex; }
 
 #participantsPanel {
   position: absolute;
@@ -205,8 +254,25 @@ body.light button:hover{ border-color:rgba(0,0,0,0.22); }
 
 /* Focus mode: hide side UI */
 .focus-mode #topbar { display: none; }
-.focus-mode #fabPanel { display: none !important; }
 .focus-mode #participantsPanel { display: none !important; }
+
+/* touch-mode에서는 데스크톱 토글 버튼 숨김 */
+body.touch-mode .floatToggles{ display:none !important; }
+
+/* touch-mode: toolbar는 하단 시트처럼 동작(간단 버전) */
+body.touch-mode .toolbarShell{
+  position:fixed;
+  left:0; right:0;
+  bottom:0;
+  z-index:4000;
+  border-top:1px solid var(--border);
+  border-bottom:none;
+  transform:translateY(100%);
+  transition:transform .25s ease;
+}
+body.touch-mode.sheet-open .toolbarShell{
+  transform:translateY(0);
+}
 
 /* Tap zones for page turning (touch mode only) */
 #tapZoneLeft,#tapZoneRight,#tapZoneCenter{

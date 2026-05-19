@@ -84,6 +84,8 @@ function updateProfileImage(id, url) {
 }
 
 function openUrlOrToast(url, label) {
+  // chzzk: legacy default (원본 GAS 링크)
+  if (!url && label === '치지직') url = 'https://m.chzzk.naver.com/a69cde62e00086cfcf1c6733758cad9c';
   if (url) window.open(url, '_blank');
   else toast(`${label} 링크가 설정되어 있지 않습니다. /admin에서 설정해 주세요.`);
 }

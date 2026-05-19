@@ -492,6 +492,8 @@ async function importLegacyBundle(bundle) {
 
 module.exports = {
   parseCsv,
+  boolFromLegacy,
+  driveToThumb,
   importLegacyBundle,
   importSongsSelective,
   importUsersSelective,

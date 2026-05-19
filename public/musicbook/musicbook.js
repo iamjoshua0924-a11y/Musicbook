@@ -4,6 +4,7 @@
 const state = {
   role: 'viewer', // viewer | session | admin
   displayName: '방문자',
+  userId: '',
   main: null,
   songCardsAll: [],
   songCardsFiltered: [],
@@ -12,8 +13,12 @@ const state = {
   requests: [],
   requestManageMode: false,
   selectedRequestIds: new Set(),
-  availableVocalUserId: '',
-  availableVocalSet: null, // Set<googleFileId>
+  // 가능보컬 필터용 (타인 포함)
+  filterAvailableVocalUserId: '',
+  filterAvailableVocalSet: null, // Set<googleFileId>
+
+  // 본인 가능곡 편집용
+  myAvailabilitySet: null, // Set<googleFileId>
   availabilityEditMode: false,
   availabilityOriginalSet: null, // Set<googleFileId>
   availabilityDraftSet: null, // Set<googleFileId>
@@ -140,8 +145,8 @@ async function loadSongFiles(force = false) {
 }
 
 async function loadAvailableVocalSet(userId) {
-  state.availableVocalUserId = userId || '';
-  state.availableVocalSet = null;
+  state.filterAvailableVocalUserId = userId || '';
+  state.filterAvailableVocalSet = null;
   if (!userId) return;
   const data = await apiGet(`/api/availability?userId=${encodeURIComponent(userId)}`);
   if (!data.ok) return;
@@ -149,7 +154,21 @@ async function loadAvailableVocalSet(userId) {
   (data.items || []).forEach((a) => {
     if (a.available) set.add(a.googleFileId);
   });
-  state.availableVocalSet = set;
+  state.filterAvailableVocalSet = set;
+}
+
+async function loadMyAvailabilitySet() {
+  const userId = state.userId || '';
+  state.myAvailabilitySet = null;
+  if (!userId) return null;
+  const data = await apiGet(`/api/availability?userId=${encodeURIComponent(userId)}`);
+  if (!data.ok) return null;
+  const set = new Set();
+  (data.items || []).forEach((a) => {
+    if (a.available) set.add(a.googleFileId);
+  });
+  state.myAvailabilitySet = set;
+  return set;
 }
 
 function applySongFilters() {
@@ -191,8 +210,8 @@ function applySongFilters() {
   if (q) list = list.filter((c) => (c.searchText || '').includes(q));
 
   // 가능보컬 필터: variants 중 하나라도 해당 유저가 available이면 노출
-  if (availableVocalUserId && state.availableVocalUserId === availableVocalUserId && state.availableVocalSet) {
-    list = list.filter((c) => (c.variants || []).some((v) => state.availableVocalSet.has(v.googleFileId)));
+  if (availableVocalUserId && state.filterAvailableVocalUserId === availableVocalUserId && state.filterAvailableVocalSet) {
+    list = list.filter((c) => (c.variants || []).some((v) => state.filterAvailableVocalSet.has(v.googleFileId)));
   }
 
   const f = state.sortField;
@@ -281,12 +300,12 @@ function renderSongCards(hideTags) {
 }
 
 async function toggleAvailabilityForFile(userId, googleFileId, next) {
-  if (!userId) return toast('가능보컬을 먼저 선택해 주세요.');
+  if (!userId) return toast('로그인 정보가 없습니다.');
   const res = await apiJson('/api/availability', 'PUT', { userId, googleFileId, available: Boolean(next) });
   if (!res.ok) return toast('저장 실패');
-  if (!state.availableVocalSet) state.availableVocalSet = new Set();
-  if (next) state.availableVocalSet.add(googleFileId);
-  else state.availableVocalSet.delete(googleFileId);
+  if (!state.myAvailabilitySet) state.myAvailabilitySet = new Set();
+  if (next) state.myAvailabilitySet.add(googleFileId);
+  else state.myAvailabilitySet.delete(googleFileId);
 }
 
 function renderAvailabilityEditCards(hideTags) {
@@ -298,8 +317,8 @@ function renderAvailabilityEditCards(hideTags) {
   const start = (state.page - 1) * state.pageSize;
   const items = state.songFilesFiltered.slice(start, start + state.pageSize);
 
-  const userId = $('availableVocalFilter')?.value || '';
-  const set = state.availabilityDraftSet || state.availableVocalSet;
+  const userId = state.userId || '';
+  const set = state.availabilityDraftSet || state.myAvailabilitySet;
 
   items.forEach((s) => {
     const el = document.createElement('div');
@@ -617,6 +636,8 @@ function applyRoleUI() {
   $('profileButton').style.display = isPriv ? 'inline-flex' : 'none';
   $('requestManageToggleBtn').style.display = isAdmin ? 'inline-flex' : 'none';
   $('availabilityEditToggleBtn').style.display = isPriv ? 'inline-flex' : 'none';
+  // 가능보컬 필터는 이제 사용하지 않음(본인 기준 편집으로 변경)
+  $('availableVocalFilter').style.display = 'none';
 
   $('clearRequestsBtn').style.display = isAdmin ? 'inline-flex' : 'none';
 
@@ -649,11 +670,13 @@ async function refreshSession() {
   if (me.ok) {
     state.role = me.user.role;
     state.displayName = me.user.displayName || me.user.userId;
+    state.userId = me.user.userId || '';
     state.profilePhoto = me.user.profilePhoto || '';
     updateProfileImage('profilePhoto', state.profilePhoto);
   } else {
     state.role = 'viewer';
     state.displayName = '방문자';
+    state.userId = '';
     state.profilePhoto = '';
     updateProfileImage('profilePhoto', '');
   }
@@ -845,8 +868,8 @@ function wireEvents() {
     $('moodFilter').value = '';
     $('vocalFilter').value = '';
     $('availableVocalFilter').value = '';
-    state.availableVocalUserId = '';
-    state.availableVocalSet = null;
+    state.filterAvailableVocalUserId = '';
+    state.filterAvailableVocalSet = null;
     state.page = 1;
     applySongFilters();
   };
@@ -854,16 +877,16 @@ function wireEvents() {
   // 가능곡 편집(세션/관리자만): 버튼 클릭 즉시 "가능곡 선택모드" 진입 → 하단 취소/저장으로 종료
   $('availabilityEditToggleBtn').onclick = async () => {
     if (!(state.role === 'admin' || state.role === 'session')) return;
-    const userId = $('availableVocalFilter')?.value || '';
-    if (!userId) return toast('가능보컬을 먼저 선택해 주세요.');
+    const userId = state.userId || '';
+    if (!userId) return toast('로그인이 필요합니다.');
     await loadSongFiles(true);
-    await loadAvailableVocalSet(userId);
-    state.availabilityOriginalSet = new Set(Array.from(state.availableVocalSet || []));
-    state.availabilityDraftSet = new Set(Array.from(state.availableVocalSet || []));
+    await loadMyAvailabilitySet();
+    state.availabilityOriginalSet = new Set(Array.from(state.myAvailabilitySet || []));
+    state.availabilityDraftSet = new Set(Array.from(state.myAvailabilitySet || []));
     state.availabilityEditMode = true;
     $('availabilityEditToggleBtn').style.display = 'none';
     $('availabilityEditBar').style.display = 'flex';
-    $('availabilityEditTitle').textContent = `가능곡 선택모드 · ${$('availableVocalFilter').selectedOptions?.[0]?.textContent || userId}`;
+    $('availabilityEditTitle').textContent = `가능곡 선택모드 · ${state.displayName || userId}`;
     state.page = 1;
     applySongFilters();
   };
@@ -871,7 +894,7 @@ function wireEvents() {
   $('availabilityEditCancelBtn').onclick = () => {
     state.availabilityEditMode = false;
     state.availabilityDraftSet = null;
-    state.availableVocalSet = state.availabilityOriginalSet ? new Set(Array.from(state.availabilityOriginalSet)) : state.availableVocalSet;
+    state.myAvailabilitySet = state.availabilityOriginalSet ? new Set(Array.from(state.availabilityOriginalSet)) : state.myAvailabilitySet;
     state.availabilityOriginalSet = null;
     $('availabilityEditBar').style.display = 'none';
     $('availabilityEditToggleBtn').style.display = state.role === 'admin' || state.role === 'session' ? 'inline-flex' : 'none';
@@ -880,7 +903,7 @@ function wireEvents() {
   };
 
   $('availabilityEditSaveBtn').onclick = async () => {
-    const userId = $('availableVocalFilter')?.value || '';
+    const userId = state.userId || '';
     if (!userId) return;
     const before = state.availabilityOriginalSet || new Set();
     const after = state.availabilityDraftSet || new Set();
@@ -895,7 +918,12 @@ function wireEvents() {
       const res = await apiJson('/api/availability/bulk', 'POST', { userId, items });
       if (!res.ok) return toast('저장 실패');
     }
-    state.availableVocalSet = new Set(Array.from(after));
+    state.myAvailabilitySet = new Set(Array.from(after));
+    // 필터가 "본인"을 보고 있는 상태면 필터셋도 갱신
+    if (String($('availableVocalFilter')?.value || '') === String(userId)) {
+      state.filterAvailableVocalUserId = userId;
+      state.filterAvailableVocalSet = new Set(Array.from(after));
+    }
     state.availabilityEditMode = false;
     state.availabilityOriginalSet = null;
     state.availabilityDraftSet = null;

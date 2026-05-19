@@ -1,5 +1,7 @@
 const $ = (id) => document.getElementById(id);
 let syncRunning = false;
+let syncPoller = null;
+const importPollers = new Map(); // kind -> intervalId
 
 async function apiGet(url) {
   const res = await fetch(url, { credentials: 'include' });
@@ -97,12 +99,54 @@ async function loadSyncStatus() {
     return;
   }
   const msg = s.running
-    ? `RUNNING · startedAt=${s.startedAt}`
+    ? `RUNNING · processed=${s.processed ?? 0} skipped=${s.skipped ?? 0}${s.currentPath ? ` · path=${s.currentPath}` : ''}${s.currentFile ? ` · file=${s.currentFile}` : ''}`
     : `endedAt=${s.endedAt || '-'} · processed=${s.processed ?? '-'} · skipped=${s.skipped ?? '-'} · hidden=${s.hiddenCount ?? '-'}`;
   $('syncStatusLine').textContent = msg;
   syncRunning = Boolean(s.running);
   const btn = $('syncBtn');
   if (btn) btn.textContent = syncRunning ? '동기화 중지' : '동기화 실행';
+}
+
+function startSyncPolling() {
+  if (syncPoller) return;
+  syncPoller = setInterval(() => loadSyncStatus().catch(() => {}), 1200);
+}
+function stopSyncPolling() {
+  if (!syncPoller) return;
+  clearInterval(syncPoller);
+  syncPoller = null;
+}
+
+async function loadImportStatus(kind) {
+  const r = await apiGet(`/api/admin/import/status?kind=${encodeURIComponent(kind)}`);
+  if (!r.ok) return null;
+  return r.status;
+}
+
+function startImportPolling(kind, outId, detailId) {
+  const k = String(kind || '').trim().toLowerCase();
+  if (importPollers.has(k)) return;
+  const tick = async () => {
+    const s = await loadImportStatus(k);
+    if (!s) return;
+    const out = $(outId);
+    const detail = $(detailId);
+    if (detail) detail.textContent = JSON.stringify({ ok: true, status: s }, null, 2);
+    if (out) {
+      if (s.running) out.textContent = `진행중 · ${s.processedRows ?? 0}/${s.totalRows ?? '?'} · created=${s.created ?? 0} updated=${s.updated ?? 0} skipped=${s.skippedSame ?? 0}`;
+      else out.textContent = `완료 · ${s.processedRows ?? 0}/${s.totalRows ?? '?'} · created=${s.created ?? 0} updated=${s.updated ?? 0} skipped=${s.skippedSame ?? 0}`;
+    }
+    if (!s.running) {
+      clearInterval(importPollers.get(k));
+      importPollers.delete(k);
+      setTimeout(() => {
+        if (out) out.textContent = '';
+      }, 2500);
+    }
+  };
+  const id = setInterval(() => tick().catch(() => {}), 900);
+  importPollers.set(k, id);
+  tick().catch(() => {});
 }
 
 async function loadParseErrors() {
@@ -186,12 +230,8 @@ function wire() {
     const text = await f.text();
     const r = await apiJson('/api/admin/import/songs-csv', 'POST', { csvText: text });
     $('importSongsCsvDetail').textContent = JSON.stringify(r, null, 2);
-    if (!r.ok) {
-      $('importSongsCsvOut').textContent = `실패: ${r.error || ''}`;
-      return;
-    }
-    $('importSongsCsvOut').textContent = `완료 · created=${r.created ?? 0} updated=${r.updated ?? 0} skippedSame=${r.skippedSame ?? 0} dupSkipped=${r.duplicatesSkipped ?? 0}`;
-    setTimeout(() => ($('importSongsCsvOut').textContent = ''), 2500);
+    if (!r.ok) return ($('importSongsCsvOut').textContent = `실패: ${r.error || ''}`);
+    startImportPolling('songs', 'importSongsCsvOut', 'importSongsCsvDetail');
   };
 
   $('importUsersCsvBtn').onclick = async () => {
@@ -202,12 +242,8 @@ function wire() {
     const updatePasswordExisting = Boolean($('updateUserPwToggle')?.checked);
     const r = await apiJson('/api/admin/import/users-csv', 'POST', { csvText: text, updatePasswordExisting });
     $('importUsersCsvDetail').textContent = JSON.stringify(r, null, 2);
-    if (!r.ok) {
-      $('importUsersCsvOut').textContent = `실패: ${r.error || ''}`;
-      return;
-    }
-    $('importUsersCsvOut').textContent = `완료 · created=${r.created ?? 0} updated=${r.updated ?? 0} skippedSame=${r.skippedSame ?? 0} (generatedPw=${(r.generated || []).length})`;
-    setTimeout(() => ($('importUsersCsvOut').textContent = ''), 2500);
+    if (!r.ok) return ($('importUsersCsvOut').textContent = `실패: ${r.error || ''}`);
+    startImportPolling('users', 'importUsersCsvOut', 'importUsersCsvDetail');
   };
 
   $('importAvailabilityCsvBtn').onclick = async () => {
@@ -217,12 +253,8 @@ function wire() {
     const text = await f.text();
     const r = await apiJson('/api/admin/import/availability-csv', 'POST', { csvText: text });
     $('importAvailabilityCsvDetail').textContent = JSON.stringify(r, null, 2);
-    if (!r.ok) {
-      $('importAvailabilityCsvOut').textContent = `실패: ${r.error || ''}`;
-      return;
-    }
-    $('importAvailabilityCsvOut').textContent = `완료 · created=${r.created ?? 0} updated=${r.updated ?? 0} skippedSame=${r.skippedSame ?? 0} missingSongs=${r.missingSongs ?? 0}`;
-    setTimeout(() => ($('importAvailabilityCsvOut').textContent = ''), 2500);
+    if (!r.ok) return ($('importAvailabilityCsvOut').textContent = `실패: ${r.error || ''}`);
+    startImportPolling('availability', 'importAvailabilityCsvOut', 'importAvailabilityCsvDetail');
   };
 }
 
@@ -234,6 +266,9 @@ async function boot() {
     await loadDriveRoot();
     await loadSyncStatus();
     await loadParseErrors();
+    startSyncPolling();
+  } else {
+    stopSyncPolling();
   }
 }
 

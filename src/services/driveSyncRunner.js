@@ -23,7 +23,38 @@ async function runDriveSync({ latestDays = 30, limit = 5000, pruneMissing = true
     const incrementalSince = incremental ? prev?.endedAt || prev?.startedAt || null : null;
 
     const startedAt = new Date().toISOString();
-    await setJson(KEYS.driveSyncStatus, { startedAt, running: true, rootFolderId: finalRoot, latestDays, limit, pruneMissing, incremental });
+    await setJson(KEYS.driveSyncStatus, {
+      startedAt,
+      running: true,
+      rootFolderId: finalRoot,
+      latestDays,
+      limit,
+      pruneMissing,
+      incremental,
+      processed: 0,
+      skipped: 0,
+      currentPath: '',
+      currentFile: '',
+      lastUpdatedAt: startedAt
+    });
+
+    // Throttled progress writer (avoid excessive DB writes)
+    let lastWriteTs = 0;
+    const onProgress = async (p) => {
+      const now = Date.now();
+      if (now - lastWriteTs < 1200) return;
+      lastWriteTs = now;
+      const prevStatus = await getJson(KEYS.driveSyncStatus, null);
+      const patch = {
+        running: true,
+        processed: Number(p?.processed ?? prevStatus?.processed ?? 0),
+        skipped: Number(p?.skipped ?? prevStatus?.skipped ?? 0),
+        currentPath: String(p?.currentPath ?? prevStatus?.currentPath ?? ''),
+        currentFile: String(p?.fileName ?? prevStatus?.currentFile ?? ''),
+        lastUpdatedAt: new Date().toISOString()
+      };
+      await setJson(KEYS.driveSyncStatus, { ...(prevStatus || {}), ...patch });
+    };
 
     const result = await syncDriveFolderTree({
       rootFolderId: finalRoot,
@@ -31,7 +62,8 @@ async function runDriveSync({ latestDays = 30, limit = 5000, pruneMissing = true
       limit,
       incrementalSince,
       pruneMissing,
-      shouldAbort: () => abortRequested
+      shouldAbort: () => abortRequested,
+      onProgress
     });
     const endedAt = new Date().toISOString();
 

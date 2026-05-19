@@ -47,7 +47,15 @@ async function listChildren(drive, folderId, pageToken) {
   return res.data;
 }
 
-async function syncDriveFolderTree({ rootFolderId, latestDays = 30, limit = 5000, incrementalSince = null, pruneMissing = true, shouldAbort } = {}) {
+async function syncDriveFolderTree({
+  rootFolderId,
+  latestDays = 30,
+  limit = 5000,
+  incrementalSince = null,
+  pruneMissing = true,
+  shouldAbort,
+  onProgress
+} = {}) {
   if (!rootFolderId) throw new Error('ROOT_FOLDER_ID_REQUIRED');
   const drive = getDriveClient();
   const artistFreqMap = await buildArtistFreqMap();
@@ -65,6 +73,9 @@ async function syncDriveFolderTree({ rootFolderId, latestDays = 30, limit = 5000
       return { processed, skipped, hiddenCount: 0, reachedLimit: false, aborted: true, startedAt };
     }
     const { folderId, path } = queue.shift();
+    try {
+      onProgress?.({ phase: 'folder', processed, skipped, currentPath: path, queueLength: queue.length });
+    } catch {}
     let pageToken = undefined;
 
     do {
@@ -108,6 +119,9 @@ async function syncDriveFolderTree({ rootFolderId, latestDays = 30, limit = 5000
             { upsert: true }
           );
           skipped += 1;
+          try {
+            onProgress?.({ phase: 'skip', processed, skipped, currentPath: path, fileName: f.name || '' });
+          } catch {}
           continue;
         }
 
@@ -181,6 +195,9 @@ async function syncDriveFolderTree({ rootFolderId, latestDays = 30, limit = 5000
         );
 
         processed += 1;
+        try {
+          onProgress?.({ phase: 'file', processed, skipped, currentPath: path, fileName: f.name || '' });
+        } catch {}
       }
 
       pageToken = data.nextPageToken || undefined;

@@ -7,7 +7,7 @@ const Song = require('../models/Song');
 const { requireLogin, requireAdmin, requireSessionOrAdmin } = require('../middleware/auth');
 const { runDriveSync, stopDriveSync, getDriveRootFolderId } = require('../services/driveSyncRunner');
 const { KEYS, getJson } = require('../services/syncStatus');
-const { importSongsSelective, importUsersSelective, importAvailabilitySelective } = require('../services/legacyCsvImport');
+const { start: startCsvImport, getStatus: getCsvImportStatus } = require('../services/csvImportRunner');
 
 const router = express.Router();
 
@@ -313,7 +313,8 @@ router.patch('/admin/song-cards', requireAdmin, async (req, res) => {
 router.post('/admin/import/songs-csv', requireAdmin, async (req, res) => {
   const csvText = String(req.body?.csvText || '');
   if (!csvText.trim()) return res.status(400).json({ ok: false, error: 'CSV_REQUIRED' });
-  const r = await importSongsSelective(csvText);
+  const r = await startCsvImport('songs', csvText);
+  if (!r.ok) return res.status(400).json({ ok: false, error: r.error || 'IMPORT_FAILED' });
   res.json({ ok: true, ...r });
 });
 
@@ -321,15 +322,23 @@ router.post('/admin/import/users-csv', requireAdmin, async (req, res) => {
   const csvText = String(req.body?.csvText || '');
   const updatePasswordExisting = Boolean(req.body?.updatePasswordExisting);
   if (!csvText.trim()) return res.status(400).json({ ok: false, error: 'CSV_REQUIRED' });
-  const r = await importUsersSelective(csvText, { updatePasswordExisting });
+  const r = await startCsvImport('users', csvText, { updatePasswordExisting });
+  if (!r.ok) return res.status(400).json({ ok: false, error: r.error || 'IMPORT_FAILED' });
   res.json({ ok: true, ...r });
 });
 
 router.post('/admin/import/availability-csv', requireAdmin, async (req, res) => {
   const csvText = String(req.body?.csvText || '');
   if (!csvText.trim()) return res.status(400).json({ ok: false, error: 'CSV_REQUIRED' });
-  const r = await importAvailabilitySelective(csvText);
+  const r = await startCsvImport('availability', csvText);
+  if (!r.ok) return res.status(400).json({ ok: false, error: r.error || 'IMPORT_FAILED' });
   res.json({ ok: true, ...r });
+});
+
+router.get('/admin/import/status', requireAdmin, async (req, res) => {
+  const kind = String(req.query?.kind || '').trim().toLowerCase();
+  const status = await getCsvImportStatus(kind);
+  res.json({ ok: true, status });
 });
 
 module.exports = router;

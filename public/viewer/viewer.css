@@ -269,6 +269,40 @@ body.touch-mode.landscape #fab{ display:flex; }
 }
 .modalActions button{ height:36px; }
 
+/* ===== 노래책에서 고르기 ===== */
+.songPickList{
+  margin-top:10px;
+  max-height: min(52vh, 420px);
+  overflow:auto;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  padding-right: 4px;
+}
+.songPickItem{
+  border:1px solid var(--border);
+  background: var(--panel2);
+  border-radius:12px;
+  padding:10px 12px;
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  cursor:pointer;
+}
+.songPickTitle{ font-weight:900; }
+.songPickSub{ font-size:12px; opacity:.75; margin-top:2px; }
+.songPickKeys{ display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+.songPickKeyBtn{
+  height:26px;
+  padding:4px 10px;
+  border-radius:10px;
+  border:1px solid rgba(122,162,255,0.35);
+  background: rgba(122,162,255,0.12);
+  color: var(--text);
+  font-weight:900;
+  font-size:12px;
+}
+
 /* ===== 옵션 노출(컨텍스트) ===== */
 #textOptionGroup{ display:none; }
 body.tool-text #textOptionGroup{ display:inline-flex; }

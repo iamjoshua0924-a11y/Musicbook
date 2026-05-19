@@ -14,6 +14,7 @@
           <div class="inputRow">
             <input id="linkInput" type="text" placeholder="구글드라이브 PDF 링크 또는 fileId" />
             <button id="openBtn" type="button" class="primary">열기</button>
+            <button id="songBookPickBtn" type="button" class="primary hidden">노래책에서 고르기</button>
           </div>
         </div>
         <div class="right">
@@ -157,6 +158,19 @@
         <div class="modalActions">
           <button id="inputModalCancelBtn" type="button">취소</button>
           <button id="inputModalOkBtn" type="button" class="primary">확인</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 노래책에서 고르기 모달 -->
+    <div class="modalOverlay hidden" id="songPickModal">
+      <div class="modalBox">
+        <div class="modalTitle">노래책에서 고르기</div>
+        <input id="songPickSearch" class="modalInput" placeholder="곡명/가수 검색" />
+        <div id="songPickHint" class="muted" style="margin-top:8px;">검색해서 곡을 선택하세요.</div>
+        <div id="songPickList" class="songPickList"></div>
+        <div class="modalActions">
+          <button id="songPickCloseBtn" type="button">닫기</button>
         </div>
       </div>
     </div>

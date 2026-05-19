@@ -219,7 +219,8 @@ function renderSongCards(hideTags) {
 
   items.forEach((c) => {
     const el = document.createElement('div');
-    el.className = 'song-card clickable';
+    const canOpen = state.role !== 'viewer';
+    el.className = canOpen ? 'song-card clickable' : 'song-card';
     const title = c.title || '(제목없음)';
     const keyLabel = c.keyLabel || '-';
 
@@ -268,9 +269,11 @@ function renderSongCards(hideTags) {
       e.stopPropagation();
       openSongTagModal(c);
     });
-    el.onclick = () => {
-      openCardFlow(c);
-    };
+    if (canOpen) {
+      el.onclick = () => {
+        openCardFlow(c);
+      };
+    }
     wrap.appendChild(el);
   });
 }
@@ -367,6 +370,7 @@ async function saveSongTagModal() {
 
 // ---- Card flow (키 선택 -> 액션 선택) ---------------------------------------------
 function openCardFlow(card) {
+  if (state.role === 'viewer') return;
   if (!card?.variants?.length) return;
   const keys = (card.keys || []).filter((x) => x !== undefined);
   if (keys.length > 1) return openKeySelectModal(card);
@@ -850,7 +854,8 @@ function wireEvents() {
     applySongFilters();
   };
   $('nextPageBtn').onclick = () => {
-    const totalPages = Math.max(1, Math.ceil(state.songsFiltered.length / state.pageSize));
+    const total = state.availabilityEditMode ? state.songFilesFiltered.length : state.songCardsFiltered.length;
+    const totalPages = Math.max(1, Math.ceil(total / state.pageSize));
     state.page = Math.min(totalPages, state.page + 1);
     applySongFilters();
   };
@@ -879,18 +884,20 @@ function wireEvents() {
 
   // session controls on main page
   $('sessionCreateBtn').onclick = () => {
+    if (state.role === 'viewer') return toast('로그인된 멤버만 세션을 만들 수 있습니다.');
     const socket = state._socket;
     if (!socket) return;
     socket.emit('session:create', {}, (ack) => {
       if (!ack?.ok) return toast('세션 생성 실패');
-      joinLiveSession(String(ack.roomCode || ''));
-      toast(`세션 생성: ${ack.roomCode}`);
+      // 세션 생성/참여는 바로 viewer로 이동
+      window.location.href = `/viewer?room=${encodeURIComponent(String(ack.roomCode || '').trim().toUpperCase())}`;
     });
   };
   $('sessionJoinBtn').onclick = () => {
+    if (state.role === 'viewer') return toast('로그인된 멤버만 세션에 참여할 수 있습니다.');
     const code = (prompt('Room Code를 입력하세요:', state.sessionRoomCode || '') || '').trim().toUpperCase();
     if (!code) return;
-    joinLiveSession(code);
+    window.location.href = `/viewer?room=${encodeURIComponent(code)}`;
   };
   $('sessionLeaveBtn').onclick = () => leaveLiveSession();
   $('sessionMembersBtn').onclick = () => {

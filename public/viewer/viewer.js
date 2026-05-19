@@ -114,6 +114,11 @@ function setHidden(id, hidden) {
   el.classList.toggle('hidden', hidden);
 }
 
+async function apiGet(url) {
+  const res = await fetch(url, { credentials: 'include' });
+  return res.json();
+}
+
 function debounce(fn, ms) {
   let t = null;
   return (...args) => {
@@ -338,6 +343,13 @@ function emitSessionJoin(roomCode) {
   });
 }
 
+function updateSongBookPickVisibility() {
+  const btn = document.getElementById('songBookPickBtn');
+  if (!btn) return;
+  const isMember = authState.role === 'admin' || authState.role === 'session';
+  btn.classList.toggle('hidden', !(isMember && state.isInSession && state.roomCode));
+}
+
 function joinSession(roomCode) {
   state.roomCode = safeRoomCode(roomCode);
   state.isInSession = true;
@@ -369,6 +381,7 @@ function joinSession(roomCode) {
     setHidden('participantsPanel', false);
     // request initial annotations
     if (state.fileId) socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId: state.fileId });
+    updateSongBookPickVisibility();
   }
   );
 }
@@ -387,12 +400,108 @@ function leaveSession() {
   if (roomCode) socket.emit('session:leave', { roomCode });
   setRoomToUrl('');
   if (state.fileId) clearLastRoomForFile(state.fileId);
+  updateSongBookPickVisibility();
 }
 
 // reconnect safety: 소켓 재연결 시 방 재가입
 socket.on('connect', () => {
   if (state.isInSession && state.roomCode) emitSessionJoin(state.roomCode);
 });
+
+// ---- Song picker (노래책에서 고르기) ------------------------------------------------
+let songCardsCache = null;
+
+function openSongPickModal() {
+  setHidden('songPickModal', false);
+  const input = document.getElementById('songPickSearch');
+  if (input) {
+    input.value = '';
+    setTimeout(() => input.focus(), 0);
+  }
+  renderSongPickList([]);
+  document.getElementById('songPickHint').textContent = '불러오는 중...';
+  loadSongCardsIfNeeded().catch(() => {
+    document.getElementById('songPickHint').textContent = '곡 목록을 불러오지 못했습니다.';
+  });
+}
+
+function closeSongPickModal() {
+  setHidden('songPickModal', true);
+}
+
+async function loadSongCardsIfNeeded() {
+  if (songCardsCache) {
+    document.getElementById('songPickHint').textContent = '검색해서 곡을 선택하세요.';
+    return;
+  }
+  const r = await apiGet('/api/songs/cards');
+  if (!r?.ok) throw new Error('LOAD_FAILED');
+  songCardsCache = r.items || [];
+  document.getElementById('songPickHint').textContent = `총 ${songCardsCache.length}곡 · 검색해서 선택`;
+}
+
+function pickCardMatches(q) {
+  const qq = String(q || '').trim().toLowerCase();
+  if (!songCardsCache) return [];
+  if (!qq) return songCardsCache.slice(0, 30);
+  return songCardsCache.filter((c) => (c.searchText || '').includes(qq)).slice(0, 40);
+}
+
+function openFileInRoom(fileId, originalLink = '') {
+  const roomCode = state.roomCode;
+  if (state.isInSession && state.isPageTurner && roomCode) {
+    socket.emit('session:follow:file', { roomCode, fileId, originalLink: String(originalLink || '').trim() }, () => {
+      window.location.href = `${window.location.origin}/viewer/${fileId}?room=${encodeURIComponent(roomCode)}`;
+    });
+  } else {
+    window.location.href = `${window.location.origin}/viewer/${fileId}?room=${encodeURIComponent(roomCode)}`;
+  }
+}
+
+function renderSongPickList(cards) {
+  const wrap = document.getElementById('songPickList');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  (cards || []).forEach((c) => {
+    const el = document.createElement('div');
+    el.className = 'songPickItem';
+    const keys = (c.keys || []).filter((x) => x !== undefined);
+    const keysHtml = `
+      <div class="songPickKeys">
+        ${keys
+          .map((k) => `<button class="songPickKeyBtn" type="button" data-k="${encodeURIComponent(k || '')}">${k || '-'}</button>`)
+          .join('')}
+      </div>
+    `;
+    el.innerHTML = `
+      <div style="min-width:0;">
+        <div class="songPickTitle">${String(c.title || '')}</div>
+        <div class="songPickSub">${String(c.artist || '')}</div>
+      </div>
+      ${keysHtml}
+    `;
+    // key button click -> open
+    el.querySelectorAll('.songPickKeyBtn').forEach((btn) => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const key = decodeURIComponent(btn.dataset.k || '');
+        const v = (c.variants || []).find((x) => String(x.key || '') === String(key || '')) || (c.variants || [])[0];
+        if (!v?.googleFileId) return;
+        closeSongPickModal();
+        openFileInRoom(v.googleFileId, v.driveUrl || '');
+      };
+    });
+    // clicking item without choosing key -> if only 1 key
+    el.onclick = () => {
+      if (keys.length !== 1) return;
+      const v = (c.variants || [])[0];
+      if (!v?.googleFileId) return;
+      closeSongPickModal();
+      openFileInRoom(v.googleFileId, v.driveUrl || '');
+    };
+    wrap.appendChild(el);
+  });
+}
 
 // ---- URL state restore (바이블: p/s/fit/z/po/ps/py) --------------------------------
 function setPreviewYOffsetPx(px) {
@@ -470,6 +579,23 @@ document.getElementById('touchBtn')?.addEventListener('click', () => {
   manualTouch = !document.body.classList.contains('touch-mode');
   applyTouchMode(manualTouch);
 });
+
+document.getElementById('songBookPickBtn')?.addEventListener('click', () => {
+  // 멤버+세션 상태에서만 노출되므로 별도 권한 체크는 생략
+  openSongPickModal();
+});
+document.getElementById('songPickCloseBtn')?.addEventListener('click', () => closeSongPickModal());
+document.getElementById('songPickModal')?.addEventListener('click', (e) => {
+  if (e.target?.id === 'songPickModal') closeSongPickModal();
+});
+document.getElementById('songPickSearch')?.addEventListener(
+  'input',
+  debounce((e) => {
+    const q = e.target.value || '';
+    const items = pickCardMatches(q);
+    renderSongPickList(items);
+  }, 120)
+);
 
 // overlap slider (GAS style)
 function setSpreadOverlapPx(px) {
@@ -1643,6 +1769,7 @@ async function init() {
   await loadMe();
   // 로그인 사용자면 displayName 우선, 아니면 닉네임(공유키) 사용
   if (!authState.displayName) authState.displayName = state.nickname || '익명';
+  updateSongBookPickVisibility();
 
   // auto reconnect to last room:
   // 1) ?room 우선

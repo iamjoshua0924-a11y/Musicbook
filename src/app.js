@@ -8,6 +8,12 @@ const session = require('express-session');
 
 const { env, sessionSecret } = require('./config/env');
 
+function requireMemberPage(req, res, next) {
+  const role = req.session?.user?.role;
+  if (role === 'admin' || role === 'session') return next();
+  return res.redirect('/');
+}
+
 function createApp() {
   const app = express();
 
@@ -43,12 +49,12 @@ function createApp() {
     res.sendFile(path.join(__dirname, '..', 'public', 'musicbook', 'index.html'));
   });
 
-  app.get('/viewer/:fileId', (req, res) => {
+  app.get('/viewer/:fileId', requireMemberPage, (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'public', 'viewer', 'index.html'));
   });
 
   // Allow /viewer entry without fileId (personal mode: open via drive link).
-  app.get('/viewer', (req, res) => {
+  app.get('/viewer', requireMemberPage, (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'public', 'viewer', 'index.html'));
   });
 

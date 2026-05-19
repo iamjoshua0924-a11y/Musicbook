@@ -3,13 +3,14 @@ const { pipeline } = require('node:stream/promises');
 const router = express.Router();
 
 const { getDriveClient, getFileMetadata, buildPreviewUrl } = require('../services/drive');
+const { requireSessionOrAdmin } = require('../middleware/auth');
 
 /**
  * Streaming pipe endpoint (NO buffering in memory).
  * - Supports Range header (pass-through to Drive).
  * - If Drive blocks download, client can use /api/drive/preview/:fileId and fallback to iframe.
  */
-router.get('/drive/pdf/:fileId', async (req, res) => {
+router.get('/drive/pdf/:fileId', requireSessionOrAdmin, async (req, res) => {
   const { fileId } = req.params;
   const range = req.headers.range;
 
@@ -48,12 +49,12 @@ router.get('/drive/pdf/:fileId', async (req, res) => {
   }
 });
 
-router.get('/drive/preview/:fileId', async (req, res) => {
+router.get('/drive/preview/:fileId', requireSessionOrAdmin, async (req, res) => {
   const { fileId } = req.params;
   res.json({ ok: true, previewUrl: buildPreviewUrl(fileId) });
 });
 
-router.get('/drive/meta/:fileId', async (req, res) => {
+router.get('/drive/meta/:fileId', requireSessionOrAdmin, async (req, res) => {
   const { fileId } = req.params;
   try {
     const meta = await getFileMetadata(fileId);
@@ -64,4 +65,3 @@ router.get('/drive/meta/:fileId', async (req, res) => {
 });
 
 module.exports = router;
-

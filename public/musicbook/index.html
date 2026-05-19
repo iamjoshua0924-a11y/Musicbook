@@ -340,6 +340,35 @@
       </div>
     </div>
 
+    <!-- Profile modal (GAS 원본 이식) -->
+    <div class="modal-overlay" id="profileModal">
+      <div class="modal">
+        <div class="modal-title">프로필 관리</div>
+
+        <div class="profile-preview">
+          <img id="profilePreview" class="profile-preview-image" alt="" />
+        </div>
+
+        <input id="profilePhotoInput" class="input" placeholder="드라이브 이미지 링크를 넣으세요" />
+
+        <button class="floating-btn" id="toggleProfilePwBtn" type="button" style="justify-content:center;">
+          비밀번호 변경
+        </button>
+
+        <div id="profilePasswordBox" class="profile-password-box" style="display:none;">
+          <input type="password" id="profileCurrentPw" class="input" placeholder="현재 비밀번호" />
+          <input type="password" id="profileNewPw" class="input" placeholder="새 비밀번호" />
+          <input type="password" id="profileNewPw2" class="input" placeholder="새 비밀번호 확인" />
+          <button class="floating-btn black-btn" id="profilePwSaveBtn" type="button">비밀번호 저장</button>
+        </div>
+
+        <div class="modal-actions">
+          <button class="floating-btn" id="profileCancelBtn" type="button">취소</button>
+          <button class="floating-btn black-btn" id="profileSaveBtn" type="button">업로드</button>
+        </div>
+      </div>
+    </div>
+
     <script src="/socket.io/socket.io.js"></script>
     <script src="/public/musicbook/musicbook.js"></script>
   </body>

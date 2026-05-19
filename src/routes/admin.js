@@ -66,12 +66,18 @@ router.post('/admin/import/legacy', async (req, res) => {
 });
 
 router.get('/admin/me', requireLogin, async (req, res) => {
-  res.json({ ok: true, user: req.session.user });
-});
-
-router.post('/admin/logout', requireLogin, async (req, res) => {
-  req.session.destroy(() => {
-    res.json({ ok: true });
+  const user = await User.findById(req.session.user.id).lean();
+  if (!user) return res.status(401).json({ ok: false, error: 'UNAUTHORIZED' });
+  res.json({
+    ok: true,
+    user: {
+      id: String(user._id),
+      userId: user.userId,
+      role: user.role,
+      displayName: user.displayName || user.userId,
+      profilePhoto: user.profilePhoto || '',
+      mustChangePassword: Boolean(user.mustChangePassword)
+    }
   });
 });
 
@@ -110,8 +116,67 @@ router.post('/admin/login', async (req, res) => {
 
   if (!ok) return res.status(401).json({ ok: false, error: 'INVALID_CREDENTIALS' });
 
-  req.session.user = { id: String(user._id), userId: user.userId, role: user.role, displayName: user.displayName };
+  req.session.user = {
+    id: String(user._id),
+    userId: user.userId,
+    role: user.role,
+    displayName: user.displayName || user.userId,
+    profilePhoto: user.profilePhoto || '',
+    mustChangePassword: Boolean(user.mustChangePassword)
+  };
   res.json({ ok: true, user: req.session.user });
+});
+
+router.patch('/admin/profile', requireLogin, async (req, res) => {
+  const displayName = String(req.body?.displayName || '').trim();
+  const profilePhoto = String(req.body?.profilePhoto || '').trim();
+
+  const user = await User.findById(req.session.user.id);
+  if (!user) return res.status(401).json({ ok: false, error: 'UNAUTHORIZED' });
+
+  if (displayName) user.displayName = displayName;
+  user.profilePhoto = profilePhoto;
+  user.updatedAt = new Date();
+  await user.save();
+
+  req.session.user.displayName = user.displayName || user.userId;
+  req.session.user.profilePhoto = user.profilePhoto || '';
+  res.json({ ok: true, profilePhoto: user.profilePhoto || '', displayName: req.session.user.displayName });
+});
+
+router.post('/admin/password/change', requireLogin, async (req, res) => {
+  const currentPassword = String(req.body?.currentPassword || '');
+  const newPassword = String(req.body?.newPassword || '');
+  if (!currentPassword || !newPassword || newPassword.length < 4) {
+    return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+  }
+
+  const user = await User.findById(req.session.user.id);
+  if (!user) return res.status(401).json({ ok: false, error: 'UNAUTHORIZED' });
+
+  const sha = crypto.createHash('sha256').update(currentPassword).digest('hex');
+  const stored = String(user.passwordHash || '');
+  const looksBcrypt = stored.startsWith('$2a$') || stored.startsWith('$2b$') || stored.startsWith('$2y$');
+
+  let ok = false;
+  if (looksBcrypt) ok = await bcrypt.compare(currentPassword, stored);
+  else ok = Boolean(stored && stored === sha);
+  if (!ok && user.legacyPasswordHash) ok = sha === user.legacyPasswordHash;
+  if (!ok) return res.status(401).json({ ok: false, error: 'INVALID_CREDENTIALS' });
+
+  user.passwordHash = await bcrypt.hash(newPassword, 10);
+  user.mustChangePassword = false;
+  user.updatedAt = new Date();
+  await user.save();
+
+  req.session.user.mustChangePassword = false;
+  res.json({ ok: true });
+});
+
+router.post('/admin/logout', requireLogin, async (req, res) => {
+  req.session.destroy(() => {
+    res.json({ ok: true });
+  });
 });
 
 // Debug: check if a user exists / hash type (bootstrap token OR admin).

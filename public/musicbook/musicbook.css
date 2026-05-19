@@ -69,6 +69,7 @@ body {
   gap: 10px;
   z-index: 1000;
   justify-content: flex-end;
+  flex-wrap: wrap;
 }
 
 .nav-icon {
@@ -238,11 +239,24 @@ body {
   box-shadow: none;
 }
 
-.search-grid {
-  display: grid;
-  grid-template-columns: 1.2fr 0.7fr 0.7fr 0.7fr auto;
-  gap: 10px;
-  align-items: center;
+/* GAS 원본: 검색 영역은 flex-wrap */
+.search-grid{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  align-items:flex-start;
+}
+.search-grid .input{
+  flex:1 1 260px;
+  min-width:200px;
+}
+.search-grid .select{
+  flex:0 0 120px;
+  min-width:110px;
+}
+.search-grid .random-controls{
+  flex:0 0 auto;
+  margin-left:auto;
 }
 
 .input,
@@ -315,47 +329,43 @@ textarea {
   margin-left: auto;
 }
 
-.song-card-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
+.song-card-list{
+  display:grid;
+  grid-template-columns:repeat(auto-fill, 240px);
+  gap:12px;
+  align-items:stretch;
+  justify-content:center;
+  margin-bottom:16px;
 }
+.song-card{
+  background:rgba(255,255,255,0.86);
+  border:2px solid rgba(59,109,246,0.55);
+  border-radius:18px;
+  padding:12px 14px;
+  box-shadow:0 14px 38px rgba(0,0,0,0.10);
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  height:100%;
+}
+.song-card.clickable{ cursor:pointer; transition:0.15s; }
+.song-card.clickable:hover{ transform:translateY(-1px); box-shadow:0 18px 48px rgba(0,0,0,0.12); }
+.song-card-header{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.song-card-header > div:first-child{ flex:1 1 auto; }
+.song-card-right{ flex:0 0 auto; display:flex; align-items:center; justify-content:flex-end; gap:6px; flex-wrap:wrap; min-width:0; }
+.song-card-title{ font-size:17px; font-weight:1000; line-height:1.25; letter-spacing:-0.02em; word-break:break-word; }
+.song-card-artist{ margin-top:4px; font-size:12px; font-weight:900; opacity:0.62; word-break:break-word; }
+.new-badge{ display:inline-flex; align-items:center; justify-content:center; padding:5px 8px; border-radius:999px; background:rgba(255,90,130,0.14); border:1px solid rgba(255,90,130,0.28); color:#c51b4f; font-size:11px; font-weight:1000; }
+.avail-box{ display:flex; align-items:center; gap:6px; padding:6px 8px; border-radius:14px; border:1px solid rgba(59,109,246,0.35); background:rgba(255,255,255,0.8); font-size:11px; font-weight:900; white-space:nowrap; max-width:100%; overflow:hidden; }
+.avail-label{ display:none; }
+.song-chips{ display:flex; gap:10px; flex-wrap:wrap; }
+body.hide-tags .song-chips{ display:none; }
+.chip{ padding:7px 10px; border-radius:12px; border:1px solid rgba(59,109,246,0.32); background:rgba(255,255,255,0.88); font-size:12px; font-weight:1000; white-space:nowrap; }
 
-.song-card {
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  border-radius: 22px;
-  padding: 14px;
-  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.08);
-  cursor: pointer;
-}
-.song-card:hover {
-  transform: translateY(-1px);
-}
-.song-title {
-  font-size: 16px;
-  font-weight: 1000;
-  margin-bottom: 2px;
-}
-.song-artist {
-  font-size: 12px;
-  opacity: 0.7;
-  font-weight: 800;
-}
-.song-tags {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin-top: 10px;
-}
-.chip {
-  font-size: 12px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.06);
-  font-weight: 900;
-}
+/* Profile modal */
+.profile-preview{ display:flex; justify-content:center; margin: 8px 0 10px; }
+.profile-preview-image{ width: 92px; height: 92px; border-radius: 50%; object-fit: cover; background: rgba(0,0,0,0.06); border: 1px solid rgba(0,0,0,0.08); }
+.profile-password-box{ display:flex; flex-direction:column; gap:10px; margin-top:10px; }
 
 .paging-bar {
   display: flex;
@@ -663,7 +673,7 @@ textarea {
     flex-wrap: wrap;
     justify-content: center;
   }
-  .search-grid {
-    grid-template-columns: 1fr 1fr;
+  .search-grid .select{
+    flex:1 1 120px;
   }
 }

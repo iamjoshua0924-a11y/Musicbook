@@ -76,6 +76,13 @@ async function apiJson(url, method, body) {
   return res.json();
 }
 
+function updateProfileImage(id, url) {
+  const image = $(id);
+  if (!image) return;
+  image.classList.toggle('active', Boolean(url));
+  image.src = url || '';
+}
+
 function openUrlOrToast(url, label) {
   if (url) window.open(url, '_blank');
   else toast(`${label} 링크가 설정되어 있지 않습니다. /admin에서 설정해 주세요.`);
@@ -164,21 +171,30 @@ function renderSongCards(hideTags) {
 
   items.forEach((s) => {
     const el = document.createElement('div');
-    el.className = 'song-card';
+    el.className = 'song-card clickable';
     const title = s.displayTitle || s.title || '(제목없음)';
     const availUserId = $('availUserFilter')?.value || '';
-    const availChip =
+    const availText =
       availUserId && state.availabilityUserId === availUserId && state.availabilitySet
         ? state.availabilitySet.has(s.googleFileId)
-          ? `<span class="chip">가능</span>`
-          : `<span class="chip">불가</span>`
+          ? `가능`
+          : `불가`
         : '';
 
+    // GAS 원본 카드 레이아웃: 제목 위, 아티스트 아래, 우측에 NEW/가능 표시
     el.innerHTML = `
-      <div class="song-title">${esc(title)} ${s.isLatest ? `<span class="chip">NEW!</span>` : ''} ${availChip}</div>
-      <div class="song-artist">${esc(s.artist || '')}</div>
+      <div class="song-card-header">
+        <div>
+          <div class="song-card-title">${esc(title)}</div>
+          <div class="song-card-artist">${esc(s.artist || '')}</div>
+        </div>
+        <div class="song-card-right">
+          ${s.isLatest ? `<span class="new-badge">NEW</span>` : ''}
+          ${availText ? `<span class="avail-box">${esc(availText)}</span>` : ''}
+        </div>
+      </div>
       ${hideTags ? '' : `
-        <div class="song-tags">
+        <div class="song-chips">
           ${s.key ? `<span class="chip">Key ${esc(s.key)}</span>` : ''}
           ${s.genre ? `<span class="chip">${esc(s.genre)}</span>` : ''}
           ${s.mood ? `<span class="chip">${esc(s.mood)}</span>` : ''}
@@ -345,9 +361,13 @@ async function refreshSession() {
   if (me.ok) {
     state.role = me.user.role;
     state.displayName = me.user.displayName || me.user.userId;
+    state.profilePhoto = me.user.profilePhoto || '';
+    updateProfileImage('profilePhoto', state.profilePhoto);
   } else {
     state.role = 'viewer';
     state.displayName = '방문자';
+    state.profilePhoto = '';
+    updateProfileImage('profilePhoto', '');
   }
   applyRoleUI();
   // update presence role on socket (best-effort)
@@ -405,6 +425,48 @@ async function syncDrive(isFast) {
   applySongFilters();
 }
 
+function openProfileModal() {
+  if (state.role === 'viewer') return openModal('loginModal');
+  $('profilePhotoInput').value = state.profilePhoto || '';
+  updateProfileImage('profilePreview', state.profilePhoto || '');
+  $('profilePasswordBox').style.display = 'none';
+  $('profileCurrentPw').value = '';
+  $('profileNewPw').value = '';
+  $('profileNewPw2').value = '';
+  openModal('profileModal');
+}
+
+function toggleProfilePasswordBox() {
+  const box = $('profilePasswordBox');
+  const next = box.style.display === 'none' || !box.style.display;
+  box.style.display = next ? 'flex' : 'none';
+  if (next) $('profileCurrentPw').focus();
+}
+
+async function submitPasswordChangeFromProfile() {
+  const currentPassword = $('profileCurrentPw').value;
+  const newPassword = $('profileNewPw').value;
+  const newPassword2 = $('profileNewPw2').value;
+  if (!newPassword || newPassword.length < 4) return toast('새 비밀번호를 4자 이상 입력하세요.');
+  if (newPassword !== newPassword2) return toast('새 비밀번호 확인이 일치하지 않습니다.');
+
+  const res = await apiJson('/api/admin/password/change', 'POST', { currentPassword, newPassword });
+  if (!res.ok) return toast('비밀번호 변경 실패(현재 비번 확인)');
+  toast('비밀번호 변경 완료');
+  closeModal('profileModal');
+}
+
+async function submitProfilePhoto() {
+  const profilePhoto = $('profilePhotoInput').value.trim();
+  const res = await apiJson('/api/admin/profile', 'PATCH', { profilePhoto });
+  if (!res.ok) return toast('프로필 저장 실패');
+  state.profilePhoto = res.profilePhoto || '';
+  updateProfileImage('profilePhoto', state.profilePhoto);
+  updateProfileImage('profilePreview', state.profilePhoto);
+  toast('프로필 사진을 저장했습니다.');
+  closeModal('profileModal');
+}
+
 // ---- Wiring ----------------------------------------------------------------------
 function wireEvents() {
   $('mainNavBtn').onclick = () => switchPage('main');
@@ -417,7 +479,12 @@ function wireEvents() {
 
   $('adminToggleBtn').onclick = () => $('adminControls').classList.toggle('active');
 
-  $('profileButton').onclick = () => toast('프로필 기능은 다음 단계(B)에서 확장');
+  $('profileButton').onclick = () => openProfileModal();
+  $('profileCancelBtn').onclick = () => closeModal('profileModal');
+  $('profileSaveBtn').onclick = () => submitProfilePhoto().catch(() => {});
+  $('toggleProfilePwBtn').onclick = () => toggleProfilePasswordBox();
+  $('profilePwSaveBtn').onclick = () => submitPasswordChangeFromProfile().catch(() => {});
+  $('profilePhotoInput').addEventListener('input', (e) => updateProfileImage('profilePreview', e.target.value.trim()));
 
   $('loginCloseBtn').onclick = () => closeModal('loginModal');
   $('loginSubmitBtn').onclick = () => doLogin().catch(() => {});

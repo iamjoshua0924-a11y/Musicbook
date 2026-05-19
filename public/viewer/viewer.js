@@ -1232,11 +1232,6 @@ async function initMidi() {
 }
 initMidi();
 
-// Mobile-only floating menu button: touch-mode에서만 하단 패널(간단 시트) 토글
-document.getElementById('fab')?.addEventListener('click', () => {
-  document.body.classList.toggle('sheet-open');
-});
-
 // touch bottom buttons (원본)
 document.getElementById('touchPrevBtn')?.addEventListener('click', () => {
   changePage(state.pageNo - pageTurnStep(), 'touch');
@@ -1265,13 +1260,7 @@ document.getElementById('touchNavBottom')?.addEventListener('click', (e) => {
   toggleSessionPanel(e);
 });
 
-// Tap zones (GAS style): left=prev, right=next, center=toggle palette
-document.getElementById('tapZoneLeft')?.addEventListener('click', () => changePage(state.pageNo - pageTurnStep(), 'tap'));
-document.getElementById('tapZoneRight')?.addEventListener('click', () => changePage(state.pageNo + pageTurnStep(), 'tap'));
-document.getElementById('tapZoneCenter')?.addEventListener('click', () => {
-  // 중앙 탭: 옵션/팔레트 토글
-  document.body.classList.toggle('sheet-open');
-});
+// Tap zones: 모바일 UX 혼선/도구 충돌 방지를 위해 비활성(하단 화살표 사용)
 
 document.getElementById('fullscreenBtn').addEventListener('click', async () => {
   // MUST-2: fullscreen target must be top-level wrapper
@@ -2155,17 +2144,7 @@ els.pdfContainer.addEventListener(
   { passive: true }
 );
 
-// touch-mode bottom sheet auto-close when clicking outside
-document.addEventListener('click', (e) => {
-  if (!document.body.classList.contains('sheet-open')) return;
-  const fab = document.getElementById('fab');
-  const shell = document.getElementById('toolbarShell');
-  const bottom = document.getElementById('touchNavBottom');
-  if (fab?.contains(e.target)) return;
-  if (bottom?.contains(e.target)) return;
-  if (shell?.contains(e.target)) return;
-  document.body.classList.remove('sheet-open');
-});
+// (sheet-open 제거됨)
 
 // ---- Socket event handlers ---------------------------------------------------------
 socket.on('session:pageTurner:state', (p) => {
@@ -2178,6 +2157,15 @@ socket.on('session:pageTurner:state', (p) => {
     setHidden('touchTurnerBadge', false);
     setText('touchTurnerBadge', 'TURNER');
     // 턴너가 된 순간 현재 보기설정도 동기화(요구사항)
+    // 또한 room.currentFileId/currentPageNo를 확정(곡리스트→뷰어→세션생성 케이스 안정화)
+    if (state.roomCode && state.fileId) {
+      socket.emit('viewer:page_change', {
+        roomCode: state.roomCode,
+        fileId: state.fileId,
+        pageNo: state.pageNo,
+        reason: 'turner_state'
+      });
+    }
     emitViewerSettings('turner_state');
   } else {
     setHidden('turnerBadge', true);

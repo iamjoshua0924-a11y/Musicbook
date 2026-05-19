@@ -187,6 +187,12 @@ body.mobile-viewer #turnUnitSpreadBtn{
   background:rgba(255,255,255,0.03);
   align-items:center;
 }
+.seg{
+  display:inline-flex;
+  gap:6px;
+  align-items:center;
+  flex-wrap:wrap;
+}
 .label{ color:var(--muted); font-size:12px; margin-right:4px; font-weight:800; }
 .seg button{ padding:8px 10px; border-radius:10px; height:32px; }
 .seg button,
@@ -279,27 +285,8 @@ body.light .cursor-marker{
   font-weight: 800;
 }
 
-/* Mobile-only floating menu (원본: touch-mode.landscape에서만) */
-#fab{
-  position:fixed;
-  right:12px;
-  top:12px;
-  z-index:5000;
-  width:52px;
-  height:52px;
-  border-radius:16px;
-  border:1px solid var(--border);
-  background:rgba(17,18,20,0.78);
-  backdrop-filter:blur(8px);
-  color:var(--text);
-  font-size:26px;
-  font-weight:800;
-  display:none;
-  align-items:center;
-  justify-content:center;
-}
-/* 기존 #fab은 악보를 가리는 경우가 있어, 하단 메뉴(⋯)로만 제어 */
-body.touch-mode.landscape #fab{ display:none; }
+/* (fab 제거됨) */
+#fab{ display:none !important; }
 
 /* (mobileCtlBar 제거됨) */
 
@@ -523,22 +510,16 @@ body.perf-mode #pageHud{
 body.touch-mode .floatToggles,
 body.live-mode .floatToggles{ display:none !important; }
 
-/* touch-mode/live-mode: toolbar는 하단 시트처럼 동작(간단 버전) */
+/* touch-mode/live-mode: toolbar는 상단 아래 고정/접힘 구조(시트 제거) */
 body.touch-mode .toolbarShell,
 body.live-mode .toolbarShell{
-  position:fixed;
-  left:0; right:0;
-  bottom:0;
-  /* touch bottom bar(#touchNavBottom) 위로 올라와야 시트 내부 버튼 클릭 가능 */
+  position: relative;
+  left:auto; right:auto; bottom:auto;
   z-index:5200;
-  border-top:1px solid var(--border);
-  border-bottom:none;
-  transform:translateY(100%);
-  transition:transform .25s ease;
-}
-body.touch-mode.sheet-open .toolbarShell,
-body.live-mode.sheet-open .toolbarShell{
-  transform:translateY(0);
+  border-top:none;
+  border-bottom:1px solid var(--border);
+  transform:none;
+  transition:none;
 }
 
 /* touch header/bottom (원본: 터치모드에서만 표시) */
@@ -605,12 +586,7 @@ body.live-mode.landscape #touchNavBottom{ padding-bottom: 6px; }
 #tapZoneLeft{ left:0; width:28%; }
 #tapZoneRight{ right:0; width:28%; }
 #tapZoneCenter{ left:28%; width:44%; }
-body.touch-mode #tapZoneLeft,
-body.touch-mode #tapZoneRight,
-body.touch-mode #tapZoneCenter,
-body.live-mode #tapZoneLeft,
-body.live-mode #tapZoneRight,
-body.live-mode #tapZoneCenter{ pointer-events:auto; }
+/* (모바일에서는 하단 버튼으로만 넘김: tap zone 비활성) */
 body.drawing-active #tapZoneLeft,
 body.drawing-active #tapZoneRight,
 body.drawing-active #tapZoneCenter{ pointer-events:none !important; }

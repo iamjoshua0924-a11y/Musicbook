@@ -461,6 +461,14 @@ function renderRequests() {
   wrap.innerHTML = '';
   state.selectedRequestIds.clear();
 
+  const statusLabel = (s) => {
+    const v = String(s || '').toLowerCase();
+    if (v === 'accepted') return '수락';
+    if (v === 'rejected') return '거절';
+    if (v === 'completed') return '완료';
+    return '대기';
+  };
+
   const showManage = state.requestManageMode;
   $('requestManageBar').style.display = showManage ? 'block' : 'none';
 
@@ -470,7 +478,7 @@ function renderRequests() {
     row.dataset.id = r._id;
     row.innerHTML = `
       <div>
-        <div class="req-title">${esc(r.songTitle)} <span style="opacity:.6;font-size:12px">(${esc(r.status)})</span></div>
+        <div class="req-title">${esc(r.songTitle)} <span style="opacity:.6;font-size:12px">(${esc(statusLabel(r.status))})</span></div>
         <div class="req-sub">${esc(r.requesterName)} · ${esc(r.artist || '')}${r.targetSinger ? ` · 담당: ${esc(r.targetSinger)}` : ''}</div>
       </div>
       <div class="req-actions">

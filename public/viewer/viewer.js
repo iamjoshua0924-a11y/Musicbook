@@ -18,11 +18,58 @@ function safeRoomCode(v) {
 
 // NOTE: preview 환경에서 prompt()가 지원되지 않아 모달 기반으로 입력을 받는다.
 function getOrCreateNickname() {
-  const key = 'mb_nickname';
-  const existing = localStorage.getItem(key);
-  if (existing) return existing;
-  localStorage.setItem(key, '익명');
-  return '익명';
+  // 메인(노래책)과 동일한 키를 우선 사용
+  const shared = localStorage.getItem('mb_presence_nick');
+  if (shared) return shared;
+  const legacy = localStorage.getItem('mb_nickname');
+  if (legacy) return legacy;
+  return '';
+}
+
+async function ensureNickname() {
+  // 사용자가 한번이라도 저장한 닉네임이면 그대로 사용
+  const saved = localStorage.getItem('mb_presence_nick') || localStorage.getItem('mb_nickname');
+  if (saved) return saved;
+  const input = await openInputModal({ title: '닉네임 설정', placeholder: '닉네임을 입력하세요(익명 가능)', value: '익명' });
+  const nick = String(input || '').trim() || '익명';
+  localStorage.setItem('mb_presence_nick', nick);
+  // legacy 키도 같이 저장(호환)
+  localStorage.setItem('mb_nickname', nick);
+  return nick;
+}
+
+function getRoomMap() {
+  try {
+    return JSON.parse(localStorage.getItem('mb_viewer_room_map') || '{}') || {};
+  } catch {
+    return {};
+  }
+}
+function setRoomMap(map) {
+  try {
+    localStorage.setItem('mb_viewer_room_map', JSON.stringify(map || {}));
+  } catch {}
+}
+function getLastRoomForFile(fileId) {
+  const id = String(fileId || '').trim();
+  if (!id) return '';
+  const map = getRoomMap();
+  return String(map[id] || '').trim().toUpperCase();
+}
+function setLastRoomForFile(fileId, roomCode) {
+  const id = String(fileId || '').trim();
+  const room = safeRoomCode(roomCode);
+  if (!id || !room) return;
+  const map = getRoomMap();
+  map[id] = room;
+  setRoomMap(map);
+}
+function clearLastRoomForFile(fileId) {
+  const id = String(fileId || '').trim();
+  if (!id) return;
+  const map = getRoomMap();
+  delete map[id];
+  setRoomMap(map);
 }
 
 function openInputModal({ title, placeholder = '', value = '' } = {}) {
@@ -269,8 +316,27 @@ async function getSocketMetaToken() {
 
 // ---- Socket -----------------------------------------------------------------------
 const socket = io({
-  auth: { nickname: state.nickname, metaToken: '' }
+  auth: { nickname: state.nickname || '익명', metaToken: '' }
 });
+
+function setRoomToUrl(roomCode) {
+  const u = new URL(window.location.href);
+  const r = safeRoomCode(roomCode);
+  if (r) u.searchParams.set('room', r);
+  else u.searchParams.delete('room');
+  window.history.replaceState(null, '', `${u.pathname}?${u.searchParams.toString()}`);
+}
+
+function emitSessionJoin(roomCode) {
+  if (!roomCode) return;
+  socket.emit('session:join', {
+    roomCode,
+    nickname: state.nickname || '익명',
+    role: authState.role,
+    displayName: authState.displayName || state.nickname || '익명',
+    profilePhoto: authState.profilePhoto || ''
+  });
+}
 
 function joinSession(roomCode) {
   state.roomCode = safeRoomCode(roomCode);
@@ -280,6 +346,8 @@ function joinSession(roomCode) {
   setText('sessionBadge', `세션: ${state.roomCode} (연결중...)`);
   setHidden('touchRoomBadge', false);
   setText('touchRoomBadge', `ROOM ${state.roomCode}`);
+  setRoomToUrl(state.roomCode);
+  if (state.fileId) setLastRoomForFile(state.fileId, state.roomCode);
 
   socket.emit(
     'session:join',
@@ -317,13 +385,14 @@ function leaveSession() {
   setHidden('touchTurnerBadge', true);
   setHidden('participantsPanel', true);
   if (roomCode) socket.emit('session:leave', { roomCode });
+  setRoomToUrl('');
+  if (state.fileId) clearLastRoomForFile(state.fileId);
 }
 
-// MUST-1: auto join when ?room exists.
-const initialRoom = safeRoomCode(qs('room'));
-if (initialRoom) {
-  joinSession(initialRoom);
-}
+// reconnect safety: 소켓 재연결 시 방 재가입
+socket.on('connect', () => {
+  if (state.isInSession && state.roomCode) emitSessionJoin(state.roomCode);
+});
 
 // ---- URL state restore (바이블: p/s/fit/z/po/ps/py) --------------------------------
 function setPreviewYOffsetPx(px) {
@@ -354,7 +423,7 @@ applyStateFromUrl();
 const updateUrlState = debounce(() => {
   const u = new URL(window.location.href);
   // keep room
-  const room = safeRoomCode(qs('room'));
+  const room = safeRoomCode(state.roomCode);
   if (room) u.searchParams.set('room', room);
   else u.searchParams.delete('room');
 
@@ -429,14 +498,15 @@ if (overlapRange) {
 document.getElementById('sessionFloatBtn')?.addEventListener('click', async () => {
   if (state.isInSession) {
     leaveSession();
-    const u = new URL(window.location.href);
-    u.searchParams.delete('room');
-    window.history.replaceState(null, '', `${u.pathname}?${u.searchParams.toString()}`);
     return;
   }
 
   // If URL already has room, auto join (no modal) - MUST-1.
   const urlRoom = safeRoomCode(qs('room'));
+  const nick = await ensureNickname();
+  state.nickname = nick;
+  authState.displayName = authState.displayName || nick;
+  socket.auth = { ...(socket.auth || {}), nickname: nick };
   if (urlRoom) return joinSession(urlRoom);
 
   const input = await openInputModal({ title: '세션 참여', placeholder: 'Room Code를 입력하세요', value: '' });
@@ -446,7 +516,13 @@ document.getElementById('sessionFloatBtn')?.addEventListener('click', async () =
 });
 
 document.getElementById('createSessionFloatBtn')?.addEventListener('click', () => {
-  socket.emit('session:create', { nickname: state.nickname }, (ack) => {
+  Promise.resolve()
+    .then(() => ensureNickname())
+    .then((nick) => {
+      state.nickname = nick;
+      authState.displayName = authState.displayName || nick;
+      socket.auth = { ...(socket.auth || {}), nickname: nick };
+      socket.emit('session:create', { nickname: nick }, (ack) => {
     if (!ack?.ok) return alert('세션 생성 실패');
     const roomCode = ack.roomCode;
     // Auto join created room
@@ -457,7 +533,9 @@ document.getElementById('createSessionFloatBtn')?.addEventListener('click', () =
     copyToClipboard(roomCode).then((ok) => {
       if (ok) flashHud(`ROOM ${roomCode} 복사됨`, 1200);
     });
-  });
+      });
+    })
+    .catch(() => {});
 });
 
 document.getElementById('prevBtn').addEventListener('click', () => changePage(state.pageNo - state.spreadCount, 'local'));
@@ -1563,6 +1641,19 @@ async function init() {
   }
 
   await loadMe();
+  // 로그인 사용자면 displayName 우선, 아니면 닉네임(공유키) 사용
+  if (!authState.displayName) authState.displayName = state.nickname || '익명';
+
+  // auto reconnect to last room:
+  // 1) ?room 우선
+  // 2) 없으면 동일 fileId에서 마지막으로 사용한 room
+  const desiredRoom = safeRoomCode(qs('room')) || getLastRoomForFile(state.fileId);
+  if (desiredRoom && !state.isInSession) {
+    const nick = await ensureNickname();
+    state.nickname = nick;
+    socket.auth = { ...(socket.auth || {}), nickname: nick };
+    joinSession(desiredRoom);
+  }
 
   // Personal entry without fileId: show prompt to open from link
   if (!state.fileId) {

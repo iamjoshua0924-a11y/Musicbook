@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>신청곡 현황</title>
+    <link rel="stylesheet" href="/public/requests/requests.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="title">신청곡 현황</div>
+      <div class="actions">
+        <button id="refreshBtn" type="button" title="새로고침">⟳</button>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <div id="list" class="list"></div>
+      <div id="empty" class="muted" style="display:none;">신청곡이 없습니다.</div>
+    </main>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/public/requests/requests.js"></script>
+  </body>
+</html>

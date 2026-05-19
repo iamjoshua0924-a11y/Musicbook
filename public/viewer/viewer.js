@@ -1693,8 +1693,9 @@ socket.on('session:participants', (p) => {
   (p?.members || []).forEach((m) => {
     const row = document.createElement('div');
     row.className = 'participant-row';
+    const name = m.displayName || m.nickname || '익명';
     row.innerHTML = `
-      <span class="participant-name">${m.nickname || ''}</span>
+      <span class="participant-name">${name}</span>
       ${m.isPageTurner ? `<span class="participant-badge">TURNER</span>` : ''}
     `;
 

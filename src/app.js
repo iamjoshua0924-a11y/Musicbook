@@ -62,6 +62,11 @@ function createApp() {
     res.sendFile(path.join(__dirname, '..', 'public', 'admin', 'index.html'));
   });
 
+  // Public request board (pop-out)
+  app.get('/requests', (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'public', 'requests', 'index.html'));
+  });
+
   // API routes
   app.use(require('./routes'));
 

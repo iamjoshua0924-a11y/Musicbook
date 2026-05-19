@@ -757,6 +757,11 @@ function wireEvents() {
   $('requestCancelBtn').onclick = () => closeModal('requestModal');
   $('requestSubmitBtn').onclick = () => submitSongRequest().catch(() => {});
 
+  $('requestPopoutBtn').onclick = () => {
+    try {
+      window.open('/requests', 'requestBoard', 'width=420,height=820');
+    } catch {}
+  };
   $('requestRefreshBtn').onclick = () => loadRequests(true).catch(() => {});
   $('requestHideBtn').onclick = () => {
     $('requestPanel').style.display = 'none';
@@ -1032,7 +1037,22 @@ function renderPresence(items) {
   const wrap = $('presenceList');
   if (!wrap) return;
   wrap.innerHTML = '';
-  items.forEach((p) => {
+
+  const list = Array.isArray(items) ? items : [];
+  const viewers = list.filter((p) => String(p?.role || '') === 'viewer');
+  const members = list.filter((p) => String(p?.role || '') !== 'viewer');
+
+  // 방문자는 개별 리스트업 하지 않고 카운트만 노출
+  if (viewers.length) {
+    const el = document.createElement('div');
+    el.className = 'presence-item';
+    el.style.padding = '8px 10px';
+    el.style.opacity = '0.75';
+    el.innerHTML = `<div class="presence-sub" style="font-size:12px; font-weight:900;">방문자: ${viewers.length}명</div>`;
+    wrap.appendChild(el);
+  }
+
+  members.forEach((p) => {
     const el = document.createElement('div');
     el.className = 'presence-item';
     el.innerHTML = `

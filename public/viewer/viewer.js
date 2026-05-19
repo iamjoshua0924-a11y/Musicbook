@@ -1024,8 +1024,8 @@ document.getElementById('createSessionFloatBtn')?.addEventListener('click', () =
     .catch(() => {});
 });
 
-document.getElementById('prevBtn').addEventListener('click', () => changePage(state.pageNo - state.spreadCount, 'local'));
-document.getElementById('nextBtn').addEventListener('click', () => changePage(state.pageNo + state.spreadCount, 'local'));
+document.getElementById('prevBtn').addEventListener('click', () => changePage(state.pageNo - pageTurnStep(), 'local'));
+document.getElementById('nextBtn').addEventListener('click', () => changePage(state.pageNo + pageTurnStep(), 'local'));
 
 function extractDriveFileId(input) {
   const s = String(input || '').trim();
@@ -1133,11 +1133,11 @@ window.addEventListener('keydown', (e) => {
   const { prev, next } = loadBoundKeys();
   if (next.includes(e.key)) {
     if (e.key === ' ') e.preventDefault();
-    changePage(state.pageNo + state.spreadCount, 'kbd');
+    changePage(state.pageNo + pageTurnStep(), 'kbd');
     updateUrlState();
   }
   if (prev.includes(e.key)) {
-    changePage(state.pageNo - state.spreadCount, 'kbd');
+    changePage(state.pageNo - pageTurnStep(), 'kbd');
     updateUrlState();
   }
 });
@@ -1149,11 +1149,11 @@ document.getElementById('fab')?.addEventListener('click', () => {
 
 // touch bottom buttons (원본)
 document.getElementById('touchPrevBtn')?.addEventListener('click', () => {
-  changePage(state.pageNo - state.spreadCount, 'touch');
+  changePage(state.pageNo - pageTurnStep(), 'touch');
   updateUrlState();
 });
 document.getElementById('touchNextBtn')?.addEventListener('click', () => {
-  changePage(state.pageNo + state.spreadCount, 'touch');
+  changePage(state.pageNo + pageTurnStep(), 'touch');
   updateUrlState();
 });
 function toggleBottomSheet(e) {
@@ -1177,8 +1177,8 @@ document.getElementById('touchNavBottom')?.addEventListener('click', (e) => {
 });
 
 // Tap zones (GAS style): left=prev, right=next, center=toggle palette
-document.getElementById('tapZoneLeft')?.addEventListener('click', () => changePage(state.pageNo - state.spreadCount, 'tap'));
-document.getElementById('tapZoneRight')?.addEventListener('click', () => changePage(state.pageNo + state.spreadCount, 'tap'));
+document.getElementById('tapZoneLeft')?.addEventListener('click', () => changePage(state.pageNo - pageTurnStep(), 'tap'));
+document.getElementById('tapZoneRight')?.addEventListener('click', () => changePage(state.pageNo + pageTurnStep(), 'tap'));
 document.getElementById('tapZoneCenter')?.addEventListener('click', () => {
   // 중앙 탭: 옵션/팔레트 토글
   document.body.classList.toggle('sheet-open');
@@ -1209,6 +1209,11 @@ function changePage(next, source) {
   if (state.isInSession && state.isPageTurner) {
     socket.emit('viewer:page_change', { roomCode: state.roomCode, fileId: state.fileId, pageNo }, () => {});
   }
+}
+
+function pageTurnStep() {
+  // 요구사항: 2p 보기에서도 1-2 -> 2-3 처럼 1페이지씩 이동
+  return 1;
 }
 
 // ---- PDF.js rendering + Fabric overlay (multi-page spread) -------------------------
@@ -2005,8 +2010,8 @@ els.pdfContainer.addEventListener(
   () => {
     if (touch.mode === 'swipe') {
       if (Math.abs(touch.dx) > 80) {
-        if (touch.dx < 0) changePage(state.pageNo + state.spreadCount, 'swipe');
-        else changePage(state.pageNo - state.spreadCount, 'swipe');
+        if (touch.dx < 0) changePage(state.pageNo + pageTurnStep(), 'swipe');
+        else changePage(state.pageNo - pageTurnStep(), 'swipe');
       }
     }
     touch.mode = null;

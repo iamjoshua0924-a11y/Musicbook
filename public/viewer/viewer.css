@@ -463,7 +463,8 @@ body.live-mode .toolbarShell{
   position:fixed;
   left:0; right:0;
   bottom:0;
-  z-index:4000;
+  /* touch bottom bar(#touchNavBottom) 위로 올라와야 시트 내부 버튼 클릭 가능 */
+  z-index:5200;
   border-top:1px solid var(--border);
   border-bottom:none;
   transform:translateY(100%);
@@ -518,6 +519,11 @@ body.touch-mode #touchHeader,
 body.live-mode #touchHeader{ display:block; }
 body.touch-mode #touchNavBottom,
 body.live-mode #touchNavBottom{ display:flex; }
+
+/* 시트가 열렸을 때는 하단 네비가 시트를 덮지 않게 클릭을 막음 */
+body.sheet-open #touchNavBottom{
+  pointer-events:none;
+}
 body.touch-mode.landscape #touchHeader,
 body.live-mode.landscape #touchHeader{ padding-top: 6px; }
 body.touch-mode.landscape #touchNavBottom,

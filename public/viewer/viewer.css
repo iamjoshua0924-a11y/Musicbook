@@ -89,6 +89,14 @@ body.light button:hover{ border-color:rgba(0,0,0,0.22); }
 .hidden { display: none; }
 .isHidden{ display:none !important; }
 
+/* 세션 참여자(비-페이지터너)용: 토글 버튼 비활성 스타일 */
+button.disabled,
+button:disabled{
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.3);
+}
+
 #stage {
   position: relative;
   flex: 1;

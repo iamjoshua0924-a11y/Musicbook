@@ -343,6 +343,46 @@ function emitSessionJoin(roomCode) {
   });
 }
 
+// ---- Session UI policy -------------------------------------------------------------
+// 요구사항:
+// - 세션 참여 시 기본값: 링크칸 숨김 + 보기옵션 숨김 + 도구창 숨김
+// - 토글 버튼은 페이지터너만 사용 가능
+state._preSessionUi = null;
+
+function setSessionUiDefaultsIfNeeded() {
+  if (!state.isInSession) return;
+  if (state._preSessionUi == null) {
+    state._preSessionUi = {
+      linkCollapsed: document.body.classList.contains('link-collapsed'),
+      viewHidden: document.getElementById('viewBar')?.classList.contains('isHidden'),
+      toolHidden: document.getElementById('toolBar')?.classList.contains('isHidden')
+    };
+  }
+  document.body.classList.add('link-collapsed');
+  document.getElementById('viewBar')?.classList.add('isHidden');
+  document.getElementById('toolBar')?.classList.add('isHidden');
+}
+
+function restoreUiAfterLeavingSession() {
+  const prev = state._preSessionUi;
+  state._preSessionUi = null;
+  if (!prev) return;
+  document.body.classList.toggle('link-collapsed', Boolean(prev.linkCollapsed));
+  document.getElementById('viewBar')?.classList.toggle('isHidden', Boolean(prev.viewHidden));
+  document.getElementById('toolBar')?.classList.toggle('isHidden', Boolean(prev.toolHidden));
+}
+
+function updateTurnerToggleAccess() {
+  const canToggle = state.isInSession ? Boolean(state.isPageTurner) : true;
+  ['toggleLinkBtn', 'toggleViewBtn', 'toggleToolBtn'].forEach((id) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.disabled = !canToggle;
+    btn.classList.toggle('disabled', !canToggle);
+  });
+  if (state.isInSession && !state.isPageTurner) setSessionUiDefaultsIfNeeded();
+}
+
 function updateSongBookPickVisibility() {
   const btn = document.getElementById('songBookPickBtn');
   if (!btn) return;
@@ -381,6 +421,8 @@ function joinSession(roomCode) {
     setHidden('participantsPanel', false);
     // request initial annotations
     if (state.fileId) socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId: state.fileId });
+    setSessionUiDefaultsIfNeeded();
+    updateTurnerToggleAccess();
     updateSongBookPickVisibility();
   }
   );
@@ -400,6 +442,8 @@ function leaveSession() {
   if (roomCode) socket.emit('session:leave', { roomCode });
   setRoomToUrl('');
   if (state.fileId) clearLastRoomForFile(state.fileId);
+  restoreUiAfterLeavingSession();
+  updateTurnerToggleAccess();
   updateSongBookPickVisibility();
 }
 
@@ -1531,12 +1575,15 @@ window.addEventListener('resize', updateLiveMode);
 
 // Desktop toggles (GAS 원본)
 document.getElementById('toggleViewBtn')?.addEventListener('click', () => {
+  if (state.isInSession && !state.isPageTurner) return;
   document.getElementById('viewBar')?.classList.toggle('isHidden');
 });
 document.getElementById('toggleToolBtn')?.addEventListener('click', () => {
+  if (state.isInSession && !state.isPageTurner) return;
   document.getElementById('toolBar')?.classList.toggle('isHidden');
 });
 document.getElementById('toggleLinkBtn')?.addEventListener('click', () => {
+  if (state.isInSession && !state.isPageTurner) return;
   const next = !document.body.classList.contains('link-collapsed');
   document.body.classList.toggle('link-collapsed', next);
   localStorage.setItem('mb_viewer_linkCollapsed', next ? '1' : '0');
@@ -1635,6 +1682,7 @@ socket.on('session:pageTurner:state', (p) => {
     setHidden('turnerBadge', true);
     setHidden('touchTurnerBadge', true);
   }
+  updateTurnerToggleAccess();
   updatePageLabels();
 });
 

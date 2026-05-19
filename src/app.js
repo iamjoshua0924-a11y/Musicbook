@@ -46,6 +46,11 @@ function createApp() {
     res.sendFile(path.join(__dirname, '..', 'public', 'viewer', 'index.html'));
   });
 
+  // Allow /viewer entry without fileId (personal mode: open via drive link).
+  app.get('/viewer', (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'public', 'viewer', 'index.html'));
+  });
+
   app.get('/admin', (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'public', 'admin', 'index.html'));
   });

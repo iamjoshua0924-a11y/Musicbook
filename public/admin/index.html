@@ -21,6 +21,21 @@
         <pre id="loginOut" class="muted"></pre>
       </div>
 
+      <div class="card" id="bootstrapCard">
+        <div class="title" style="font-size:16px;">초기 관리자 생성(최초 1회)</div>
+        <div class="muted">
+          DB에 admin이 없고, Render 환경변수 <span class="kbd">ADMIN_BOOTSTRAP_TOKEN</span>이 설정된 경우에만 동작합니다.
+        </div>
+        <div class="row" style="margin-top:10px">
+          <input id="bootToken" placeholder="ADMIN_BOOTSTRAP_TOKEN" />
+          <input id="bootUserId" placeholder="admin userId" />
+          <input id="bootPw" placeholder="admin password" type="password" />
+          <input id="bootName" placeholder="displayName(옵션)" />
+          <button id="bootstrapBtn">생성</button>
+        </div>
+        <pre id="bootstrapOut" class="muted"></pre>
+      </div>
+
       <div class="card" id="meCard" style="display:none;">
         <div class="row">
           <div>현재 로그인: <span class="kbd" id="meText"></span></div>

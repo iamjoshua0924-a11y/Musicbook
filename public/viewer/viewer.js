@@ -7,7 +7,9 @@ function qs(name) {
 
 function getFileIdFromPath() {
   const parts = window.location.pathname.split('/').filter(Boolean);
-  return parts[1] || ''; // /viewer/:fileId
+  // supports /viewer or /viewer/:fileId
+  if (parts[0] !== 'viewer') return '';
+  return parts[1] || '';
 }
 
 function safeRoomCode(v) {
@@ -1091,12 +1093,20 @@ async function init() {
     } catch {}
   }
 
+  await loadMe();
+
+  // Personal entry without fileId: show prompt to open from link
   if (!state.fileId) {
-    alert('fileId가 없습니다. /viewer/:fileId 로 접속해 주세요.');
+    setText('fileIdBadge', 'fileId: (없음) — Drive 링크로 열기');
+    setHidden('pageHud', false);
+    setText('pageHud', 'Drive 링크로 악보를 열어주세요');
+    // auto open prompt once
+    setTimeout(() => {
+      document.getElementById('openFromLinkBtn')?.click();
+    }, 150);
     return;
   }
 
-  await loadMe();
   await loadPdf(state.fileId);
 }
 

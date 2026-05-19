@@ -24,6 +24,8 @@ module.exports = {
   googleServiceAccountJsonBase64: required('GOOGLE_SERVICE_ACCOUNT_JSON_BASE64'),
   driveRootFolderId: optional('GOOGLE_DRIVE_ROOT_FOLDER_ID', ''),
 
-  publicBaseUrl: optional('PUBLIC_BASE_URL', '')
-};
+  publicBaseUrl: optional('PUBLIC_BASE_URL', ''),
 
+  // Optional one-time bootstrap for first admin user (recommended for fresh DB).
+  adminBootstrapToken: optional('ADMIN_BOOTSTRAP_TOKEN', ''),
+};

@@ -199,6 +199,22 @@ function wire() {
     }
   };
 
+  $('bootstrapBtn').onclick = async () => {
+    const payload = {
+      token: $('bootToken').value.trim(),
+      userId: $('bootUserId').value.trim(),
+      password: $('bootPw').value,
+      displayName: $('bootName').value.trim()
+    };
+    const r = await apiJson('/api/admin/bootstrap', 'POST', payload);
+    $('bootstrapOut').textContent = JSON.stringify(r, null, 2);
+    if (r.ok) {
+      $('loginId').value = payload.userId;
+      $('loginPw').value = payload.password;
+      alert('생성 완료. 위 로그인으로 바로 로그인하세요.');
+    }
+  };
+
   $('logoutBtn').onclick = async () => {
     await apiJson('/api/admin/logout', 'POST', {});
     location.reload();

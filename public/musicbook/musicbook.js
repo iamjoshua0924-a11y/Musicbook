@@ -100,6 +100,9 @@ async function loadSongs(force = false) {
   const data = await apiGet('/api/songs?limit=5000');
   if (!data.ok) throw new Error('songs load failed');
   state.songsAll = data.items || [];
+  if (!state.songsAll.length) {
+    $('resultCount').textContent = '곡 데이터가 없습니다. /admin에서 Drive 동기화를 실행해 주세요.';
+  }
 }
 
 function applySongFilters() {

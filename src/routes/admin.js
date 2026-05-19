@@ -2,11 +2,30 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const User = require('../models/User');
 const { requireLogin, requireAdmin, requireSessionOrAdmin } = require('../middleware/auth');
-const { driveRootFolderId } = require('../config/env');
+const { driveRootFolderId, adminBootstrapToken } = require('../config/env');
 const { syncDriveFolderTree } = require('../services/driveSync');
 const { KEYS, setJson, getJson } = require('../services/syncStatus');
 
 const router = express.Router();
+
+// One-time bootstrap admin creation (for fresh DB).
+router.post('/admin/bootstrap', async (req, res) => {
+  if (!adminBootstrapToken) return res.status(404).json({ ok: false, error: 'DISABLED' });
+  const token = String(req.body?.token || '');
+  if (token !== adminBootstrapToken) return res.status(403).json({ ok: false, error: 'FORBIDDEN' });
+
+  const existingAdmin = await User.findOne({ role: 'admin', active: { $ne: false } }).lean();
+  if (existingAdmin) return res.status(409).json({ ok: false, error: 'ALREADY_EXISTS' });
+
+  const userId = String(req.body?.userId || '').trim();
+  const password = String(req.body?.password || '');
+  const displayName = String(req.body?.displayName || userId).trim();
+  if (!userId || !password) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  const doc = await User.create({ userId, passwordHash, role: 'admin', displayName, active: true });
+  res.json({ ok: true, item: doc.toObject() });
+});
 
 router.get('/admin/me', requireLogin, async (req, res) => {
   res.json({ ok: true, user: req.session.user });

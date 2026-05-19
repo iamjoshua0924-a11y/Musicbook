@@ -85,10 +85,30 @@
             <label class="label">모드</label>
             <button id="focusModeBtn" type="button">포커스</button>
             <button id="perfModeBtn" type="button">퍼포먼스</button>
+            <button id="lockModeBtn" type="button">잠금</button>
           </div>
           <div class="row">
             <button id="openFromLinkBtn" type="button">Drive 링크로 열기</button>
             <button id="fullscreenBtn2" type="button">전체화면</button>
+          </div>
+          <div class="row" style="border-top:1px solid #eee; padding-top:8px;">
+            <div class="label">선택 편집</div>
+          </div>
+          <div class="row">
+            <button id="bringFrontBtn" type="button">앞으로</button>
+            <button id="sendBackBtn" type="button">뒤로</button>
+            <button id="duplicateBtn" type="button">복제</button>
+            <button id="deleteBtn" type="button">삭제</button>
+          </div>
+          <div class="row">
+            <label class="label">선 색</label>
+            <input id="strokeColor" type="color" value="#ff2d55" />
+            <label class="label">선 굵기</label>
+            <input id="strokeWidth" type="range" min="1" max="20" value="3" />
+          </div>
+          <div class="row">
+            <label class="label">글자</label>
+            <input id="fontSize" type="range" min="12" max="60" value="22" />
           </div>
         </div>
 

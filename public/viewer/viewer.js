@@ -75,6 +75,7 @@ const state = {
   zoom: 1,
   perfMode: false,
   focusMode: false,
+  locked: false,
   activeDrawPageNo: 1
 };
 
@@ -343,6 +344,7 @@ function makeView(pageNo) {
 
   fabricCanvas.on('mouse:down', (opt) => {
     state.activeDrawPageNo = pageNo;
+    if (state.locked) return;
 
     if (state.tool === 'text') {
       const p = getPointer(opt);
@@ -405,6 +407,7 @@ function makeView(pageNo) {
   });
 
   fabricCanvas.on('mouse:move', (opt) => {
+    if (state.locked) return;
     if (!isPlacing || !placingObj || !origin) return;
     const p = getPointer(opt);
 
@@ -428,6 +431,7 @@ function makeView(pageNo) {
   });
 
   fabricCanvas.on('mouse:up', () => {
+    if (state.locked) return;
     if (!isPlacing) return;
     isPlacing = false;
     placingObj = null;
@@ -468,10 +472,12 @@ function makeView(pageNo) {
   vBroadcast = () => broadcast();
 
   fabricCanvas.on('path:created', () => {
+    if (state.locked) return;
     pushUndo();
     broadcast();
   });
   fabricCanvas.on('object:modified', () => {
+    if (state.locked) return;
     pushUndo();
     broadcast();
   });
@@ -479,6 +485,20 @@ function makeView(pageNo) {
   const v = { pageNo, root, pdfCanvas, annoCanvas, fabric: fabricCanvas, pushUndo, broadcast };
   viewMap.set(pageNo, v);
   applyToolToAll();
+
+  // selection change -> sync edit UI (best effort)
+  const syncSelectionUI = () => {
+    const active = fabricCanvas.getActiveObject?.();
+    if (!active) return;
+    if (active.stroke) document.getElementById('strokeColor').value = active.stroke;
+    if (active.strokeWidth) document.getElementById('strokeWidth').value = String(active.strokeWidth);
+    if (active.type === 'i-text') {
+      document.getElementById('fontSize').value = String(active.fontSize || 22);
+      document.getElementById('strokeColor').value = active.fill || document.getElementById('strokeColor').value;
+    }
+  };
+  fabricCanvas.on('selection:created', syncSelectionUI);
+  fabricCanvas.on('selection:updated', syncSelectionUI);
   return v;
 }
 
@@ -495,6 +515,12 @@ function applyToolToCanvas(fab) {
       obj.evented = on;
     });
   };
+
+  if (state.locked) {
+    fab.isDrawingMode = false;
+    makeSelectable(false);
+    return;
+  }
 
   if (state.tool === 'pen') {
     fab.isDrawingMode = true;
@@ -753,6 +779,92 @@ document.getElementById('focusModeBtn').addEventListener('click', () => {
 document.getElementById('perfModeBtn').addEventListener('click', () => {
   state.perfMode = !state.perfMode;
   renderSpread(state.pageNo).catch(() => {});
+});
+
+document.getElementById('lockModeBtn').addEventListener('click', () => {
+  state.locked = !state.locked;
+  document.getElementById('lockModeBtn').textContent = state.locked ? '잠금해제' : '잠금';
+  applyToolToAll();
+});
+
+function getActiveView() {
+  const pageNo = state.activeDrawPageNo || state.pageNo;
+  return viewMap.get(pageNo);
+}
+
+function applyToActiveObject(mutator) {
+  const v = getActiveView();
+  const obj = v?.fabric?.getActiveObject?.();
+  if (!v?.fabric || !obj) return;
+  mutator(obj, v.fabric);
+  v.fabric.requestRenderAll();
+  v.pushUndo?.();
+  v.broadcast?.();
+}
+
+// Selection edit controls
+document.getElementById('bringFrontBtn').addEventListener('click', () => {
+  applyToActiveObject((obj, c) => c.bringToFront(obj));
+});
+document.getElementById('sendBackBtn').addEventListener('click', () => {
+  applyToActiveObject((obj, c) => c.sendToBack(obj));
+});
+document.getElementById('deleteBtn').addEventListener('click', () => {
+  const v = getActiveView();
+  const obj = v?.fabric?.getActiveObject?.();
+  if (!v?.fabric || !obj) return;
+  v.fabric.remove(obj);
+  v.fabric.discardActiveObject();
+  v.fabric.requestRenderAll();
+  v.pushUndo?.();
+  v.broadcast?.();
+});
+document.getElementById('duplicateBtn').addEventListener('click', () => {
+  applyToActiveObject((obj, c) => {
+    obj.clone((cloned) => {
+      cloned.left = (cloned.left || 0) + 16;
+      cloned.top = (cloned.top || 0) + 16;
+      c.add(cloned);
+      c.setActiveObject(cloned);
+    });
+  });
+});
+
+document.getElementById('strokeColor').addEventListener('input', (e) => {
+  const v = getActiveView();
+  const obj = v?.fabric?.getActiveObject?.();
+  if (!obj) return;
+  const col = e.target.value;
+  if (obj.stroke !== undefined) obj.set('stroke', col);
+  if (obj.fill !== undefined && obj.type === 'i-text') obj.set('fill', col);
+  v.fabric.requestRenderAll();
+  v.pushUndo?.();
+  v.broadcast?.();
+});
+document.getElementById('strokeWidth').addEventListener('input', (e) => {
+  const v = getActiveView();
+  const obj = v?.fabric?.getActiveObject?.();
+  if (!obj) return;
+  const w = Number(e.target.value || 3);
+  if (obj.strokeWidth !== undefined) obj.set('strokeWidth', w);
+  v.fabric.requestRenderAll();
+});
+document.getElementById('strokeWidth').addEventListener('change', () => {
+  const v = getActiveView();
+  v?.pushUndo?.();
+  v?.broadcast?.();
+});
+document.getElementById('fontSize').addEventListener('input', (e) => {
+  const v = getActiveView();
+  const obj = v?.fabric?.getActiveObject?.();
+  if (!obj || obj.type !== 'i-text') return;
+  obj.set('fontSize', Number(e.target.value || 22));
+  v.fabric.requestRenderAll();
+});
+document.getElementById('fontSize').addEventListener('change', () => {
+  const v = getActiveView();
+  v?.pushUndo?.();
+  v?.broadcast?.();
 });
 
 // Delete key (selection mode)

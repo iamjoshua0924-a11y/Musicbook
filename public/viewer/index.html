@@ -35,8 +35,7 @@
         <div id="pdf-container">
           <iframe id="pdf-preview" class="hidden"></iframe>
           <div id="canvas-stack">
-            <canvas id="pdf-canvas"></canvas>
-            <canvas id="anno-canvas"></canvas>
+            <!-- page views injected by viewer.js -->
           </div>
           <div id="pageHud" class="hidden"></div>
         </div>
@@ -46,6 +45,7 @@
           <div class="panelTitle">주석 팔레트</div>
           <div class="row">
             <button id="penBtn" type="button">펜</button>
+            <button id="highlighterBtn" type="button">형광펜</button>
             <button id="eraserBtn" type="button">지우개</button>
           </div>
           <div class="row">
@@ -58,7 +58,26 @@
           </div>
           <div class="row">
             <button id="undoBtn" type="button">Undo</button>
+            <button id="redoBtn" type="button">Redo</button>
             <button id="clearBtn" type="button">전체삭제</button>
+          </div>
+          <div class="row">
+            <label class="label">보기</label>
+            <button id="spread1Btn" type="button">1p</button>
+            <button id="spread2Btn" type="button">2p</button>
+            <button id="spread3Btn" type="button">3p</button>
+            <button id="spread4Btn" type="button">4p</button>
+          </div>
+          <div class="row">
+            <label class="label">줌</label>
+            <button id="zoomOutBtn" type="button">-</button>
+            <button id="fitBtn" type="button">FIT</button>
+            <button id="zoomInBtn" type="button">+</button>
+          </div>
+          <div class="row">
+            <label class="label">모드</label>
+            <button id="focusModeBtn" type="button">포커스</button>
+            <button id="perfModeBtn" type="button">퍼포먼스</button>
           </div>
           <div class="row">
             <button id="openFromLinkBtn" type="button">Drive 링크로 열기</button>

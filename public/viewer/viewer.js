@@ -60,7 +60,17 @@ const state = {
   annoStore: {},
   // pageNo -> undo stack: [{json,w,h}]
   undoStack: {},
-  tool: 'pen'
+  // pageNo -> redo stack: [{json,w,h}]
+  redoStack: {},
+  tool: 'pen',
+
+  // view modes
+  spreadCount: 1, // 1~4
+  fitMode: true,
+  zoom: 1,
+  perfMode: false,
+  focusMode: false,
+  activeDrawPageNo: 1
 };
 
 // ---- Socket -----------------------------------------------------------------------
@@ -149,8 +159,8 @@ document.getElementById('createSessionBtn').addEventListener('click', () => {
   });
 });
 
-document.getElementById('prevBtn').addEventListener('click', () => changePage(state.pageNo - 1, 'local'));
-document.getElementById('nextBtn').addEventListener('click', () => changePage(state.pageNo + 1, 'local'));
+document.getElementById('prevBtn').addEventListener('click', () => changePage(state.pageNo - state.spreadCount, 'local'));
+document.getElementById('nextBtn').addEventListener('click', () => changePage(state.pageNo + state.spreadCount, 'local'));
 
 function extractDriveFileId(input) {
   const s = String(input || '').trim();
@@ -188,8 +198,8 @@ document.getElementById('openFromLinkBtn').addEventListener('click', () => {
 window.addEventListener('keydown', (e) => {
   const nextKeys = ['ArrowRight', 'PageDown', ' '];
   const prevKeys = ['ArrowLeft', 'PageUp'];
-  if (nextKeys.includes(e.key)) changePage(state.pageNo + 1, 'kbd');
-  if (prevKeys.includes(e.key)) changePage(state.pageNo - 1, 'kbd');
+  if (nextKeys.includes(e.key)) changePage(state.pageNo + state.spreadCount, 'kbd');
+  if (prevKeys.includes(e.key)) changePage(state.pageNo - state.spreadCount, 'kbd');
 });
 
 document.getElementById('fab').addEventListener('click', () => {
@@ -212,13 +222,12 @@ document.getElementById('fullscreenBtn2').addEventListener('click', async () => 
 });
 
 function changePage(next, source) {
+  // pageNo means "leftmost page" in spread mode
   const pageNo = Math.max(1, Math.min(state.totalPages, next));
   state.pageNo = pageNo;
-  setText('pageLabel', String(pageNo));
-  setText('pageTotal', `/ ${state.totalPages}`);
-  setHidden('pageHud', false);
-  setText('pageHud', `${state.pageNo} / ${state.totalPages}${state.isPageTurner ? ' · 터너' : ''}`);
-  renderPage(pageNo).catch(() => {});
+  state.activeDrawPageNo = pageNo;
+  updatePageLabels();
+  renderSpread(pageNo).catch(() => {});
 
   // Only pageTurner broadcasts page change (requirement).
   if (state.isInSession && state.isPageTurner) {
@@ -226,28 +235,239 @@ function changePage(next, source) {
   }
 }
 
-// ---- PDF.js rendering + Fabric overlay --------------------------------------------
+// ---- PDF.js rendering + Fabric overlay (multi-page spread) -------------------------
 // eslint-disable-next-line no-undef
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.7.76/pdf.worker.min.js';
 
 const els = {
-  pdfCanvas: document.getElementById('pdf-canvas'),
-  annoCanvasEl: document.getElementById('anno-canvas'),
   pdfPreview: document.getElementById('pdf-preview'),
-  canvasStack: document.getElementById('canvas-stack')
+  canvasStack: document.getElementById('canvas-stack'),
+  pdfContainer: document.getElementById('pdf-container'),
+  pageHud: document.getElementById('pageHud')
 };
 
-let fabricCanvas = null;
+/** @type {Map<number, any>} */
+const viewMap = new Map(); // pageNo -> view
+/** @type {Map<number, Function>} */
+const broadcastDebouncedByPage = new Map();
+
+function getSpreadPages(leftPageNo) {
+  const pages = [];
+  for (let i = 0; i < state.spreadCount; i += 1) {
+    const p = leftPageNo + i;
+    if (p > state.totalPages) break;
+    pages.push(p);
+  }
+  return pages;
+}
+
+function updatePageLabels() {
+  const pages = getSpreadPages(state.pageNo);
+  const range = pages.length > 1 ? `${pages[0]}-${pages[pages.length - 1]}` : `${pages[0] || 1}`;
+  setText('pageLabel', range);
+  setText('pageTotal', `/ ${state.totalPages}`);
+  setHidden('pageHud', false);
+  const hud = `${range} / ${state.totalPages}${state.isPageTurner ? ' · 터너' : ''}`;
+  els.pageHud.textContent = hud;
+}
+
+function clearViews() {
+  for (const v of viewMap.values()) {
+    try {
+      v.fabric?.dispose?.();
+    } catch {}
+  }
+  viewMap.clear();
+  broadcastDebouncedByPage.clear();
+  els.canvasStack.innerHTML = '';
+}
 
 function computeViewport(page) {
   const base = page.getViewport({ scale: 1 });
-  const container = document.getElementById('pdf-container');
-  const maxW = container.clientWidth - 20;
-  const maxH = container.clientHeight - 20;
+  const gap = 12;
+  const pad = 24;
+  const maxW = Math.max(200, (els.pdfContainer.clientWidth - pad - gap * (state.spreadCount - 1)) / state.spreadCount);
+  const maxH = Math.max(200, els.pdfContainer.clientHeight - pad);
   const scaleW = maxW / base.width;
   const scaleH = maxH / base.height;
-  const scale = Math.max(0.2, Math.min(scaleW, scaleH));
+  const fitScale = Math.max(0.15, Math.min(scaleW, scaleH));
+  const perfFactor = state.perfMode ? 0.9 : 1;
+  const scale = (state.fitMode ? fitScale : fitScale * state.zoom) * perfFactor;
   return page.getViewport({ scale });
+}
+
+function makeView(pageNo) {
+  const root = document.createElement('div');
+  root.className = 'page-view';
+  root.dataset.pageNo = String(pageNo);
+
+  const pdfCanvas = document.createElement('canvas');
+  pdfCanvas.className = 'pdf-layer';
+
+  const annoCanvas = document.createElement('canvas');
+  annoCanvas.className = 'anno-layer';
+
+  root.appendChild(pdfCanvas);
+  root.appendChild(annoCanvas);
+  els.canvasStack.appendChild(root);
+
+  const fabricCanvas = new fabric.Canvas(annoCanvas, {
+    isDrawingMode: true,
+    selection: false
+  });
+
+  // mark active page for undo/redo based on last click
+  fabricCanvas.on('mouse:down', () => {
+    state.activeDrawPageNo = pageNo;
+  });
+
+  // ensure undo/redo init
+  state.undoStack[pageNo] ||= [];
+  state.redoStack[pageNo] ||= [];
+
+  const pushUndo = debounce(() => {
+    const snap = snapshotPage(pageNo);
+    if (!snap) return;
+    state.undoStack[pageNo].push(snap);
+    state.undoStack[pageNo] = state.undoStack[pageNo].slice(-30);
+    // new draw invalidates redo
+    state.redoStack[pageNo] = [];
+  }, 250);
+
+  const broadcast = broadcastDebouncedByPage.get(pageNo) ||
+    debounce(() => {
+      if (!state.isInSession || !state.roomCode || !state.fileId) return;
+      const snap = snapshotPage(pageNo);
+      if (!snap) return;
+      state.annoStore[pageNo] = snap;
+      socket.emit('wb:page:update', {
+        roomCode: state.roomCode,
+        fileId: state.fileId,
+        pageNo: String(pageNo),
+        pageSnapshot: snap
+      });
+    }, 200);
+  broadcastDebouncedByPage.set(pageNo, broadcast);
+
+  fabricCanvas.on('path:created', () => {
+    pushUndo();
+    broadcast();
+  });
+  fabricCanvas.on('object:modified', () => {
+    pushUndo();
+    broadcast();
+  });
+
+  const v = { pageNo, root, pdfCanvas, annoCanvas, fabric: fabricCanvas };
+  viewMap.set(pageNo, v);
+  applyToolToAll();
+  return v;
+}
+
+function applyToolToCanvas(fab) {
+  if (!fab) return;
+  const size = Number(document.getElementById('brushSize').value || 3);
+  const color = document.getElementById('colorPicker').value || '#ff2d55';
+
+  if (state.tool === 'pen') {
+    fab.isDrawingMode = true;
+    fab.freeDrawingBrush = new fabric.PencilBrush(fab);
+    fab.freeDrawingBrush.width = size;
+    fab.freeDrawingBrush.color = color;
+  } else if (state.tool === 'highlighter') {
+    fab.isDrawingMode = true;
+    fab.freeDrawingBrush = new fabric.PencilBrush(fab);
+    fab.freeDrawingBrush.width = Math.max(8, size * 3);
+    // keep input color hue but with alpha
+    const rgba = color.startsWith('#')
+      ? `rgba(${parseInt(color.slice(1,3),16)},${parseInt(color.slice(3,5),16)},${parseInt(color.slice(5,7),16)},0.28)`
+      : 'rgba(255, 235, 59, 0.28)';
+    fab.freeDrawingBrush.color = rgba;
+  } else if (state.tool === 'eraser') {
+    if (fabric.EraserBrush) {
+      fab.isDrawingMode = true;
+      fab.freeDrawingBrush = new fabric.EraserBrush(fab);
+      fab.freeDrawingBrush.width = Math.max(6, size * 2);
+    } else {
+      // fallback: not supported
+      fab.isDrawingMode = true;
+      fab.freeDrawingBrush = new fabric.PencilBrush(fab);
+      fab.freeDrawingBrush.width = Math.max(6, size * 2);
+      fab.freeDrawingBrush.color = 'rgba(0,0,0,1)';
+    }
+  }
+}
+
+function applyToolToAll() {
+  for (const v of viewMap.values()) applyToolToCanvas(v.fabric);
+}
+
+function snapshotPage(pageNo) {
+  const v = viewMap.get(pageNo);
+  if (!v?.fabric) return null;
+  const json = v.fabric.toDatalessJSON();
+  return { json, w: v.fabric.getWidth(), h: v.fabric.getHeight() };
+}
+
+function applySnapshotToPage(pageNo, pageSnapshot) {
+  const v = viewMap.get(pageNo);
+  if (!v?.fabric) return;
+  const newW = v.fabric.getWidth();
+  const newH = v.fabric.getHeight();
+  v.fabric.loadFromJSON(pageSnapshot?.json || { objects: [] }, () => {
+    const oldW = Number(pageSnapshot?.w || newW);
+    const oldH = Number(pageSnapshot?.h || newH);
+    const sx = oldW ? newW / oldW : 1;
+    const sy = oldH ? newH / oldH : 1;
+    v.fabric.getObjects().forEach((obj) => {
+      obj.scaleX *= sx;
+      obj.scaleY *= sy;
+      obj.left *= sx;
+      obj.top *= sy;
+      obj.setCoords();
+    });
+    v.fabric.renderAll();
+    applyToolToCanvas(v.fabric);
+  });
+}
+
+async function renderSpread(leftPageNo) {
+  if (!state.isPdfReady || !state.pdfDoc) return;
+
+  // Remove preview fallback if any
+  els.pdfPreview.classList.add('hidden');
+  els.canvasStack.style.display = 'flex';
+
+  // Rebuild views each time (<=4 pages, OK)
+  clearViews();
+
+  const pages = getSpreadPages(leftPageNo);
+  updatePageLabels();
+
+  for (const p of pages) {
+    const page = await state.pdfDoc.getPage(p);
+    const viewport = computeViewport(page);
+    const v = makeView(p);
+
+    v.pdfCanvas.width = Math.floor(viewport.width);
+    v.pdfCanvas.height = Math.floor(viewport.height);
+    v.annoCanvas.width = v.pdfCanvas.width;
+    v.annoCanvas.height = v.pdfCanvas.height;
+
+    // size root to fit canvas
+    v.root.style.width = `${v.pdfCanvas.width}px`;
+    v.root.style.height = `${v.pdfCanvas.height}px`;
+
+    v.fabric.setWidth(v.pdfCanvas.width);
+    v.fabric.setHeight(v.pdfCanvas.height);
+
+    const ctx = v.pdfCanvas.getContext('2d');
+    await page.render({ canvasContext: ctx, viewport }).promise;
+
+    const saved = state.annoStore[p];
+    if (saved) applySnapshotToPage(p, saved);
+    else applySnapshotToPage(p, { json: { objects: [] }, w: v.pdfCanvas.width, h: v.pdfCanvas.height });
+  }
 }
 
 async function loadPdf(fileId) {
@@ -255,8 +475,8 @@ async function loadPdf(fileId) {
   state.pdfDoc = null;
   state.totalPages = 1;
   state.pageNo = 1;
-  setText('pageLabel', '1');
-  setText('pageTotal', '/ ?');
+  state.activeDrawPageNo = 1;
+  updatePageLabels();
 
   const url = `${window.location.origin}/api/drive/pdf/${fileId}`;
 
@@ -271,13 +491,11 @@ async function loadPdf(fileId) {
     state.pdfDoc = pdf;
     state.totalPages = pdf.numPages;
     state.isPdfReady = true;
-    setText('pageTotal', `/ ${state.totalPages}`);
-    await renderPage(state.pageNo);
+    updatePageLabels();
+    await renderSpread(state.pageNo);
 
-    // Try to load annotations snapshot for current session
     if (state.isInSession && state.roomCode) socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId });
   } catch (e) {
-    // Fallback to iframe preview
     try {
       const meta = await fetch(`/api/drive/preview/${encodeURIComponent(fileId)}`).then((r) => r.json());
       els.pdfPreview.src = meta.previewUrl;
@@ -290,162 +508,110 @@ async function loadPdf(fileId) {
   }
 }
 
-function ensureFabric(newW, newH) {
-  if (!fabricCanvas) {
-    fabricCanvas = new fabric.Canvas('anno-canvas', {
-      isDrawingMode: true,
-      selection: false
-    });
-
-    // drawing defaults
-    fabricCanvas.freeDrawingBrush.width = Number(document.getElementById('brushSize').value || 3);
-    fabricCanvas.freeDrawingBrush.color = document.getElementById('colorPicker').value || '#ff2d55';
-
-    const pushUndo = debounce(() => {
-      const snap = snapshotCurrentPage();
-      if (!snap) return;
-      state.undoStack[state.pageNo] ||= [];
-      state.undoStack[state.pageNo].push(snap);
-      // keep last 30
-      state.undoStack[state.pageNo] = state.undoStack[state.pageNo].slice(-30);
-    }, 300);
-
-    fabricCanvas.on('path:created', () => {
-      pushUndo();
-      broadcastSnapshotDebounced();
-    });
-    fabricCanvas.on('object:modified', () => {
-      pushUndo();
-      broadcastSnapshotDebounced();
-    });
-  }
-
-  if (fabricCanvas.getWidth() !== newW || fabricCanvas.getHeight() !== newH) {
-    fabricCanvas.setWidth(newW);
-    fabricCanvas.setHeight(newH);
-  }
-}
-
-function snapshotCurrentPage() {
-  if (!fabricCanvas) return null;
-  const json = fabricCanvas.toDatalessJSON();
-  return { json, w: fabricCanvas.getWidth(), h: fabricCanvas.getHeight() };
-}
-
-const broadcastSnapshotDebounced = debounce(() => {
-  if (!state.isInSession || !state.roomCode || !state.fileId || !fabricCanvas) return;
-  const snap = snapshotCurrentPage();
-  if (!snap) return;
-  state.annoStore[state.pageNo] = snap;
-  socket.emit('wb:page:update', {
-    roomCode: state.roomCode,
-    fileId: state.fileId,
-    pageNo: String(state.pageNo),
-    pageSnapshot: snap
-  });
-}, 250);
-
-function applySnapshotToCanvas(pageSnapshot, newW, newH) {
-  ensureFabric(newW, newH);
-  fabricCanvas.off('path:created'); // avoid loops? (we still keep handlers, but loadFromJSON triggers render)
-  fabricCanvas.loadFromJSON(pageSnapshot?.json || { objects: [], version: '6.0.0' }, () => {
-    // rescale from snapshot dims to new dims
-    const oldW = Number(pageSnapshot?.w || newW);
-    const oldH = Number(pageSnapshot?.h || newH);
-    const sx = oldW ? newW / oldW : 1;
-    const sy = oldH ? newH / oldH : 1;
-    fabricCanvas.getObjects().forEach((obj) => {
-      obj.scaleX *= sx;
-      obj.scaleY *= sy;
-      obj.left *= sx;
-      obj.top *= sy;
-      obj.setCoords();
-    });
-    fabricCanvas.renderAll();
-  });
-}
-
-async function renderPage(pageNo) {
-  if (!state.isPdfReady || !state.pdfDoc) return;
-  const page = await state.pdfDoc.getPage(pageNo);
-  const viewport = computeViewport(page);
-
-  // Setup PDF canvas
-  const pdfCanvas = els.pdfCanvas;
-  const ctx = pdfCanvas.getContext('2d');
-  pdfCanvas.width = Math.floor(viewport.width);
-  pdfCanvas.height = Math.floor(viewport.height);
-
-  // Ensure overlay matches
-  els.annoCanvasEl.width = pdfCanvas.width;
-  els.annoCanvasEl.height = pdfCanvas.height;
-  ensureFabric(pdfCanvas.width, pdfCanvas.height);
-
-  // Render PDF
-  await page.render({ canvasContext: ctx, viewport }).promise;
-
-  // Load stored page snapshot if any
-  const saved = state.annoStore[pageNo];
-  if (saved) applySnapshotToCanvas(saved, pdfCanvas.width, pdfCanvas.height);
-  else applySnapshotToCanvas({ json: { objects: [] }, w: pdfCanvas.width, h: pdfCanvas.height }, pdfCanvas.width, pdfCanvas.height);
-}
-
-// Handle resize -> re-render current page + re-apply snapshot
+// Resize -> re-render current spread
 const ro = new ResizeObserver(
   debounce(() => {
-    if (state.isPdfReady) renderPage(state.pageNo).catch(() => {});
+    if (state.isPdfReady) renderSpread(state.pageNo).catch(() => {});
   }, 200)
 );
-ro.observe(document.getElementById('pdf-container'));
+ro.observe(els.pdfContainer);
 
-// Tools
-document.getElementById('brushSize').addEventListener('input', (e) => {
-  if (!fabricCanvas) return;
-  fabricCanvas.freeDrawingBrush.width = Number(e.target.value || 3);
-});
-document.getElementById('colorPicker').addEventListener('input', (e) => {
-  if (!fabricCanvas) return;
-  fabricCanvas.freeDrawingBrush.color = e.target.value || '#ff2d55';
-});
+// Palette tools
+document.getElementById('brushSize').addEventListener('input', () => applyToolToAll());
+document.getElementById('colorPicker').addEventListener('input', () => applyToolToAll());
 document.getElementById('penBtn').addEventListener('click', () => {
   state.tool = 'pen';
-  if (!fabricCanvas) return;
-  fabricCanvas.isDrawingMode = true;
-  fabricCanvas.freeDrawingBrush = new fabric.PencilBrush(fabricCanvas);
-  fabricCanvas.freeDrawingBrush.width = Number(document.getElementById('brushSize').value || 3);
-  fabricCanvas.freeDrawingBrush.color = document.getElementById('colorPicker').value || '#ff2d55';
+  applyToolToAll();
+});
+document.getElementById('highlighterBtn').addEventListener('click', () => {
+  state.tool = 'highlighter';
+  applyToolToAll();
 });
 document.getElementById('eraserBtn').addEventListener('click', () => {
   state.tool = 'eraser';
-  if (!fabricCanvas) return;
-  // If EraserBrush exists use it, else fallback to selection delete.
-  if (fabric.EraserBrush) {
-    fabricCanvas.isDrawingMode = true;
-    fabricCanvas.freeDrawingBrush = new fabric.EraserBrush(fabricCanvas);
-    fabricCanvas.freeDrawingBrush.width = Number(document.getElementById('brushSize').value || 8);
-  } else {
-    alert('EraserBrush를 지원하지 않는 Fabric 버전입니다. (추후 보완)');
-  }
+  applyToolToAll();
 });
-document.getElementById('clearBtn').addEventListener('click', () => {
-  if (!fabricCanvas) return;
-  fabricCanvas.clear();
-  broadcastSnapshotDebounced();
-});
-document.getElementById('undoBtn').addEventListener('click', () => {
-  const stack = state.undoStack[state.pageNo] || [];
+
+function undoForActivePage() {
+  const pageNo = state.activeDrawPageNo || state.pageNo;
+  const stack = state.undoStack[pageNo] || [];
   if (!stack.length) return;
-  // pop current
+  const current = snapshotPage(pageNo);
+  if (current) {
+    state.redoStack[pageNo] ||= [];
+    state.redoStack[pageNo].push(current);
+    state.redoStack[pageNo] = state.redoStack[pageNo].slice(-30);
+  }
   stack.pop();
   const prev = stack[stack.length - 1];
   if (prev) {
-    state.annoStore[state.pageNo] = prev;
-    applySnapshotToCanvas(prev, fabricCanvas.getWidth(), fabricCanvas.getHeight());
-    broadcastSnapshotDebounced();
+    state.annoStore[pageNo] = prev;
+    applySnapshotToPage(pageNo, prev);
   } else {
-    fabricCanvas.clear();
-    broadcastSnapshotDebounced();
+    state.annoStore[pageNo] = { json: { objects: [] }, w: 1, h: 1 };
+    applySnapshotToPage(pageNo, { json: { objects: [] }, w: 1, h: 1 });
   }
+  broadcastDebouncedByPage.get(pageNo)?.();
+}
+
+function redoForActivePage() {
+  const pageNo = state.activeDrawPageNo || state.pageNo;
+  const rstack = state.redoStack[pageNo] || [];
+  if (!rstack.length) return;
+  const snap = rstack.pop();
+  state.undoStack[pageNo] ||= [];
+  state.undoStack[pageNo].push(snap);
+  state.annoStore[pageNo] = snap;
+  applySnapshotToPage(pageNo, snap);
+  broadcastDebouncedByPage.get(pageNo)?.();
+}
+
+document.getElementById('undoBtn').addEventListener('click', undoForActivePage);
+document.getElementById('redoBtn').addEventListener('click', redoForActivePage);
+document.getElementById('clearBtn').addEventListener('click', () => {
+  const pageNo = state.activeDrawPageNo || state.pageNo;
+  state.undoStack[pageNo] ||= [];
+  const current = snapshotPage(pageNo);
+  if (current) state.undoStack[pageNo].push(current);
+  state.redoStack[pageNo] = [];
+  state.annoStore[pageNo] = { json: { objects: [] }, w: 1, h: 1 };
+  applySnapshotToPage(pageNo, { json: { objects: [] }, w: 1, h: 1 });
+  broadcastDebouncedByPage.get(pageNo)?.();
+});
+
+// View controls
+function setSpread(n) {
+  state.spreadCount = n;
+  changePage(state.pageNo, 'spread');
+}
+document.getElementById('spread1Btn').addEventListener('click', () => setSpread(1));
+document.getElementById('spread2Btn').addEventListener('click', () => setSpread(2));
+document.getElementById('spread3Btn').addEventListener('click', () => setSpread(3));
+document.getElementById('spread4Btn').addEventListener('click', () => setSpread(4));
+
+document.getElementById('zoomInBtn').addEventListener('click', () => {
+  state.fitMode = false;
+  state.zoom = Math.min(3, state.zoom * 1.15);
+  renderSpread(state.pageNo).catch(() => {});
+});
+document.getElementById('zoomOutBtn').addEventListener('click', () => {
+  state.fitMode = false;
+  state.zoom = Math.max(0.5, state.zoom / 1.15);
+  renderSpread(state.pageNo).catch(() => {});
+});
+document.getElementById('fitBtn').addEventListener('click', () => {
+  state.fitMode = true;
+  state.zoom = 1;
+  renderSpread(state.pageNo).catch(() => {});
+});
+
+document.getElementById('focusModeBtn').addEventListener('click', () => {
+  state.focusMode = !state.focusMode;
+  document.body.classList.toggle('focus-mode', state.focusMode);
+});
+document.getElementById('perfModeBtn').addEventListener('click', () => {
+  state.perfMode = !state.perfMode;
+  renderSpread(state.pageNo).catch(() => {});
 });
 
 // Live mode (mobile/tablet)
@@ -466,8 +632,7 @@ socket.on('session:pageTurner:state', (p) => {
   } else {
     setHidden('turnerBadge', true);
   }
-  setHidden('pageHud', false);
-  setText('pageHud', `${state.pageNo} / ${state.totalPages}${state.isPageTurner ? ' · 터너' : ''}`);
+  updatePageLabels();
 });
 
 socket.on('session:participants', (p) => {
@@ -516,8 +681,9 @@ socket.on('viewer:page_change', (p) => {
   if (!p?.pageNo) return;
   if (p?.fileId && p.fileId !== state.fileId) return; // file changes handled by follow:file
   state.pageNo = Number(p.pageNo);
-  setText('pageLabel', String(state.pageNo));
-  renderPage(state.pageNo).catch(() => {});
+  state.activeDrawPageNo = state.pageNo;
+  updatePageLabels();
+  renderSpread(state.pageNo).catch(() => {});
 });
 
 socket.on('session:follow:file', (p) => {
@@ -533,17 +699,15 @@ socket.on('session:follow:file', (p) => {
 socket.on('wb:sync', (p) => {
   if (!p?.snapshot) return;
   state.annoStore = p.snapshot || {};
-  // re-render current page overlays
-  if (state.isPdfReady) renderPage(state.pageNo).catch(() => {});
+  // re-render current spread overlays
+  if (state.isPdfReady) renderSpread(state.pageNo).catch(() => {});
 });
 
 socket.on('wb:page:update', (p) => {
   if (!p?.pageNo || !p?.pageSnapshot) return;
   const pageNo = Number(p.pageNo);
   state.annoStore[pageNo] = p.pageSnapshot;
-  if (pageNo === state.pageNo && state.isPdfReady) {
-    applySnapshotToCanvas(p.pageSnapshot, fabricCanvas.getWidth(), fabricCanvas.getHeight());
-  }
+  if (viewMap.has(pageNo)) applySnapshotToPage(pageNo, p.pageSnapshot);
 });
 
 // ---- Init -------------------------------------------------------------------------

@@ -53,6 +53,14 @@ function isMobileLike() {
   return window.matchMedia('(max-width: 980px)').matches || isCoarse;
 }
 
+function isMobileViewer() {
+  try {
+    return isMobileLike() && String(authState?.role || '') === 'viewer';
+  } catch {
+    return false;
+  }
+}
+
 function openJoinModal({ nickname = '', roomCode = '' } = {}) {
   const overlay = document.getElementById('joinModal');
   const nickField = document.getElementById('joinNickField');
@@ -1250,6 +1258,22 @@ function changePage(next, source) {
   }
 }
 
+let lastAutoFollowAt = 0;
+async function followToPage(pageNo, reason = '') {
+  if (!state.isPdfReady) return;
+  const now = Date.now();
+  if (now - lastAutoFollowAt < 450) return;
+  lastAutoFollowAt = now;
+
+  const next = Math.max(1, Math.min(state.totalPages, Number(pageNo) || 1));
+  state.pageNo = next;
+  state.activeDrawPageNo = next;
+  updatePageLabels();
+  await renderSpread(next);
+  updateUrlState();
+  if (reason) flashHud(`활성페이지 이동`, 700);
+}
+
 function pageTurnStep() {
   // 사용자 설정: 한번에(스프레드 단위) / 한페이지씩
   return state.turnUnit === 'spread' ? Math.max(1, Number(state.spreadCount) || 1) : 1;
@@ -1875,9 +1899,10 @@ function emitViewerSettings(reason = '') {
 }
 
 function setSpread(n) {
-  state.spreadCount = n;
+  const v = isMobileViewer() ? 1 : n;
+  state.spreadCount = v;
   // GAS처럼 버튼 active 처리
-  [1, 2, 3, 4].forEach((x) => document.getElementById(`spread${x}Btn`)?.classList.toggle('active', x === n));
+  [1, 2, 3, 4].forEach((x) => document.getElementById(`spread${x}Btn`)?.classList.toggle('active', x === v));
   changePage(state.pageNo, 'spread');
   emitViewerSettings('spread');
   updateUrlState();
@@ -1890,7 +1915,9 @@ document.getElementById('spread4Btn').addEventListener('click', () => setSpread(
 // Page turn unit (한번에/한페이지씩)
 state.turnUnit = localStorage.getItem('mb_viewer_turn_unit') || 'single'; // 'single' | 'spread'
 function setTurnUnit(v) {
-  state.turnUnit = v === 'spread' ? 'spread' : 'single';
+  // 모바일 viewer는 항상 한페이지씩 강제
+  const next = isMobileViewer() ? 'single' : v === 'spread' ? 'spread' : 'single';
+  state.turnUnit = next;
   localStorage.setItem('mb_viewer_turn_unit', state.turnUnit);
   document.getElementById('turnUnitSpreadBtn')?.classList.toggle('active', state.turnUnit === 'spread');
   document.getElementById('turnUnitSingleBtn')?.classList.toggle('active', state.turnUnit === 'single');
@@ -2203,7 +2230,9 @@ socket.on('viewer:settings', (p) => {
   if (!p?.settings) return;
   if (p?.fileId && p.fileId !== state.fileId) return;
   const s = p.settings;
-  if (typeof s.spreadCount === 'number') state.spreadCount = clamp(s.spreadCount, 1, 4);
+  // 모바일 viewer는 1p 고정(터너 설정 무시)
+  if (typeof s.spreadCount === 'number' && !isMobileViewer()) state.spreadCount = clamp(s.spreadCount, 1, 4);
+  if (isMobileViewer()) state.spreadCount = 1;
   if (typeof s.fitMode === 'boolean') state.fitMode = s.fitMode;
   if (typeof s.zoom === 'number') state.zoom = clamp(s.zoom, 0.5, 3);
   if (typeof s.overlapPx === 'number') setSpreadOverlapPx(s.overlapPx);
@@ -2211,12 +2240,16 @@ socket.on('viewer:settings', (p) => {
   renderSpread(state.pageNo).catch(() => {});
 });
 
-socket.on('viewer:laser', (p) => {
+socket.on('viewer:laser', async (p) => {
   if (!state.isInSession) return;
   if (!p?.pageNo || !p?.points || !Array.isArray(p.points)) return;
   if (p?.fileId && p.fileId !== state.fileId) return;
 
   const pageNo = Number(p.pageNo);
+  if (isMobileViewer() && pageNo && pageNo !== state.pageNo) {
+    await followToPage(pageNo, 'laser');
+  }
+
   const v = viewMap.get(pageNo);
   if (!v?.fabric) return;
   const srcW = Number(p.w || v.fabric.getWidth());
@@ -2273,10 +2306,14 @@ socket.on('wb:sync', (p) => {
   if (state.isPdfReady) renderSpread(state.pageNo).catch(() => {});
 });
 
-socket.on('wb:page:update', (p) => {
+socket.on('wb:page:update', async (p) => {
   if (!p?.pageNo || !p?.pageSnapshot) return;
   const pageNo = Number(p.pageNo);
   state.annoStore[pageNo] = p.pageSnapshot;
+  // 모바일 viewer는 "주석이 업데이트된 페이지"를 따라가서 항상 읽을 수 있게 한다.
+  if (state.isInSession && isMobileViewer() && pageNo && pageNo !== state.pageNo) {
+    await followToPage(pageNo, 'anno');
+  }
   if (viewMap.has(pageNo)) applySnapshotToPage(pageNo, p.pageSnapshot);
 });
 
@@ -2307,6 +2344,13 @@ async function init() {
   // 로그인 사용자면 displayName 우선, 아니면 닉네임(공유키) 사용
   if (!authState.displayName) authState.displayName = state.nickname || '익명';
   updateSongBookPickVisibility();
+
+  // 모바일 viewer는 항상 1페이지 보기 + 한페이지씩 넘김을 강제
+  document.body.classList.toggle('mobile-viewer', isMobileViewer());
+  if (isMobileViewer()) {
+    setSpread(1);
+    setTurnUnit('single');
+  }
 
   // auto reconnect to last room:
   // 1) ?room 우선

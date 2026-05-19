@@ -152,6 +152,14 @@ body.light .floatToggles button{
   width: 46px;
   text-align: center;
 }
+
+/* 모바일 viewer(익명)는 1페이지 보기 고정 */
+body.mobile-viewer #spread2Btn,
+body.mobile-viewer #spread3Btn,
+body.mobile-viewer #spread4Btn,
+body.mobile-viewer #turnUnitSpreadBtn{
+  display:none !important;
+}
 .group{
   display:inline-flex;
   gap:6px;

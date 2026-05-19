@@ -185,7 +185,14 @@ function applySongFilters() {
     if (genre) list = list.filter((s) => s.genre === genre);
     if (mood) list = list.filter((s) => s.mood === mood);
     if (vocal) list = list.filter((s) => s.vocal === vocal);
-    if (q) list = list.filter((s) => (s.searchText || '').includes(q) || (s.title || '').toLowerCase().includes(q));
+  if (q)
+    list = list.filter(
+      (s) =>
+        (s.searchText || '').includes(q) ||
+        (s.title || '').toLowerCase().includes(q) ||
+        (s.displayTitle || '').toLowerCase().includes(q) ||
+        (s.artist || '').toLowerCase().includes(q)
+    );
 
     const f = state.sortField;
     const dir = state.sortDir === 'asc' ? 1 : -1;
@@ -207,7 +214,10 @@ function applySongFilters() {
   if (genre) list = list.filter((c) => c.genre === genre);
   if (mood) list = list.filter((c) => c.mood === mood);
   if (vocal) list = list.filter((c) => c.vocal === vocal);
-  if (q) list = list.filter((c) => (c.searchText || '').includes(q));
+  if (q)
+    list = list.filter(
+      (c) => (c.searchText || '').includes(q) || (c.title || '').toLowerCase().includes(q) || (c.artist || '').toLowerCase().includes(q)
+    );
 
   // 가능보컬 필터: variants 중 하나라도 해당 유저가 available이면 노출
   if (availableVocalUserId && state.filterAvailableVocalUserId === availableVocalUserId && state.filterAvailableVocalSet) {
@@ -636,8 +646,8 @@ function applyRoleUI() {
   $('profileButton').style.display = isPriv ? 'inline-flex' : 'none';
   $('requestManageToggleBtn').style.display = isAdmin ? 'inline-flex' : 'none';
   $('availabilityEditToggleBtn').style.display = isPriv ? 'inline-flex' : 'none';
-  // 가능보컬 필터는 이제 사용하지 않음(본인 기준 편집으로 변경)
-  $('availableVocalFilter').style.display = 'none';
+  // 가능보컬 필터는 유지(필터용). 편집은 본인 기준으로 별도 동작.
+  $('availableVocalFilter').style.display = 'inline-flex';
 
   $('clearRequestsBtn').style.display = isAdmin ? 'inline-flex' : 'none';
 

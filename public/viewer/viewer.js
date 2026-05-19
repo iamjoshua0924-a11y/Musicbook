@@ -277,6 +277,7 @@ const state = {
   roomCode: null,
   isInSession: false,
   isPageTurner: false,
+  isToolAuthorized: false,
   nickname: getOrCreateNickname(),
   overlapPx: 0,
 
@@ -381,15 +382,23 @@ function restoreUiAfterLeavingSession() {
   document.getElementById('toolBar')?.classList.toggle('isHidden', Boolean(prev.toolHidden));
 }
 
+function canUseToolsNow() {
+  if (!state.isInSession) return true;
+  return Boolean(state.isPageTurner || state.isToolAuthorized);
+}
+
 function updateTurnerToggleAccess() {
-  const canToggle = state.isInSession ? Boolean(state.isPageTurner) : true;
+  const canToggle = state.isInSession ? canUseToolsNow() : true;
   ['toggleLinkBtn', 'toggleViewBtn', 'toggleToolBtn'].forEach((id) => {
     const btn = document.getElementById(id);
     if (!btn) return;
     btn.disabled = !canToggle;
     btn.classList.toggle('disabled', !canToggle);
   });
-  if (state.isInSession && !state.isPageTurner) setSessionUiDefaultsIfNeeded();
+  if (state.isInSession && !canUseToolsNow()) setSessionUiDefaultsIfNeeded();
+
+  const reqBtn = document.getElementById('requestToolBtn');
+  if (reqBtn) reqBtn.classList.toggle('hidden', !(state.isInSession && !canUseToolsNow()));
 }
 
 function updateSongBookPickVisibility() {
@@ -638,6 +647,15 @@ document.getElementById('participantsToggleBtn')?.addEventListener('click', () =
   const body = document.getElementById('participantsBody');
   if (!body) return;
   setParticipantsCollapsed(!body.classList.contains('isHidden'));
+});
+
+document.getElementById('requestToolBtn')?.addEventListener('click', () => {
+  if (!state.isInSession || !state.roomCode) return;
+  if (state.isPageTurner || state.isToolAuthorized) return;
+  socket.emit('session:tool:request', { roomCode: state.roomCode }, (ack) => {
+    if (!ack?.ok) return flashHud('요청 실패', 1200);
+    flashHud('도구 권한 요청을 보냈습니다', 1400);
+  });
 });
 
 document.getElementById('songBookPickBtn')?.addEventListener('click', () => {
@@ -1144,8 +1162,8 @@ function makeView(pageNo) {
       laserObj = null;
       laserPoints = [];
 
-      // Broadcast to room for "page turner laser" (5초 후 자동 삭제)
-      if (lo && state.isInSession && state.roomCode && state.fileId && state.isPageTurner) {
+      // Broadcast to room for authorized tool users (5초 후 자동 삭제)
+      if (lo && state.isInSession && state.roomCode && state.fileId && canUseToolsNow()) {
         socket.emit('viewer:laser', {
           roomCode: state.roomCode,
           fileId: state.fileId,
@@ -1184,6 +1202,7 @@ function makeView(pageNo) {
   const broadcast = broadcastDebouncedByPage.get(pageNo) ||
     debounce(() => {
       if (!state.isInSession || !state.roomCode || !state.fileId) return;
+      if (!canUseToolsNow()) return;
       const snap = snapshotPage(pageNo);
       if (!snap) return;
       state.annoStore[pageNo] = snap;
@@ -1415,6 +1434,10 @@ document.getElementById('brushSize').addEventListener('input', () => applyToolTo
 document.getElementById('colorPicker').addEventListener('input', () => applyToolToAll());
 
 function setTool(tool, shape = null) {
+  if (state.isInSession && !canUseToolsNow()) {
+    flashHud('도구 권한이 없습니다(도구요청 버튼으로 요청)', 1400);
+    return;
+  }
   state.tool = tool;
   state.shape = shape;
   document.body.dataset.tool = tool;
@@ -1592,15 +1615,15 @@ window.addEventListener('resize', updateLiveMode);
 
 // Desktop toggles (GAS 원본)
 document.getElementById('toggleViewBtn')?.addEventListener('click', () => {
-  if (state.isInSession && !state.isPageTurner) return;
+  if (state.isInSession && !canUseToolsNow()) return;
   document.getElementById('viewBar')?.classList.toggle('isHidden');
 });
 document.getElementById('toggleToolBtn')?.addEventListener('click', () => {
-  if (state.isInSession && !state.isPageTurner) return;
+  if (state.isInSession && !canUseToolsNow()) return;
   document.getElementById('toolBar')?.classList.toggle('isHidden');
 });
 document.getElementById('toggleLinkBtn')?.addEventListener('click', () => {
-  if (state.isInSession && !state.isPageTurner) return;
+  if (state.isInSession && !canUseToolsNow()) return;
   const next = !document.body.classList.contains('link-collapsed');
   document.body.classList.toggle('link-collapsed', next);
   localStorage.setItem('mb_viewer_linkCollapsed', next ? '1' : '0');
@@ -1688,6 +1711,7 @@ document.addEventListener('click', (e) => {
 socket.on('session:pageTurner:state', (p) => {
   if (!state.isInSession) return;
   state.isPageTurner = p?.pageTurnerSocketId === socket.id;
+  if (state.isPageTurner) state.isToolAuthorized = true;
   if (state.isPageTurner) {
     setHidden('turnerBadge', false);
     setText('turnerBadge', '현재 당신이 페이지터너입니다');
@@ -1705,6 +1729,11 @@ socket.on('session:pageTurner:state', (p) => {
 
 socket.on('session:participants', (p) => {
   if (!state.isInSession) return;
+  try {
+    const me = (p?.members || []).find((m) => m.socketId === socket.id);
+    if (me) state.isToolAuthorized = Boolean(me.isToolAuthorized) || state.isPageTurner;
+  } catch {}
+  updateTurnerToggleAccess();
   const list = document.getElementById('participantsList');
   list.innerHTML = '';
   (p?.members || []).forEach((m) => {
@@ -1726,8 +1755,53 @@ socket.on('session:participants', (p) => {
       };
       row.appendChild(btn);
     }
+
+    // tool permission UI
+    if (!m.isPageTurner) {
+      if (m.isToolAuthorized) {
+        const badge = document.createElement('span');
+        badge.className = 'participant-badge';
+        badge.textContent = 'TOOL';
+        row.appendChild(badge);
+      } else if (m.toolRequested) {
+        const badge = document.createElement('span');
+        badge.className = 'participant-badge';
+        badge.textContent = '요청';
+        row.appendChild(badge);
+      }
+    }
+    if (state.isPageTurner && !m.isPageTurner) {
+      const toolBtn = document.createElement('button');
+      toolBtn.textContent = m.isToolAuthorized ? '도구 해제' : '도구 승인';
+      toolBtn.onclick = () => {
+        socket.emit(
+          'session:tool:grant',
+          { roomCode: state.roomCode, targetSocketId: m.socketId, allow: !m.isToolAuthorized },
+          (ack) => {
+            if (!ack?.ok) alert('처리 실패');
+          }
+        );
+      };
+      row.appendChild(toolBtn);
+    }
     list.appendChild(row);
   });
+});
+
+socket.on('session:tool:request', (p) => {
+  if (!state.isInSession) return;
+  if (!state.isPageTurner) return;
+  const name = p?.displayName || p?.nickname || '참여자';
+  const ok = confirm(`${name}님이 도구 권한을 요청했습니다. 승인할까요?`);
+  socket.emit('session:tool:grant', { roomCode: state.roomCode, targetSocketId: p?.socketId, allow: ok });
+});
+
+socket.on('session:tool:state', (p) => {
+  if (!state.isInSession) return;
+  if (p?.roomCode && String(p.roomCode).toUpperCase() !== String(state.roomCode || '').toUpperCase()) return;
+  state.isToolAuthorized = Boolean(p?.allowed) || state.isPageTurner;
+  updateTurnerToggleAccess();
+  flashHud(state.isToolAuthorized ? '도구 권한 승인됨' : '도구 권한 해제됨', 1400);
 });
 
 socket.on('session:pageTurner:sync_request', (p) => {

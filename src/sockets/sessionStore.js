@@ -20,6 +20,8 @@ class SessionStore {
       currentFileId: null,
       currentPageNo: 1,
       members: new Map(), // socketId -> { nickname, role, displayName, profilePhoto }
+      toolAuthorizedSocketIds: new Set(), // socketIds allowed to use tools (besides pageTurner)
+      toolRequestSocketIds: new Set(), // pending requests
       // annotations: Map<fileId, { pages: { [pageNo]: {json,w,h}}, updatedAt }>
       annotationsByFile: new Map()
     });
@@ -35,6 +37,8 @@ class SessionStore {
         currentFileId: null,
         currentPageNo: 1,
         members: new Map(),
+        toolAuthorizedSocketIds: new Set(),
+        toolRequestSocketIds: new Set(),
         annotationsByFile: new Map()
       });
     }

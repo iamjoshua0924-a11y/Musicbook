@@ -48,9 +48,17 @@ function buildParticipantsPayload(room) {
     role: m.role,
     displayName: m.displayName,
     profilePhoto: m.profilePhoto,
-    isPageTurner: socketId === room.pageTurnerSocketId
+    isPageTurner: socketId === room.pageTurnerSocketId,
+    isToolAuthorized: room.toolAuthorizedSocketIds?.has?.(socketId) || false,
+    toolRequested: room.toolRequestSocketIds?.has?.(socketId) || false
   }));
   return { roomCode: room.roomCode, members };
+}
+
+function canUseTools(room, socketId) {
+  if (!room || !socketId) return false;
+  if (room.pageTurnerSocketId === socketId) return true;
+  return Boolean(room.toolAuthorizedSocketIds?.has?.(socketId));
 }
 
 function emitRoomState(io, room) {
@@ -177,6 +185,46 @@ function attachSockets(io) {
       socket.emit('session:state', { roomCode, currentFileId: room.currentFileId, currentPageNo: room.currentPageNo });
     });
 
+    // --- Tool permission request/approve ------------------------------------------
+    socket.on('session:tool:request', (payload, ack) => {
+      const roomCode = String(payload?.roomCode || '').trim().toUpperCase();
+      const room = store.rooms.get(roomCode);
+      if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
+      if (!room.members.has(socket.id)) return ack?.({ ok: false, error: 'NOT_IN_ROOM' });
+      if (room.pageTurnerSocketId === socket.id) return ack?.({ ok: true, already: true });
+
+      room.toolRequestSocketIds?.add?.(socket.id);
+      // notify turner
+      if (room.pageTurnerSocketId) {
+        io.to(room.pageTurnerSocketId).emit('session:tool:request', {
+          roomCode,
+          socketId: socket.id,
+          nickname: room.members.get(socket.id)?.nickname || socket.data.nickname || '익명',
+          displayName: room.members.get(socket.id)?.displayName || socket.data.displayName || '익명'
+        });
+      }
+      io.to(toSessionRoomName(roomCode)).emit('session:participants', buildParticipantsPayload(room));
+      ack?.({ ok: true });
+    });
+
+    socket.on('session:tool:grant', (payload, ack) => {
+      const roomCode = String(payload?.roomCode || '').trim().toUpperCase();
+      const targetSocketId = String(payload?.targetSocketId || '').trim();
+      const allow = Boolean(payload?.allow);
+      const room = store.rooms.get(roomCode);
+      if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
+      if (room.pageTurnerSocketId !== socket.id) return ack?.({ ok: false, error: 'FORBIDDEN' });
+      if (!targetSocketId || !room.members.has(targetSocketId)) return ack?.({ ok: false, error: 'TARGET_NOT_FOUND' });
+
+      room.toolRequestSocketIds?.delete?.(targetSocketId);
+      if (allow) room.toolAuthorizedSocketIds?.add?.(targetSocketId);
+      else room.toolAuthorizedSocketIds?.delete?.(targetSocketId);
+
+      io.to(toSessionRoomName(roomCode)).emit('session:participants', buildParticipantsPayload(room));
+      io.to(targetSocketId).emit('session:tool:state', { roomCode, allowed: allow });
+      ack?.({ ok: true });
+    });
+
     socket.on('session:leave', async (payload, ack) => {
       const roomCode = String(payload?.roomCode || '').trim().toUpperCase();
       if (!roomCode) return ack?.({ ok: false });
@@ -187,6 +235,8 @@ function attachSockets(io) {
 
       if (room) {
         room.members.delete(socket.id);
+        room.toolAuthorizedSocketIds?.delete?.(socket.id);
+        room.toolRequestSocketIds?.delete?.(socket.id);
         if (room.pageTurnerSocketId === socket.id) room.pageTurnerSocketId = null;
 
         // If empty -> persist minimal snapshot ONCE.
@@ -280,7 +330,7 @@ function attachSockets(io) {
       const points = payload?.points;
       const room = store.rooms.get(roomCode);
       if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
-      if (room.pageTurnerSocketId !== socket.id) return ack?.({ ok: false, error: 'FORBIDDEN' });
+      if (!canUseTools(room, socket.id)) return ack?.({ ok: false, error: 'FORBIDDEN' });
       if (!fileId || !pageNo) return ack?.({ ok: false, error: 'BAD_REQUEST' });
       if (!Array.isArray(points) || points.length < 2) return ack?.({ ok: false, error: 'BAD_REQUEST' });
       if (points.length > 400) return ack?.({ ok: false, error: 'PAYLOAD_TOO_LARGE' });
@@ -331,6 +381,7 @@ function attachSockets(io) {
 
       const room = store.rooms.get(roomCode);
       if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
+      if (!canUseTools(room, socket.id)) return ack?.({ ok: false, error: 'FORBIDDEN' });
       if (!fileId || !pageNo) return ack?.({ ok: false, error: 'BAD_REQUEST' });
       if (!pageSnapshot || typeof pageSnapshot !== 'object') return ack?.({ ok: false, error: 'BAD_REQUEST' });
 
@@ -387,6 +438,8 @@ function attachSockets(io) {
         const room = store.rooms.get(roomCode);
         if (!room) continue;
         room.members.delete(socket.id);
+        room.toolAuthorizedSocketIds?.delete?.(socket.id);
+        room.toolRequestSocketIds?.delete?.(socket.id);
         if (room.pageTurnerSocketId === socket.id) room.pageTurnerSocketId = null;
 
         if (room.members.size === 0) {

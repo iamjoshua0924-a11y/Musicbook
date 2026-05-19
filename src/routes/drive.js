@@ -49,7 +49,8 @@ router.get('/drive/pdf/:fileId', requireSessionOrAdmin, async (req, res) => {
   }
 });
 
-router.get('/drive/preview/:fileId', requireSessionOrAdmin, async (req, res) => {
+// Public: preview URL builder does not access Drive API; safe for anonymous viewer mode.
+router.get('/drive/preview/:fileId', async (req, res) => {
   const { fileId } = req.params;
   res.json({ ok: true, previewUrl: buildPreviewUrl(fileId) });
 });

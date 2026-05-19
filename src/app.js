@@ -49,12 +49,13 @@ function createApp() {
     res.sendFile(path.join(__dirname, '..', 'public', 'musicbook', 'index.html'));
   });
 
-  app.get('/viewer/:fileId', requireMemberPage, (req, res) => {
+  // Viewer is public (supports anonymous nickname). Member-only features are gated client/server-side.
+  app.get('/viewer/:fileId', (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'public', 'viewer', 'index.html'));
   });
 
   // Allow /viewer entry without fileId (personal mode: open via drive link).
-  app.get('/viewer', requireMemberPage, (req, res) => {
+  app.get('/viewer', (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'public', 'viewer', 'index.html'));
   });
 

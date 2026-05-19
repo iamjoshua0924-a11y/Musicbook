@@ -360,7 +360,9 @@ function setCursorMarker(el, { xNorm, yNorm, visible }) {
   const h = clamp(r.height * 0.11, 40, 110);
   el.style.height = `${Math.round(h)}px`;
   el.style.left = `${Math.round(x - r.left)}px`;
-  el.style.top = `${Math.round(y - r.top)}px`;
+  // y를 "중심"으로 정렬(기존은 y가 top이라 위/아래 체감 어긋남)
+  const top = clamp((y - r.top) - h / 2, 0, Math.max(0, r.height - h));
+  el.style.top = `${Math.round(top)}px`;
   el.style.display = 'block';
 }
 

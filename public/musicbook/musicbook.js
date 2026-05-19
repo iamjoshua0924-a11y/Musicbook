@@ -694,10 +694,24 @@ async function refreshSession() {
   // update presence role on socket (best-effort)
   state._socket?.emit?.('main:join', {
     nickname: localStorage.getItem('mb_presence_nick') || state.displayName,
-    role: state.role,
-    displayName: state.displayName,
     profilePhoto: $('profilePhoto')?.src || ''
   });
+}
+
+async function refreshSocketMetaAndReconnect() {
+  // 로그인/로그아웃으로 metaToken(=role/displayName)이 바뀌면 socket.data가 갱신되도록 reconnect가 필요함
+  try {
+    const meta = await fetch('/api/socket/meta', { credentials: 'include' }).then((r) => r.json());
+    if (meta?.ok) state.metaToken = meta.token;
+  } catch {}
+  const socket = state._socket;
+  if (!socket) return;
+  const nickname = getOrCreatePresenceNickname();
+  socket.auth = { ...(socket.auth || {}), nickname, metaToken: state.metaToken || '' };
+  try {
+    socket.disconnect();
+    socket.connect();
+  } catch {}
 }
 
 async function doLogin() {
@@ -709,6 +723,7 @@ async function doLogin() {
   closeModal('loginModal');
   $('loginPw').value = '';
   await refreshSession();
+  await refreshSocketMetaAndReconnect();
   await loadAvailabilityUsersIfNeeded();
   toast('로그인 완료');
 }
@@ -716,6 +731,7 @@ async function doLogin() {
 async function doLogout() {
   await apiJson('/api/admin/logout', 'POST', {});
   await refreshSession();
+  await refreshSocketMetaAndReconnect();
   toast('로그아웃');
 }
 
@@ -1056,8 +1072,20 @@ function attachSockets() {
     }
   });
 
+  const joinRooms = () => {
+    const nn = getOrCreatePresenceNickname();
+    socket.emit('main:join', { nickname: nn, profilePhoto: $('profilePhoto')?.src || '' });
+    if (state.sessionRoomCode) {
+      socket.emit('session:join', {
+        roomCode: state.sessionRoomCode,
+        nickname: nn || state.displayName,
+        profilePhoto: $('profilePhoto')?.src || ''
+      });
+    }
+  };
+  socket.on('connect', () => joinRooms());
   // Join main presence room (server trusts metaToken, not payload role)
-  socket.emit('main:join', { nickname, profilePhoto: $('profilePhoto')?.src || '' });
+  joinRooms();
   state._socket = socket;
 
   socket.on('presence:list', (p) => {
@@ -1159,12 +1187,19 @@ function renderPresence(items) {
     wrap.appendChild(el);
   }
 
+  const avatarCircle = (name, photo) => {
+    const n = String(name || '').trim();
+    const initial = n ? n.slice(0, 1) : '?';
+    if (photo) return `<span class="presence-avatar"><img src="${esc(photo)}" alt="" /></span>`;
+    return `<span class="presence-avatar">${esc(initial)}</span>`;
+  };
+
   members.forEach((p) => {
     const el = document.createElement('div');
     el.className = 'presence-item';
     el.innerHTML = `
       <div style="display:flex; gap:10px; align-items:center;">
-        ${p.profilePhoto ? `<img class="presence-photo" src="${esc(p.profilePhoto)}" alt="" />` : `<div class="presence-photo"></div>`}
+        ${avatarCircle(p.displayName || p.nickname || '익명', p.profilePhoto)}
         <div>
           <div>${esc(p.displayName || p.nickname || '익명')}</div>
           <div class="presence-sub">${esc(p.role || 'viewer')}</div>
@@ -1238,9 +1273,10 @@ function renderSessionMembers(members) {
     const el = document.createElement('div');
     el.className = 'presence-item';
     const name = m.displayName || m.nickname || '익명';
+    const initial = String(name || '').trim().slice(0, 1) || '?';
     el.innerHTML = `
       <div style="display:flex; gap:10px; align-items:center;">
-        ${m.profilePhoto ? `<img class="presence-photo" src="${esc(m.profilePhoto)}" alt="" />` : `<div class="presence-photo"></div>`}
+        ${m.profilePhoto ? `<span class="presence-avatar"><img src="${esc(m.profilePhoto)}" alt="" /></span>` : `<span class="presence-avatar">${esc(initial)}</span>`}
         <div>
           <div>${esc(name)} ${m.isPageTurner ? '<span class="chip">터너</span>' : ''}</div>
           <div class="presence-sub">${esc(m.role || 'viewer')}</div>

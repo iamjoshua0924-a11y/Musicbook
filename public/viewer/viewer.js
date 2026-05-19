@@ -1740,8 +1740,16 @@ socket.on('session:participants', (p) => {
     const row = document.createElement('div');
     row.className = 'participant-row';
     const name = m.displayName || m.nickname || '익명';
+    const initial = String(name || '').trim().slice(0, 1) || '?';
     row.innerHTML = `
-      <span class="participant-name">${name}</span>
+      <span class="participant-left">
+        ${
+          m.profilePhoto
+            ? `<span class="participant-avatar"><img src="${String(m.profilePhoto)}" alt="" /></span>`
+            : `<span class="participant-avatar">${initial}</span>`
+        }
+        <span class="participant-name">${name}</span>
+      </span>
       ${m.isPageTurner ? `<span class="participant-badge">TURNER</span>` : ''}
     `;
 

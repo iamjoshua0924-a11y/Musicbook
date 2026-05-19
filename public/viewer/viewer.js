@@ -1156,16 +1156,24 @@ document.getElementById('touchNextBtn')?.addEventListener('click', () => {
   changePage(state.pageNo + state.spreadCount, 'touch');
   updateUrlState();
 });
-document.getElementById('touchMenuBtn')?.addEventListener('click', () => {
+function toggleBottomSheet(e) {
+  // 문서 레벨 auto-close 핸들러에 의해 즉시 닫히는 것 방지
+  try {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+  } catch {}
   document.body.classList.toggle('sheet-open');
   flashHud(document.body.classList.contains('sheet-open') ? '메뉴 열림' : '메뉴 닫힘', 700);
-});
+}
+
+document.getElementById('touchMenuBtn')?.addEventListener('click', toggleBottomSheet);
+// iOS에서 click이 불안정한 경우 대비
+document.getElementById('touchMenuBtn')?.addEventListener('touchend', toggleBottomSheet, { passive: false });
 
 // iOS/Safari에서 하단바 클릭이 불안정한 케이스 대비: 컨테이너 클릭도 허용
 document.getElementById('touchNavBottom')?.addEventListener('click', (e) => {
   if (e.target?.id !== 'touchMenuBtn') return;
-  document.body.classList.toggle('sheet-open');
-  flashHud(document.body.classList.contains('sheet-open') ? '메뉴 열림' : '메뉴 닫힘', 700);
+  toggleBottomSheet(e);
 });
 
 // Tap zones (GAS style): left=prev, right=next, center=toggle palette
@@ -2011,7 +2019,9 @@ document.addEventListener('click', (e) => {
   if (!document.body.classList.contains('sheet-open')) return;
   const fab = document.getElementById('fab');
   const shell = document.getElementById('toolbarShell');
+  const bottom = document.getElementById('touchNavBottom');
   if (fab?.contains(e.target)) return;
+  if (bottom?.contains(e.target)) return;
   if (shell?.contains(e.target)) return;
   document.body.classList.remove('sheet-open');
 });
@@ -2202,12 +2212,29 @@ socket.on('session:follow:file', (p) => {
   // 무한 리부팅 방지: 이미 같은 파일이면 아무것도 하지 않음
   if (String(fileId) === String(state.fileId || '')) return;
 
-  // originalLink가 있어도 재-broadcast 되지 않도록 "추출→직접 네비게이션"만 수행
+  // originalLink가 있어도 재-broadcast 되지 않도록 "추출→로컬에서 로드"만 수행
   const originalLink = String(p?.originalLink || '').trim();
   const targetId = originalLink ? extractDriveFileId(originalLink) || fileId : fileId;
 
-  const nextUrl = `${window.location.origin}/viewer/${targetId}?room=${state.roomCode}`;
-  window.location.href = nextUrl;
+  // 세션 내에서는 페이지 리로드를 하지 않고 PDF만 교체한다(중복 접속/터너 깜빡임 방지)
+  state.fileId = String(targetId);
+  try {
+    setLastRoomForFile(state.fileId, state.roomCode);
+    const nextUrl = `${window.location.origin}/viewer/${encodeURIComponent(state.fileId)}?room=${encodeURIComponent(state.roomCode)}`;
+    window.history.replaceState(null, '', nextUrl);
+  } catch {}
+
+  // reset per-file state
+  state.annoStore = {};
+  state.undoStack = {};
+  state.redoStack = {};
+  try {
+    els.pdfPreview.classList.add('hidden');
+    els.pdfPreview.src = '';
+    els.canvasStack.style.display = '';
+  } catch {}
+
+  loadPdf(state.fileId).catch(() => {});
 });
 
 // Whiteboard sync

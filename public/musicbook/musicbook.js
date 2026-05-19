@@ -531,6 +531,24 @@ function wireEvents() {
     if (!code) return;
     joinLiveSession(code);
   };
+  $('sessionLeaveBtn').onclick = () => leaveLiveSession();
+  $('sessionMembersBtn').onclick = () => {
+    $('sessionPanel').style.display = 'block';
+    state._socket?.emit?.('session:participants:refresh', { roomCode: state.sessionRoomCode });
+  };
+  $('sessionPanelHideBtn').onclick = () => {
+    $('sessionPanel').style.display = 'none';
+  };
+  $('sessionCopyBtn').onclick = async () => {
+    if (!state.sessionRoomCode) return;
+    const url = `${window.location.origin}/?room=${encodeURIComponent(state.sessionRoomCode)}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast('세션 링크 복사됨');
+    } catch {
+      prompt('복사해서 공유하세요:', url);
+    }
+  };
 
   // availability filter
   $('availUserFilter').onchange = () => loadAvailability().catch(() => {});
@@ -560,6 +578,26 @@ function attachSockets() {
     if (!state.sessionRoomCode) return;
     state.isPageTurner = p?.pageTurnerSocketId === socket.id;
     $('turnerBadge').style.display = state.isPageTurner ? 'inline-flex' : 'none';
+  });
+
+  socket.on('session:participants', (p) => {
+    if (!state.sessionRoomCode) return;
+    if (p?.roomCode && String(p.roomCode).toUpperCase() !== String(state.sessionRoomCode).toUpperCase()) return;
+    renderSessionMembers(p?.members || []);
+  });
+
+  // If turner was transferred to this socket while on main page, keep room stable by re-broadcasting current state.
+  socket.on('session:pageTurner:sync_request', (p) => {
+    if (!state.sessionRoomCode) return;
+    // We don't track local page on main page; just keep room at current (server) state.
+    if (p?.fileId && p?.pageNo) {
+      socket.emit('viewer:page_change', {
+        roomCode: state.sessionRoomCode,
+        fileId: p.fileId,
+        pageNo: p.pageNo,
+        reason: 'turner_sync_main'
+      });
+    }
   });
 }
 
@@ -609,6 +647,8 @@ function joinLiveSession(roomCode) {
   state.sessionRoomCode = code;
   $('sessionBadge').style.display = 'inline-flex';
   $('sessionBadge').textContent = `세션: ${code}`;
+  $('sessionLeaveBtn').style.display = 'inline-flex';
+  $('sessionMembersBtn').style.display = 'inline-flex';
   setRoomToUrl(code);
   state._socket?.emit?.('session:join', { roomCode: code, nickname: localStorage.getItem('mb_presence_nick') || state.displayName }, (ack) => {
     if (!ack?.ok) {
@@ -617,6 +657,52 @@ function joinLiveSession(roomCode) {
     }
     state.isPageTurner = Boolean(ack.isPageTurner);
     $('turnerBadge').style.display = state.isPageTurner ? 'inline-flex' : 'none';
+  });
+}
+
+function leaveLiveSession() {
+  const code = state.sessionRoomCode;
+  if (!code) return;
+  state._socket?.emit?.('session:leave', { roomCode: code });
+  state.sessionRoomCode = '';
+  state.isPageTurner = false;
+  $('sessionBadge').style.display = 'none';
+  $('turnerBadge').style.display = 'none';
+  $('sessionLeaveBtn').style.display = 'none';
+  $('sessionMembersBtn').style.display = 'none';
+  $('sessionPanel').style.display = 'none';
+  setRoomToUrl('');
+  toast('세션 나감');
+}
+
+function renderSessionMembers(members) {
+  const wrap = $('sessionMembersList');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  members.forEach((m) => {
+    const el = document.createElement('div');
+    el.className = 'presence-item';
+    el.innerHTML = `
+      <div style="display:flex; gap:10px; align-items:center;">
+        <div class="presence-photo"></div>
+        <div>
+          <div>${esc(m.nickname || '익명')} ${m.isPageTurner ? '<span class="chip">터너</span>' : ''}</div>
+          <div class="presence-sub">${esc(m.socketId || '')}</div>
+        </div>
+      </div>
+      <div>
+        ${state.isPageTurner && !m.isPageTurner ? `<button class="floating-btn compact-btn" data-transfer="1">양도</button>` : ''}
+      </div>
+    `;
+    const btn = el.querySelector('[data-transfer="1"]');
+    if (btn) {
+      btn.onclick = () => {
+        state._socket?.emit?.('session:pageTurner:transfer', { roomCode: state.sessionRoomCode, targetSocketId: m.socketId }, (ack) => {
+          if (!ack?.ok) toast('양도 실패');
+        });
+      };
+    }
+    wrap.appendChild(el);
   });
 }
 

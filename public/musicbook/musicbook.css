@@ -511,6 +511,23 @@ textarea {
   backdrop-filter: blur(18px);
   z-index: 1700;
 }
+
+/* Session members panel (reuse presence styles, different position) */
+.floating-session-panel {
+  position: fixed;
+  right: 22px;
+  bottom: calc(22px + 52vh + 16px);
+  width: min(360px, calc(100vw - 44px));
+  max-height: 46vh;
+  overflow: hidden;
+  padding: 14px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid var(--border);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(18px);
+  z-index: 1700;
+}
 .presence-header {
   display: flex;
   justify-content: space-between;

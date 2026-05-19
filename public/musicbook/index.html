@@ -63,6 +63,8 @@
           <button class="floating-btn black-btn" id="authButton" type="button">세션 / 관리자 로그인</button>
           <button class="floating-btn" id="sessionCreateBtn" type="button">세션 만들기</button>
           <button class="floating-btn" id="sessionJoinBtn" type="button">세션 참여</button>
+          <button class="floating-btn" id="sessionLeaveBtn" type="button" style="display:none;">세션 나가기</button>
+          <button class="floating-btn" id="sessionMembersBtn" type="button" style="display:none;">세션 멤버</button>
           <div class="session-badge" id="sessionBadge" style="display:none;"></div>
           <div class="session-badge turner-badge" id="turnerBadge" style="display:none;">현재 당신이 페이지터너입니다</div>
           <button class="floating-btn" id="adminToggleBtn" type="button" style="display: none">관리자 버튼</button>
@@ -273,6 +275,21 @@
     <button class="floating-btn compact-btn presence-show-btn" id="presenceShowBtn" type="button" style="right:22px; bottom:78px;">
       접속자 나타내기
     </button>
+
+    <!-- 세션 멤버 패널 -->
+    <aside id="sessionPanel" class="session-panel floating-session-panel" style="display:none;">
+      <div class="presence-header">
+        <div class="presence-title">세션 멤버</div>
+        <div class="presence-actions">
+          <button class="floating-btn compact-btn" id="sessionCopyBtn" type="button">코드 복사</button>
+          <button class="floating-btn compact-btn" id="sessionPanelHideBtn" type="button">숨기기</button>
+        </div>
+      </div>
+      <div class="presence-list" id="sessionMembersList"></div>
+      <div class="muted" style="margin-top:8px; font-weight:800;">
+        페이지터너만 권한 양도/곡 팔로우/페이지 넘김 브로드캐스트 가능
+      </div>
+    </aside>
 
     <!-- 모달(필수만) -->
     <div class="modal-overlay" id="loginModal">

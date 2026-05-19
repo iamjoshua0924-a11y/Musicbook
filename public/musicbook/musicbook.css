@@ -425,7 +425,7 @@ body.hide-tags .song-chips{ display:none; }
   position: fixed;
   right: 22px;
   bottom: 22px;
-  width: min(240px, calc(100vw - 44px));
+  width: min(288px, calc(100vw - 44px)); /* 기존 대비 1.2배 */
   overflow: hidden;
   padding: 16px;
   border-radius: 24px;
@@ -448,12 +448,11 @@ body.hide-tags .song-chips{ display:none; }
   margin-bottom: 10px;
 }
 #requestExternalActions{
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  margin-bottom: 10px;
-  padding-bottom: 10px;
-  background: rgba(255, 255, 255, 0.82);
+  position: fixed;
+  right: 22px;
+  bottom: calc(22px + 420px + 10px); /* 패널 상단에 붙여서 플로팅 */
+  z-index: 1750;
+  margin-bottom: 0;
 }
 .request-panel-header {
   display: flex;

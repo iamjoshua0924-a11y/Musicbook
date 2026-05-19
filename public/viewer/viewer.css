@@ -449,6 +449,14 @@ body.live-mode #participantsPanel{
   align-items:center;
   gap:8px;
   min-width:0;
+  flex:1 1 auto;
+}
+.participant-actions{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  flex:0 0 auto;
+  flex-wrap:nowrap;
 }
 .participant-avatar{
   width: 24px;
@@ -486,9 +494,10 @@ body.live-mode #participantsPanel{
 }
 .participant-row button{
   height:30px;
-  padding:6px 10px;
+  padding:6px 8px;
   border-radius:10px;
-  font-size:12px;
+  font-size:11px;
+  white-space:nowrap;
 }
 
 /* MUST-2: Fullscreen target is #viewer-wrapper, overlays are inside */

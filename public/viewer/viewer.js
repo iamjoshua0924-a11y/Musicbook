@@ -2209,20 +2209,28 @@ socket.on('session:participants', (p) => {
             ? `<span class="participant-avatar"><img src="${String(photo)}" alt="" /></span>`
             : `<span class="participant-avatar">${initial}</span>`
         }
-        <span class="participant-name">${name}</span>
+        <span class="participant-name" title="${String(name)}">${name}</span>
       </span>
-      ${m.isPageTurner ? `<span class="participant-badge">TURNER</span>` : ''}
+      <span class="participant-actions"></span>
     `;
+    const actions = row.querySelector('.participant-actions');
+    if (m.isPageTurner) {
+      const badge = document.createElement('span');
+      badge.className = 'participant-badge';
+      badge.textContent = 'TURNER';
+      actions?.appendChild(badge);
+    }
 
     if (state.isPageTurner && !m.isPageTurner) {
       const btn = document.createElement('button');
-      btn.textContent = '권한 양도';
+      btn.textContent = '양도';
+      btn.title = '권한 양도';
       btn.onclick = () => {
         socket.emit('session:pageTurner:transfer', { roomCode: state.roomCode, targetSocketId: m.socketId }, (ack) => {
           if (!ack?.ok) alert('양도 실패');
         });
       };
-      row.appendChild(btn);
+      actions?.appendChild(btn);
     }
 
     // tool permission UI
@@ -2231,17 +2239,18 @@ socket.on('session:participants', (p) => {
         const badge = document.createElement('span');
         badge.className = 'participant-badge';
         badge.textContent = 'TOOL';
-        row.appendChild(badge);
+        actions?.appendChild(badge);
       } else if (m.toolRequested) {
         const badge = document.createElement('span');
         badge.className = 'participant-badge';
         badge.textContent = '요청';
-        row.appendChild(badge);
+        actions?.appendChild(badge);
       }
     }
     if (state.isPageTurner && !m.isPageTurner) {
       const toolBtn = document.createElement('button');
-      toolBtn.textContent = m.isToolAuthorized ? '도구 해제' : '도구 승인';
+      toolBtn.textContent = m.isToolAuthorized ? '해제' : '승인';
+      toolBtn.title = m.isToolAuthorized ? '도구 해제' : '도구 승인';
       toolBtn.onclick = () => {
         socket.emit(
           'session:tool:grant',
@@ -2251,7 +2260,7 @@ socket.on('session:participants', (p) => {
           }
         );
       };
-      row.appendChild(toolBtn);
+      actions?.appendChild(toolBtn);
     }
     list.appendChild(row);
   });

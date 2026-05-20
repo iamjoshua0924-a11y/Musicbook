@@ -1179,10 +1179,14 @@ async function openChordByRawText(rawText, sourceUrl = '', { broadcast } = { bro
   showChordAuthActions(false);
   state.chordPendingAuthUrl = '';
 
+  const payload = { rawText: text };
+  const su = String(sourceUrl || '').trim();
+  if (/^https?:\/\//i.test(su)) payload.sourceUrl = su;
+
   const r = await fetch('/api/proxy-chord', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ rawText: text, sourceUrl: String(sourceUrl || '') })
+    body: JSON.stringify(payload)
   }).then((x) => x.json());
   if (!r.ok) return setCwError(`파싱 실패: ${r.error || ''}`);
 

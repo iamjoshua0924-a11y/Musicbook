@@ -113,7 +113,7 @@ router.get('/proxy-chord', async (req, res) => {
 router.post('/proxy-chord', async (req, res) => {
   const schema = z.object({
     rawText: z.string().min(1).max(500_000),
-    sourceUrl: z.string().url().optional()
+    sourceUrl: z.union([z.string().url(), z.literal('')]).optional()
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
@@ -127,4 +127,3 @@ router.post('/proxy-chord', async (req, res) => {
 });
 
 module.exports = router;
-

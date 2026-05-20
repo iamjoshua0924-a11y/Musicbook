@@ -974,6 +974,15 @@ function openAuthPopup(url) {
   return true;
 }
 
+function needsUserAuthForError(err) {
+  const e = String(err || '');
+  // 서버가 bot 페이지를 탐지했거나,
+  // upstream이 403을 반환한 경우(대부분 bot/verification)도 유저 인증 흐름으로 보낸다.
+  if (e.includes('BOT_PROTECTION')) return true;
+  if (e === 'FETCH_FAILED_403' || e.endsWith('_403')) return true;
+  return false;
+}
+
 function setMode(mode) {
   state.mode = mode;
   document.getElementById('pdfModeBtn')?.classList.toggle('active', mode === 'pdf');
@@ -984,6 +993,9 @@ function setMode(mode) {
 
   if (mode === 'pdf') {
     document.getElementById('linkInput')?.setAttribute('placeholder', '구글드라이브 PDF 링크 또는 fileId');
+    // chord 전용 UI 숨김
+    showChordAuthActions(false);
+    state.chordPendingAuthUrl = '';
     // restore pdf fileId for viewer internals
     if (state.pdfFileId) {
       state.fileId = state.pdfFileId;
@@ -1018,7 +1030,7 @@ document.getElementById('cwAuthOpenBtn')?.addEventListener('click', () => {
 document.getElementById('cwAuthDoneBtn')?.addEventListener('click', () => {
   if (!state.chordPendingAuthUrl) return;
   // 사용자가 새창에서 인증을 완료했다고 가정하고 동일 URL 재시도
-  openChordByUrl(state.chordPendingAuthUrl).catch(() => {});
+  openChordByUrl(state.chordPendingAuthUrl, { preopenAuth: false }).catch(() => {});
 });
 
 function renderChordBlocks(blocks) {
@@ -1129,7 +1141,7 @@ const resizeChordAnnoDebounced = debounce(() => {
 }, 200);
 window.addEventListener('resize', () => resizeChordAnnoDebounced());
 
-async function openChordByUrl(url, { broadcast } = { broadcast: true }) {
+async function openChordByUrl(url, { broadcast, preopenAuth } = { broadcast: true, preopenAuth: false }) {
   const u = String(url || '').trim();
   if (!/^https?:\/\//i.test(u)) return alert('코드위키 모드는 URL이 필요합니다.');
 
@@ -1138,17 +1150,47 @@ async function openChordByUrl(url, { broadcast } = { broadcast: true }) {
   showChordAuthActions(false);
   state.chordPendingAuthUrl = '';
 
+  // 팝업은 사용자 제스처(클릭) 호출 스택에서만 허용되는 경우가 많아서,
+  // 필요할지도 모르는 상황(403) 대비로 "빈 새창"을 먼저 열어둔 뒤,
+  // 실패 시 그 창을 URL로 이동시키는 방식으로 자동화한다.
+  let preWin = null;
+  if (preopenAuth) {
+    try {
+      preWin = window.open('', '_blank', 'noopener,noreferrer');
+      preWin?.document?.write?.('<title>인증</title>');
+    } catch {
+      preWin = null;
+    }
+  }
+
   const r = await fetch(`/api/proxy-chord?url=${encodeURIComponent(u)}`).then((x) => x.json());
   if (!r.ok) {
     setCwError(`불러오기 실패: ${r.error || ''}`);
-    if (String(r.error || '').includes('BOT_PROTECTION')) {
+    if (needsUserAuthForError(r.error)) {
       state.chordPendingAuthUrl = u;
       showChordAuthActions(true);
-      setCwError('보안 검증이 필요합니다. “인증창 열기”로 새창에서 인증 후, “인증 완료(재시도)”를 눌러주세요.');
+      setCwError('보안 검증(403)이 감지되었습니다. 새창에서 인증/확인 후, “인증 완료(재시도)”를 누르세요. (필요 시 원문 붙여넣기도 가능)');
       document.getElementById('cwRawInput')?.classList.remove('hidden');
       document.getElementById('cwParseRawBtn')?.classList.remove('hidden');
+
+      // 자동 새창 활성화(가능한 경우)
+      if (preWin && !preWin.closed) {
+        try {
+          preWin.location.href = u;
+          preWin.focus();
+        } catch {}
+      }
+    } else if (preWin && !preWin.closed) {
+      try {
+        preWin.close();
+      } catch {}
     }
     return;
+  }
+  if (preWin && !preWin.closed) {
+    try {
+      preWin.close();
+    } catch {}
   }
 
   const docId = `chord:${hashString(u)}`;
@@ -1416,7 +1458,7 @@ function openByInput(input) {
 // New: inline open input (GAS style)
 document.getElementById('openBtn')?.addEventListener('click', () => {
   const input = document.getElementById('linkInput')?.value || '';
-  if (state.mode === 'chord') return openChordByUrl(input).catch(() => {});
+  if (state.mode === 'chord') return openChordByUrl(input, { preopenAuth: true }).catch(() => {});
   openByInput(input);
 });
 document.getElementById('linkInput')?.addEventListener('keydown', (e) => {

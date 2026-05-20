@@ -987,6 +987,8 @@ function needsUserAuthForError(err) {
   // upstream이 403을 반환한 경우(대부분 bot/verification)도 유저 인증 흐름으로 보낸다.
   if (e.includes('BOT_PROTECTION')) return true;
   if (e === 'FETCH_FAILED_403' || e.endsWith('_403')) return true;
+  // extractor가 실패한 경우도 "수동 인증/원문 붙여넣기" 유도
+  if (e === 'EXTRACT_FAILED') return true;
   return false;
 }
 
@@ -1197,7 +1199,14 @@ async function openChordByUrl(url, { broadcast, preopenAuth } = { broadcast: tru
     if (needsUserAuthForError(r.error)) {
       state.chordPendingAuthUrl = u;
       showChordAuthActions(true);
-      setCwError('보안 검증(403)이 감지되었습니다. 새창에서 인증/확인 후, “인증 완료(재시도)”를 누르세요. (필요 시 원문 붙여넣기도 가능)');
+      if (String(r.error || '') === 'EXTRACT_FAILED') {
+        setCwError('본문 추출에 실패했습니다. 새창에서 확인 후(필요 시 인증), 원문 붙여넣기로 진행하세요.');
+        try {
+          if (r.detail) setCwMeta(`추출 실패 상세: ${JSON.stringify(r.detail)}`);
+        } catch {}
+      } else {
+        setCwError('보안 검증(403)이 감지되었습니다. 새창에서 인증/확인 후, “인증 완료(재시도)”를 누르세요. (필요 시 원문 붙여넣기도 가능)');
+      }
       document.getElementById('cwRawInput')?.classList.remove('hidden');
       document.getElementById('cwParseRawBtn')?.classList.remove('hidden');
 

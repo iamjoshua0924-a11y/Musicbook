@@ -27,6 +27,87 @@ function extractLargestPre(html) {
   return pres.sort((a, b) => b.length - a.length)[0];
 }
 
+function extractLargestTextarea(html) {
+  const areas = [...String(html || '').matchAll(/<textarea[^>]*>([\s\S]*?)<\/textarea>/gi)].map((x) => x?.[1] || '');
+  if (!areas.length) return '';
+  return areas.sort((a, b) => b.length - a.length)[0];
+}
+
+function unescapeHtmlAttr(s) {
+  // data-content 같은 attribute는 보통 HTML escape 상태
+  return String(s || '')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&#34;', '"')
+    .replaceAll('&amp;', '&')
+    .replaceAll('&#39;', "'")
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>');
+}
+
+function looksLikeChordText(s) {
+  const t = String(s || '');
+  if (!t.trim()) return false;
+  // 코드 텍스트 가능성이 있는 힌트
+  if (/\[ch\]/i.test(t)) return true; // Ultimate Guitar
+  if (/\b[A-G](?:#|b)?(?:m|maj|min|dim|aug|sus|add)?\d*(?:\/[A-G](?:#|b)?)?\b/.test(t) && t.includes('\n')) return true;
+  return false;
+}
+
+function stripUgChordTags(s) {
+  return String(s || '')
+    .replace(/\[ch\]/gi, '')
+    .replace(/\[\/ch\]/gi, '')
+    .replace(/\[tab\]/gi, '')
+    .replace(/\[\/tab\]/gi, '');
+}
+
+function findLongestStringDeep(obj, predicate) {
+  const seen = new Set();
+  let best = '';
+  const stack = [obj];
+  while (stack.length) {
+    const cur = stack.pop();
+    if (!cur || typeof cur !== 'object') continue;
+    if (seen.has(cur)) continue;
+    seen.add(cur);
+    if (Array.isArray(cur)) {
+      for (const x of cur) stack.push(x);
+      continue;
+    }
+    for (const k of Object.keys(cur)) {
+      const v = cur[k];
+      if (typeof v === 'string') {
+        if (predicate(v) && v.length > best.length) best = v;
+      } else if (v && typeof v === 'object') stack.push(v);
+    }
+  }
+  return best;
+}
+
+function extractUltimateGuitarText(html) {
+  // UG는 본문이 <pre>가 아닌, data-content JSON이나 __NEXT_DATA__ 등에 들어있는 경우가 많다.
+  const s = String(html || '');
+  const m = s.match(/class="js-store"[^>]*data-content="([^"]+)"/i);
+  if (m?.[1]) {
+    try {
+      const jsonStr = unescapeHtmlAttr(m[1]);
+      const data = JSON.parse(jsonStr);
+      const best = findLongestStringDeep(data, looksLikeChordText);
+      if (best) return stripUgChordTags(best);
+    } catch {}
+  }
+
+  const next = s.match(/<script[^>]*id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/i);
+  if (next?.[1]) {
+    try {
+      const data = JSON.parse(next[1]);
+      const best = findLongestStringDeep(data, looksLikeChordText);
+      if (best) return stripUgChordTags(best);
+    } catch {}
+  }
+  return '';
+}
+
 function decodeHtml(s) {
   const x = String(s || '')
     .replace(/<br\s*\/?>/gi, '\n')
@@ -126,9 +207,31 @@ router.get('/proxy-chord', async (req, res) => {
   }
 
   // 3) 본문 추출
-  const pre = extractLargestPre(html);
-  if (!pre) return res.status(422).json({ ok: false, error: 'EXTRACT_FAILED' });
-  const rawText = decodeHtml(pre);
+  const host = urlObj.hostname;
+  let extracted = '';
+
+  // 3-1) chordwiki 계열은 pre/textarea 우선
+  extracted = extractLargestPre(html);
+  if (!extracted) extracted = extractLargestTextarea(html);
+
+  // 3-2) ultimate-guitar 폴백
+  if (!extracted && host.includes('ultimate-guitar.com')) {
+    extracted = extractUltimateGuitarText(html);
+  }
+
+  if (!extracted) {
+    // 디버깅을 위해 "찾은 힌트"를 detail로 내려준다.
+    const preCount = [...String(html || '').matchAll(/<pre[^>]*>/gi)].length;
+    const taCount = [...String(html || '').matchAll(/<textarea[^>]*>/gi)].length;
+    const hasJsStore = /class="js-store"[^>]*data-content="/i.test(String(html || ''));
+    return res.status(422).json({
+      ok: false,
+      error: 'EXTRACT_FAILED',
+      detail: { host, preCount, textareaCount: taCount, hasJsStore, finalUrl }
+    });
+  }
+
+  const rawText = decodeHtml(extracted);
   const blocks = await parseRawTextToBlocks(rawText);
 
   const value = {

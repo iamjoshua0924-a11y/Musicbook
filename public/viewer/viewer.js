@@ -956,22 +956,24 @@ function setCwError(msg) {
 }
 
 function showChordAuthActions(show) {
-  document.getElementById('cwAuthOpenBtn')?.classList.toggle('hidden', !show);
-  document.getElementById('cwAuthDoneBtn')?.classList.toggle('hidden', !show);
+  const on = Boolean(show) && state.mode === 'chord';
+  document.getElementById('cwAuthOpenBtn')?.classList.toggle('hidden', !on);
+  document.getElementById('cwAuthDoneBtn')?.classList.toggle('hidden', !on);
 }
 
 function openAuthPopup(url) {
   const u = String(url || '').trim();
-  if (!/^https?:\/\//i.test(u)) return false;
-  const w = window.open(u, '_blank', 'noopener,noreferrer');
+  if (!/^https?:\/\//i.test(u)) return null;
+  // 팝업 차단 최소화를 위해 feature를 단순화한다(사용자 클릭에서만 호출됨)
+  const w = window.open(u, '_blank');
   if (!w) {
     setCwError('팝업이 차단되었습니다. 브라우저 팝업 허용 후 다시 “인증창 열기”를 눌러주세요.');
-    return false;
+    return null;
   }
   try {
     w.focus();
   } catch {}
-  return true;
+  return w;
 }
 
 function needsUserAuthForError(err) {
@@ -996,6 +998,11 @@ function setMode(mode) {
     // chord 전용 UI 숨김
     showChordAuthActions(false);
     state.chordPendingAuthUrl = '';
+    // 인증 팝업이 남아있으면 정리
+    try {
+      if (state._authPopup && !state._authPopup.closed) state._authPopup.close();
+    } catch {}
+    state._authPopup = null;
     // restore pdf fileId for viewer internals
     if (state.pdfFileId) {
       state.fileId = state.pdfFileId;
@@ -1025,12 +1032,20 @@ document.getElementById('cwPasteToggleBtn')?.addEventListener('click', () => {
 
 document.getElementById('cwAuthOpenBtn')?.addEventListener('click', () => {
   if (!state.chordPendingAuthUrl) return;
-  openAuthPopup(state.chordPendingAuthUrl);
+  // 기존에 열어둔 창이 있으면 그 창을 사용
+  try {
+    if (state._authPopup && !state._authPopup.closed) {
+      state._authPopup.location.replace(state.chordPendingAuthUrl);
+      state._authPopup.focus();
+      return;
+    }
+  } catch {}
+  state._authPopup = openAuthPopup(state.chordPendingAuthUrl);
 });
 document.getElementById('cwAuthDoneBtn')?.addEventListener('click', () => {
   if (!state.chordPendingAuthUrl) return;
   // 사용자가 새창에서 인증을 완료했다고 가정하고 동일 URL 재시도
-  openChordByUrl(state.chordPendingAuthUrl, { preopenAuth: false }).catch(() => {});
+  openChordByUrl(state.chordPendingAuthUrl, { preopenAuth: true, broadcast: true }).catch(() => {});
 });
 
 function renderChordBlocks(blocks) {
@@ -1156,14 +1171,20 @@ async function openChordByUrl(url, { broadcast, preopenAuth } = { broadcast: tru
   let preWin = null;
   if (preopenAuth) {
     try {
-      preWin = window.open('', '_blank', 'noopener,noreferrer');
-      preWin?.document?.write?.('<title>인증</title>');
+      // user gesture stack에서 about:blank를 먼저 열어두면, 이후 403에서도 URL 이동이 가능해진다.
+      preWin = window.open('about:blank', '_blank');
+      if (preWin) state._authPopup = preWin;
     } catch {
       preWin = null;
     }
   }
 
-  const r = await fetch(`/api/proxy-chord?url=${encodeURIComponent(u)}`).then((x) => x.json());
+  let r;
+  try {
+    r = await fetch(`/api/proxy-chord?url=${encodeURIComponent(u)}`).then((x) => x.json());
+  } catch (e) {
+    r = { ok: false, error: `NETWORK_ERROR: ${String(e?.message || e)}` };
+  }
   if (!r.ok) {
     setCwError(`불러오기 실패: ${r.error || ''}`);
     if (needsUserAuthForError(r.error)) {
@@ -1176,9 +1197,27 @@ async function openChordByUrl(url, { broadcast, preopenAuth } = { broadcast: tru
       // 자동 새창 활성화(가능한 경우)
       if (preWin && !preWin.closed) {
         try {
-          preWin.location.href = u;
           preWin.focus();
         } catch {}
+        try {
+          preWin.location.replace(u);
+        } catch (e) {
+          // 일부 브라우저는 비동기 콜백에서의 리다이렉트를 차단할 수 있음.
+          // 이 경우, 팝업 내에 사용자가 직접 누를 수 있는 링크를 그려준다.
+          try {
+            preWin.document.open();
+            preWin.document.write(
+              `<meta charset="utf-8" />` +
+                `<title>인증 필요</title>` +
+                `<div style="font-family:system-ui; padding:18px; line-height:1.5">` +
+                `<h3 style="margin:0 0 10px 0">인증이 필요합니다</h3>` +
+                `<p style="margin:0 0 12px 0">아래 버튼을 눌러 인증 페이지를 열어주세요.</p>` +
+                `<a href="${u.replace(/\"/g, '&quot;')}" style="display:inline-block; padding:10px 12px; border:1px solid #999; border-radius:10px; text-decoration:none;">인증 페이지 열기</a>` +
+                `</div>`
+            );
+            preWin.document.close();
+          } catch {}
+        }
       }
     } else if (preWin && !preWin.closed) {
       try {

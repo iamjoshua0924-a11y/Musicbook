@@ -13,7 +13,22 @@ const BOT_PATTERNS = [
   /performing security verification/i,
   /verify you are not a bot/i,
   /checking your browser/i,
-  /cloudflare/i
+  /cloudflare/i,
+  // Cloudflare/Turnstile challenge common markers
+  /just a moment/i,
+  /attention required/i,
+  /cf-browser-verification/i,
+  /cf_chl_/i,
+  /challenge-platform/i,
+  /cdn-cgi\/challenge-platform/i,
+  /turnstile/i,
+  /cf-turnstile/i,
+  /ray id/i,
+  /please enable javascript/i,
+  // JP/KR wording (일부 사이트)
+  /ブラウザを確認しています/i,
+  /しばらくお待ちください/i,
+  /보안\s*확인/i
 ];
 
 function looksLikeBotPage(html) {
@@ -220,6 +235,14 @@ router.get('/proxy-chord', async (req, res) => {
   }
 
   if (!extracted) {
+    // HTML 자체가 챌린지(봇/보안검증)로 보이면 extractor 실패가 아니라 bot으로 분류한다.
+    if (looksLikeBotPage(html)) {
+      return res.status(403).json({
+        ok: false,
+        error: 'BOT_PROTECTION_PAGE',
+        detail: { host, finalUrl }
+      });
+    }
     // 디버깅을 위해 "찾은 힌트"를 detail로 내려준다.
     const preCount = [...String(html || '').matchAll(/<pre[^>]*>/gi)].length;
     const taCount = [...String(html || '').matchAll(/<textarea[^>]*>/gi)].length;

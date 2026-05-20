@@ -15,13 +15,16 @@
 
 function isChordTokenChar(ch) {
   // '-'는 리듬 표기와 충돌해 제외
-  return /[A-Za-z0-9#b/()+]/.test(ch);
+  // '.'은 N.C. 표기 지원
+  return /[A-Za-z0-9#b/.()+]/.test(ch);
 }
 
 function looksLikeChordToken(s) {
   if (!s) return false;
-  if (s === 'N.C.' || s === 'NC' || s === 'N.C') return true;
-  return /^[A-G]/.test(s);
+  const t = String(s).trim();
+  if (/^(?:N\.C\.|N\.C|NC)$/i.test(t)) return true;
+  // 엄격한 코드 토큰 패턴(메타 텍스트(BPM 등) 오탐 방지)
+  return /^[A-G](?:#|b)?(?:maj|min|m|dim|aug|sus|add)?\d*(?:\/[A-G](?:#|b)?)?$/i.test(t);
 }
 
 function isChordLine(line) {
@@ -56,12 +59,48 @@ function buildChordStartMap(chordLine) {
   return map;
 }
 
-function emitChordOnly(chordLine, chordMap, out) {
+function buildChordTokenSpans(line) {
+  const s = String(line || '');
+  /** @type {Array<{start:number,end:number,token:string}>} */
+  const spans = [];
+  let idx = 0;
+  while (idx < s.length) {
+    const ch = s[idx];
+    if (ch === ' ' || ch === '\t') {
+      idx += 1;
+      continue;
+    }
+    if (!isChordTokenChar(ch)) {
+      idx += 1;
+      continue;
+    }
+    let j = idx;
+    while (j < s.length && isChordTokenChar(s[j])) j += 1;
+    const token = s.slice(idx, j).trim();
+    if (looksLikeChordToken(token)) spans.push({ start: idx, end: j, token });
+    idx = Math.max(j, idx + 1);
+  }
+  return spans;
+}
+
+// chord-only 라인은 "코드"는 상단에만 표시하고, 하단에는 bar/리듬 문자만 남겨 화면이 깨지지 않게 한다.
+function emitChordOnly(chordLine, _chordMap, out) {
   const s = String(chordLine || '');
-  for (let col = 0; col < s.length; col += 1) {
-    const chord = chordMap.get(col) || '';
-    const raw = s[col];
-    out.push({ chord, lyric_raw: raw, lyric_kr: raw });
+  const spans = buildChordTokenSpans(s);
+  const spanByStart = new Map(spans.map((x) => [x.start, x]));
+
+  let i = 0;
+  while (i < s.length) {
+    const sp = spanByStart.get(i);
+    if (sp) {
+      // chord token은 한 셀로 압축: 상단 chord만 표시, 하단은 공백(시각 폭은 chord 텍스트가 담당)
+      out.push({ chord: sp.token, lyric_raw: '', lyric_kr: '' });
+      i = sp.end;
+      continue;
+    }
+    const ch = s[i];
+    out.push({ chord: '', lyric_raw: ch, lyric_kr: ch });
+    i += 1;
   }
 }
 
@@ -247,9 +286,89 @@ async function emitAlignedPair(lyricLine, chordMap, chordLineLen, out) {
   }
 }
 
+// 가사 라인에 코드가 inline으로 섞여있는 형태(예: "D夢がC#7覚めた F#m酔いどれ") 처리
 async function emitLyricOnly(line, out) {
-  const cells = await buildLyricCellsWithFurigana(String(line || ''));
-  for (const c of cells) out.push({ chord: '', lyric_raw: c.raw, lyric_kr: c.kr });
+  const s = String(line || '');
+  const spans = buildChordTokenSpans(s);
+  const spanByStart = new Map(spans.map((x) => [x.start, x]));
+
+  let i = 0;
+  while (i < s.length) {
+    const sp = spanByStart.get(i);
+    if (sp) {
+      // chord token 한 셀로 압축 (하단은 공백)
+      out.push({ chord: sp.token, lyric_raw: '', lyric_kr: '' });
+      i = sp.end;
+      continue;
+    }
+
+    // kanji(かな) 패턴은 기존 후리가나 결합 로직을 재사용하기 위해 "현재 위치부터" 1회만 적용
+    const ch = s[i];
+    if (isKanji(ch)) {
+      let j = i;
+      while (j < s.length && isKanji(s[j])) j += 1;
+      const kanjiRun = s.slice(i, j);
+      if (s[j] === '(') {
+        let k = j + 1;
+        while (k < s.length && isFuriganaChar(s[k])) k += 1;
+        if (s[k] === ')' && k > j + 1) {
+          const readingKana = s.slice(j + 1, k);
+          const readingKr = toKoreanReadingMvp(readingKana);
+          out.push({ chord: '', lyric_raw: kanjiRun, lyric_kr: readingKr });
+          i = k + 1;
+          continue;
+        }
+      }
+    }
+
+    out.push({ chord: '', lyric_raw: ch, lyric_kr: toKoreanReadingMvp(ch) });
+    i += 1;
+  }
+
+  // NOTE: 괄호 없는 한자 fallback(kuromoji)은 "cells 배열" 기반으로만 구현되어 있었으므로,
+  //       inline 코드 섞인 라인에서는 2차 패스(kuromoji)로 토큰 치환을 적용한다.
+  //       (간단 구현: out을 문자열로 재구성하여 tokenizer로 reading을 얻고, 해당 토큰 시작 블록에 주입)
+  const tokenizer = await getTokenizer();
+  if (!tokenizer) return;
+  try {
+    const rawLine = out.map((b) => b.lyric_raw).join('');
+    const tokens = tokenizer.tokenize(rawLine);
+    let pos = 0;
+    for (const t of tokens) {
+      const surf = String(t.surface_form || '');
+      if (!surf) continue;
+      if (!rawLine.startsWith(surf, pos)) {
+        const found = rawLine.indexOf(surf, pos);
+        if (found === -1) continue;
+        pos = found;
+      }
+      const spanStart = pos;
+      pos += surf.length;
+
+      const hasKanji = /[\u3400-\u9fff]/.test(surf);
+      const reading = String(t.reading || '');
+      if (!hasKanji || !reading) continue;
+
+      // out의 인덱스는 "셀" 기반이므로, spanStart를 셀 인덱스로 그대로 쓰지 못한다.
+      // 여기서는 가장 단순하게: raw 누적 길이를 따라 시작 셀을 찾는다.
+      let acc = 0;
+      let startIdx = -1;
+      for (let bi = 0; bi < out.length; bi += 1) {
+        const seg = String(out[bi].lyric_raw || '');
+        if (acc === spanStart) {
+          // chord placeholder(빈 raw)은 건너뛰고 실제 가사 셀로 매핑
+          let bj = bi;
+          while (bj < out.length && String(out[bj].lyric_raw || '').length === 0) bj += 1;
+          startIdx = bj < out.length ? bj : bi;
+          break;
+        }
+        acc += seg.length;
+      }
+      if (startIdx === -1) continue;
+      if (out[startIdx].lyric_kr && out[startIdx].lyric_kr !== out[startIdx].lyric_raw) continue;
+      out[startIdx].lyric_kr = toKoreanReadingMvp(reading);
+    }
+  } catch {}
 }
 
 /**
@@ -292,4 +411,3 @@ async function parseRawTextToBlocks(rawText) {
 module.exports = {
   parseRawTextToBlocks
 };
-

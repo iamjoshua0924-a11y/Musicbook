@@ -348,17 +348,16 @@ function isChordTokenChar(ch) {
   // NOTE:
   // - '-'(리듬 표기)까지 포함하면 "Em--D/F#--" 같은 덩어리로 토큰이 커져서 제외한다.
   // - 코드 표기는 Em, maj, sus, dim 등 다양한 영문 조합을 포함하므로 A-G 범위로 제한하면 안 된다.
-  return /[A-Za-z0-9#b/()+]/.test(ch);
+  return /[A-Za-z0-9#b/.()+]/.test(ch);
 }
 
 function looksLikeChordToken(s) {
   // permissive chord pattern: root + modifiers
   // examples: C, Am, AM7, F#dim, Bb, D/F#, N.C.
   if (!s) return false;
-  if (s === 'N.C.' || s === 'NC' || s === 'N.C') return true;
-  if (!/^[A-G]/.test(s)) return false;
-  if (!/^[A-G][#b]?(m|maj|min|dim|aug|sus|add)?/i.test(s)) return true;
-  return true;
+  const t = String(s).trim();
+  if (/^(?:N\.C\.|N\.C|NC)$/i.test(t)) return true;
+  return /^[A-G](?:#|b)?(?:maj|min|m|dim|aug|sus|add)?\d*(?:\/[A-G](?:#|b)?)?$/i.test(t);
 }
 
 function isChordLine(line) {
@@ -401,6 +400,30 @@ function buildChordStartMap(chordLine) {
   return map;
 }
 
+function buildChordTokenSpans(line) {
+  const s = String(line || '');
+  /** @type {Array<{start:number,end:number,token:string}>} */
+  const spans = [];
+  let idx = 0;
+  while (idx < s.length) {
+    const ch = s[idx];
+    if (ch === ' ' || ch === '\t') {
+      idx += 1;
+      continue;
+    }
+    if (!isChordTokenChar(ch)) {
+      idx += 1;
+      continue;
+    }
+    let j = idx;
+    while (j < s.length && isChordTokenChar(s[j])) j += 1;
+    const token = s.slice(idx, j).trim();
+    if (looksLikeChordToken(token)) spans.push({ start: idx, end: j, token });
+    idx = Math.max(j, idx + 1);
+  }
+  return spans;
+}
+
 async function emitAlignedPair(chordLine, lyricLine, chordMap, out) {
   const lyricCells = await buildLyricCellsWithFurigana(String(lyricLine || ''));
   const maxLen = Math.max(String(chordLine || '').length, lyricCells.length);
@@ -415,11 +438,19 @@ async function emitAlignedPair(chordLine, lyricLine, chordMap, out) {
 
 function emitChordOnly(chordLine, chordMap, out) {
   const s = String(chordLine || '');
-  const maxLen = s.length;
-  for (let col = 0; col < maxLen; col += 1) {
-    const chord = chordMap.get(col) || '';
-    const raw = s[col];
-    out.push({ chord, lyric_raw: raw, lyric_kr: raw });
+  const spans = buildChordTokenSpans(s);
+  const spanByStart = new Map(spans.map((x) => [x.start, x]));
+  let i = 0;
+  while (i < s.length) {
+    const sp = spanByStart.get(i);
+    if (sp) {
+      out.push({ chord: sp.token, lyric_raw: '', lyric_kr: '' });
+      i = sp.end;
+      continue;
+    }
+    const ch = s[i];
+    out.push({ chord: '', lyric_raw: ch, lyric_kr: ch });
+    i += 1;
   }
 }
 

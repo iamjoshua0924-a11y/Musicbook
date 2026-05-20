@@ -86,16 +86,18 @@ async function getBrowser() {
 /**
  * @param {string} url
  * @param {{timeoutMs?:number, lang?:string}} [opt]
- * @returns {Promise<{html:string, finalUrl:string}>}
+ * @returns {Promise<{html:string, finalUrl:string, ua:string, elapsedMs:number}>}
  */
 async function fetchRenderedHtml(url, opt = {}) {
+  const t0 = Date.now();
   const timeoutMs = Math.max(5_000, Math.min(60_000, Number(opt.timeoutMs || 25_000)));
   const lang = String(opt.lang || 'ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7');
   const browser = await getBrowser();
   const page = await browser.newPage();
 
   try {
-    await page.setUserAgent(getDefaultUA());
+    const ua = getDefaultUA();
+    await page.setUserAgent(ua);
     await page.setExtraHTTPHeaders({
       'accept-language': lang,
       accept:
@@ -116,7 +118,7 @@ async function fetchRenderedHtml(url, opt = {}) {
     await page.goto(url, { waitUntil: 'networkidle2', timeout: timeoutMs });
     const finalUrl = page.url();
     const html = await page.content();
-    return { html, finalUrl };
+    return { html, finalUrl, ua, elapsedMs: Date.now() - t0 };
   } finally {
     try {
       await page.close();
@@ -127,4 +129,3 @@ async function fetchRenderedHtml(url, opt = {}) {
 module.exports = {
   fetchRenderedHtml
 };
-

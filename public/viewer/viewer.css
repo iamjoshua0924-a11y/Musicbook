@@ -272,6 +272,12 @@ button.danger{ background:rgba(255,107,107,0.14); border-color:rgba(255,107,107,
   color:var(--text);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Noto Sans Mono", monospace;
 }
+#cwMeta{
+  margin-top:-4px;
+  opacity:0.85;
+  font-size:12px;
+  white-space:pre-wrap;
+}
 .cwScroll{
   position:relative;
   flex:1;

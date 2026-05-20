@@ -955,6 +955,11 @@ function setCwError(msg) {
   if (el) el.textContent = String(msg || '');
 }
 
+function setCwMeta(msg) {
+  const el = document.getElementById('cwMeta');
+  if (el) el.textContent = String(msg || '');
+}
+
 function showChordAuthActions(show) {
   const on = Boolean(show) && state.mode === 'chord';
   document.getElementById('cwAuthOpenBtn')?.classList.toggle('hidden', !on);
@@ -998,6 +1003,7 @@ function setMode(mode) {
     // chord 전용 UI 숨김
     showChordAuthActions(false);
     state.chordPendingAuthUrl = '';
+    setCwMeta('');
     // 인증 팝업이 남아있으면 정리
     try {
       if (state._authPopup && !state._authPopup.closed) state._authPopup.close();
@@ -1162,6 +1168,7 @@ async function openChordByUrl(url, { broadcast, preopenAuth } = { broadcast: tru
 
   setMode('chord');
   setCwError('불러오는 중...');
+  setCwMeta('');
   showChordAuthActions(false);
   state.chordPendingAuthUrl = '';
 
@@ -1237,6 +1244,14 @@ async function openChordByUrl(url, { broadcast, preopenAuth } = { broadcast: tru
   state.chordSourceUrl = u;
   state.chordBlocks = r.blocks || [];
 
+  // Debug meta (fetch vs puppeteer)
+  try {
+    const src = String(r?.meta?.source || '');
+    const fu = String(r?.meta?.finalUrl || '');
+    const cached = r?.cached ? ' (cached)' : '';
+    setCwMeta(src ? `소스: ${src}${cached}\n최종 URL: ${fu}` : '');
+  } catch {}
+
   // session/snapshot layer uses state.fileId. chord 모드에서는 docId를 fileId로 사용.
   state.fileId = docId;
   // reset per-doc state
@@ -1257,6 +1272,7 @@ async function openChordByRawText(rawText, sourceUrl = '', { broadcast } = { bro
   const text = String(rawText || '');
   if (!text.trim()) return alert('원문이 비었습니다.');
   setCwError('파싱 중...');
+  setCwMeta('');
   showChordAuthActions(false);
   state.chordPendingAuthUrl = '';
 
@@ -1270,6 +1286,11 @@ async function openChordByRawText(rawText, sourceUrl = '', { broadcast } = { bro
     body: JSON.stringify(payload)
   }).then((x) => x.json());
   if (!r.ok) return setCwError(`파싱 실패: ${r.error || ''}`);
+
+  try {
+    const src = String(r?.meta?.source || 'clientRawText');
+    setCwMeta(`소스: ${src}`);
+  } catch {}
 
   const docId = `chord:${hashString(sourceUrl || text.slice(0, 5000))}`;
   state.chordDocId = docId;

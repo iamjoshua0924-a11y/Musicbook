@@ -103,6 +103,8 @@ router.get('/proxy-chord', async (req, res) => {
   const r = await fetchWithTimeout(urlObj.toString(), 15_000);
   let html = r.text;
   let finalUrl = urlObj.toString();
+  let source = 'fetch+pre';
+  let puppeteerMeta = null;
 
   // 2) bot/403이면 puppeteer로 자동 폴백
   if (!r.ok || looksLikeBotPage(r.text)) {
@@ -111,6 +113,8 @@ router.get('/proxy-chord', async (req, res) => {
         const rendered = await fetchRenderedHtml(urlObj.toString(), { timeoutMs: 25_000, lang: 'ja-JP,ja;q=0.9' });
         html = rendered.html;
         finalUrl = rendered.finalUrl || finalUrl;
+        source = 'puppeteer+content';
+        puppeteerMeta = { ua: rendered.ua, elapsedMs: rendered.elapsedMs };
       } catch (e) {
         // puppeteer 환경 미구성/실패 -> 기존 에러 유지(뷰어에서 인증/원문붙여넣기 흐름으로)
         const code = String(e?.message || e);
@@ -127,7 +131,15 @@ router.get('/proxy-chord', async (req, res) => {
   const rawText = decodeHtml(pre);
   const blocks = await parseRawTextToBlocks(rawText);
 
-  const value = { meta: { source: 'fetch_or_puppeteer+pre', finalUrl }, blocks };
+  const value = {
+    meta: {
+      source,
+      finalUrl,
+      plainStatus: Number(r.status || 0),
+      ...(puppeteerMeta ? { puppeteer: puppeteerMeta } : {})
+    },
+    blocks
+  };
   cacheSet(key, value, 2 * 60 * 1000);
   return res.json({ ok: true, ...value });
 });

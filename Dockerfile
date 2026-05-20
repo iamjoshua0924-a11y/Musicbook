@@ -16,7 +16,13 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --omit=dev
+# Render 로그에 원인을 남기기 위해 실패 시 npm debug log를 출력
+RUN npm ci --omit=dev || ( \
+  echo '--- npm ci failed: dumping npm debug logs ---' ; \
+  ls -la /root/.npm/_logs || true ; \
+  for f in /root/.npm/_logs/*-debug-0.log; do echo \"===== $f =====\"; tail -n 200 \"$f\" || true; done ; \
+  exit 1 \
+)
 
 FROM node:20-bookworm-slim AS runner
 

@@ -201,6 +201,7 @@ router.get('/proxy-chord', async (req, res) => {
   let finalUrl = urlObj.toString();
   let source = 'fetch+pre';
   let puppeteerMeta = null;
+  let extractedTextFromPuppeteer = '';
 
   // 2) bot/403이면 puppeteer로 자동 폴백
   if (!r.ok || looksLikeBotPage(r.text)) {
@@ -211,6 +212,7 @@ router.get('/proxy-chord', async (req, res) => {
         finalUrl = rendered.finalUrl || finalUrl;
         source = 'puppeteer+content';
         puppeteerMeta = { ua: rendered.ua, elapsedMs: rendered.elapsedMs };
+        extractedTextFromPuppeteer = String(rendered.extractedText || '');
       } catch (e) {
         // puppeteer 환경 미구성/실패 -> 기존 에러 유지(뷰어에서 인증/원문붙여넣기 흐름으로)
         const code = String(e?.message || e);
@@ -223,10 +225,10 @@ router.get('/proxy-chord', async (req, res) => {
 
   // 3) 본문 추출
   const host = urlObj.hostname;
-  let extracted = '';
+  let extracted = extractedTextFromPuppeteer;
 
   // 3-1) chordwiki 계열은 pre/textarea 우선
-  extracted = extractLargestPre(html);
+  if (!extracted) extracted = extractLargestPre(html);
   if (!extracted) extracted = extractLargestTextarea(html);
 
   // 3-2) ultimate-guitar 폴백

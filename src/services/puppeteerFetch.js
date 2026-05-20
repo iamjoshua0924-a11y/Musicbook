@@ -83,10 +83,31 @@ async function getBrowser() {
   return browserPromise;
 }
 
+function looksLikeScoreText(s) {
+  const t = String(s || '');
+  if (!t.trim()) return false;
+  // 대략적인 코드/악보 텍스트 힌트 (과도한 오탐 방지)
+  if (/\[ch\]/i.test(t)) return true;
+  if (/\bKey\s*:\s*[A-G]/i.test(t)) return true;
+  if (/\b[A-G](?:#|b)?(?:maj|min|m|dim|aug|sus|add)?\d*(?:\/[A-G](?:#|b)?)?\b/.test(t) && t.includes('\n')) return true;
+  return false;
+}
+
+function pickBestTextCandidate(list) {
+  const arr = Array.isArray(list) ? list : [];
+  let best = '';
+  for (const x of arr) {
+    const s = String(x || '');
+    if (!looksLikeScoreText(s)) continue;
+    if (s.length > best.length) best = s;
+  }
+  return best;
+}
+
 /**
  * @param {string} url
  * @param {{timeoutMs?:number, lang?:string}} [opt]
- * @returns {Promise<{html:string, finalUrl:string, ua:string, elapsedMs:number}>}
+ * @returns {Promise<{html:string, finalUrl:string, ua:string, elapsedMs:number, extractedText?:string}>}
  */
 async function fetchRenderedHtml(url, opt = {}) {
   const t0 = Date.now();
@@ -118,7 +139,34 @@ async function fetchRenderedHtml(url, opt = {}) {
     await page.goto(url, { waitUntil: 'networkidle2', timeout: timeoutMs });
     const finalUrl = page.url();
     const html = await page.content();
-    return { html, finalUrl, ua, elapsedMs: Date.now() - t0 };
+
+    // DOM에서 직접 텍스트 후보를 뽑는다(동적 렌더링/textarea.value/innerText 차이 보완)
+    let extractedText = '';
+    try {
+      const candidates = await page.evaluate(() => {
+        const toText = (el) => {
+          try {
+            if (!el) return '';
+            if (el.tagName === 'TEXTAREA') return el.value || el.textContent || '';
+            return el.innerText || el.textContent || '';
+          } catch {
+            return '';
+          }
+        };
+        const pres = Array.from(document.querySelectorAll('pre')).map(toText);
+        const textareas = Array.from(document.querySelectorAll('textarea')).map(toText);
+        const codes = Array.from(document.querySelectorAll('code')).map(toText);
+        const mains = Array.from(document.querySelectorAll('main, article, #content, #main')).map(toText);
+        return { pres, textareas, codes, mains };
+      });
+      extractedText =
+        pickBestTextCandidate(candidates?.pres) ||
+        pickBestTextCandidate(candidates?.textareas) ||
+        pickBestTextCandidate(candidates?.codes) ||
+        pickBestTextCandidate(candidates?.mains);
+    } catch {}
+
+    return { html, finalUrl, ua, elapsedMs: Date.now() - t0, ...(extractedText ? { extractedText } : {}) };
   } finally {
     try {
       await page.close();

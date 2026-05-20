@@ -13,6 +13,10 @@
         <div class="left">
           <div class="brand">Score Viewer</div>
           <div class="inputRow">
+            <div class="modeTabs" id="modeTabs">
+              <button id="pdfModeBtn" type="button" class="tab active">구글 PDF</button>
+              <button id="chordModeBtn" type="button" class="tab">코드위키</button>
+            </div>
             <input id="linkInput" type="text" placeholder="구글드라이브 PDF 링크 또는 fileId" />
             <button id="openBtn" type="button" class="primary">열기</button>
             <button id="songBookPickBtn" type="button" class="primary hidden">노래책에서 고르기</button>
@@ -188,6 +192,32 @@
           <div id="tapZoneCenter"></div>
           <div id="tapZoneRight"></div>
         </div>
+
+        <!-- CodeWiki mode -->
+        <section id="chordwikiPane" class="hidden">
+          <div class="cwHead">
+            <div class="muted">
+              코드위키 모드: URL을 넣고 “열기”. 보안 검증 페이지가 뜨는 사이트는 원문을 아래에 붙여넣고 실행하세요.
+            </div>
+            <div class="row">
+              <button id="cwPasteToggleBtn" type="button" class="mini">원문 붙여넣기</button>
+              <button id="cwParseRawBtn" type="button" class="mini hidden">원문 파싱</button>
+            </div>
+          </div>
+          <textarea
+            id="cwRawInput"
+            class="hidden"
+            rows="8"
+            placeholder="(선택) 보안 검증이 있는 경우, 악보 본문 텍스트(공백/개행 유지)를 그대로 붙여넣으세요."
+          ></textarea>
+          <div id="cwError" class="muted"></div>
+          <div id="cwScroll" class="cwScroll">
+            <div id="cwInner" class="cwInner">
+              <div id="cwAnnoHost"></div>
+              <div id="cwContent" class="chord-sheet"></div>
+            </div>
+          </div>
+        </section>
 
         <div id="touchNavBottom">
           <button id="touchPrevBtn" type="button">◀</button>

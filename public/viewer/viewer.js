@@ -572,6 +572,12 @@ function eraseAtPoint(fabricCanvas, p, radius) {
 // ---- State ------------------------------------------------------------------------
 const state = {
   fileId: getFileIdFromPath(),
+  // mode: 'pdf' | 'chord'
+  mode: 'pdf',
+  pdfFileId: null,
+  chordDocId: '',
+  chordSourceUrl: '',
+  chordBlocks: null,
   pageNo: 1,
   totalPages: 1,
   roomCode: null,
@@ -605,6 +611,8 @@ const state = {
   locked: false,
   activeDrawPageNo: 1
 };
+
+state.pdfFileId = state.fileId;
 
 // Initial UI state classes
 document.body.dataset.tool = state.tool;
@@ -933,6 +941,262 @@ const updateUrlState = debounce(() => {
 const linkCollapsed = localStorage.getItem('mb_viewer_linkCollapsed') === '1';
 document.body.classList.toggle('link-collapsed', linkCollapsed);
 
+// ---- Mode (PDF / CodeWiki) -------------------------------------------------------
+function hashString(s) {
+  const str = String(s || '');
+  let h = 5381;
+  for (let i = 0; i < str.length; i += 1) h = ((h << 5) + h) ^ str.charCodeAt(i);
+  return (h >>> 0).toString(16);
+}
+
+function setCwError(msg) {
+  const el = document.getElementById('cwError');
+  if (el) el.textContent = String(msg || '');
+}
+
+function setMode(mode) {
+  state.mode = mode;
+  document.getElementById('pdfModeBtn')?.classList.toggle('active', mode === 'pdf');
+  document.getElementById('chordModeBtn')?.classList.toggle('active', mode === 'chord');
+
+  setHidden('pdf-container', mode !== 'pdf');
+  setHidden('chordwikiPane', mode !== 'chord');
+
+  if (mode === 'pdf') {
+    document.getElementById('linkInput')?.setAttribute('placeholder', '구글드라이브 PDF 링크 또는 fileId');
+    // restore pdf fileId for viewer internals
+    if (state.pdfFileId) {
+      state.fileId = state.pdfFileId;
+      loadPdf(state.fileId).catch(() => {});
+    }
+  } else {
+    document.getElementById('linkInput')?.setAttribute('placeholder', '코드위키 URL(또는 아래에 원문 붙여넣기)');
+    // if previously opened chord doc, keep it
+    if (state.chordDocId) state.fileId = state.chordDocId;
+    // chord 모드 진입 시 스크롤 우선(선택 도구)
+    if (state.tool !== 'select') setTool('select');
+  }
+
+  const cwHost = document.getElementById('cwAnnoHost');
+  if (cwHost) cwHost.style.pointerEvents = state.mode === 'chord' && state.tool === 'select' ? 'none' : 'auto';
+}
+
+document.getElementById('pdfModeBtn')?.addEventListener('click', () => setMode('pdf'));
+document.getElementById('chordModeBtn')?.addEventListener('click', () => setMode('chord'));
+
+document.getElementById('cwPasteToggleBtn')?.addEventListener('click', () => {
+  const raw = document.getElementById('cwRawInput');
+  const btn = document.getElementById('cwParseRawBtn');
+  const nowHidden = raw?.classList.toggle('hidden');
+  btn?.classList.toggle('hidden', Boolean(nowHidden));
+});
+
+function renderChordBlocks(blocks) {
+  const wrap = document.getElementById('cwContent');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  if (!Array.isArray(blocks) || !blocks.length) {
+    setCwError('파싱 결과가 비었습니다.');
+    return;
+  }
+  setCwError('');
+
+  let line = document.createElement('div');
+  line.className = 'chord-line';
+  wrap.appendChild(line);
+
+  for (const b of blocks) {
+    if (b?.lyric_raw === '\n') {
+      line = document.createElement('div');
+      line.className = 'chord-line';
+      wrap.appendChild(line);
+      continue;
+    }
+    const cell = document.createElement('div');
+    cell.className = 'chord-lyric-cell';
+
+    const chordEl = document.createElement('div');
+    chordEl.className = 'cwChord';
+    chordEl.textContent = String(b?.chord || '');
+
+    const lyricEl = document.createElement('div');
+    lyricEl.className = 'cwLyric';
+    lyricEl.textContent = String(b?.lyric_kr ?? b?.lyric_raw ?? '');
+
+    cell.appendChild(chordEl);
+    cell.appendChild(lyricEl);
+    line.appendChild(cell);
+  }
+
+  // Phase2-4: chord mode annotation layer (Fabric) - 1 page canvas matching scrollHeight
+  setupChordAnnoAfterRender();
+}
+
+function setupChordAnnoAfterRender() {
+  const host = document.getElementById('cwAnnoHost');
+  const inner = document.getElementById('cwInner');
+  if (!host || !inner) return;
+
+  // chord mode에서는 "단일 페이지(1)"로 취급
+  state.totalPages = 1;
+  state.pageNo = 1;
+  state.activeDrawPageNo = 1;
+
+  // recreate a single view (pageNo=1) using existing Fabric/undo/broadcast wiring
+  clearViews();
+  const v = makeView(1);
+
+  // move the view root into cw overlay host
+  try {
+    v.root.parentElement?.removeChild?.(v.root);
+  } catch {}
+  host.innerHTML = '';
+  host.appendChild(v.root);
+
+  // styling: cover whole chord sheet area
+  v.root.style.position = 'absolute';
+  v.root.style.inset = '0';
+  v.root.style.margin = '0';
+  v.root.style.padding = '0';
+  v.root.style.background = 'transparent';
+  v.pdfCanvas.style.display = 'none';
+
+  // set canvas size to scrollable content size
+  const w = Math.max(200, inner.scrollWidth);
+  const h = Math.max(200, inner.scrollHeight);
+  v.root.style.width = `${w}px`;
+  v.root.style.height = `${h}px`;
+  v.annoCanvas.width = w;
+  v.annoCanvas.height = h;
+  try {
+    v.fabric.setWidth(w);
+    v.fabric.setHeight(h);
+    v.fabric.calcOffset();
+  } catch {}
+
+  // restore snapshot if exists (compat with existing store)
+  const saved = state.annoStore?.[1] || state.annoStore?.['1'];
+  if (saved) applySnapshotToPage(1, saved);
+  else applySnapshotToPage(1, { json: { objects: [] }, w, h });
+}
+
+const resizeChordAnnoDebounced = debounce(() => {
+  if (state.mode !== 'chord') return;
+  // re-run sizing only (keep existing view)
+  const v = viewMap.get(1);
+  const inner = document.getElementById('cwInner');
+  if (!v?.fabric || !inner) return;
+  const w = Math.max(200, inner.scrollWidth);
+  const h = Math.max(200, inner.scrollHeight);
+  v.root.style.width = `${w}px`;
+  v.root.style.height = `${h}px`;
+  v.annoCanvas.width = w;
+  v.annoCanvas.height = h;
+  v.fabric.setWidth(w);
+  v.fabric.setHeight(h);
+  v.fabric.calcOffset();
+  v.fabric.requestRenderAll();
+}, 200);
+window.addEventListener('resize', () => resizeChordAnnoDebounced());
+
+async function openChordByUrl(url, { broadcast } = { broadcast: true }) {
+  const u = String(url || '').trim();
+  if (!/^https?:\/\//i.test(u)) return alert('코드위키 모드는 URL이 필요합니다.');
+
+  setMode('chord');
+  setCwError('불러오는 중...');
+
+  const r = await fetch(`/api/proxy-chord?url=${encodeURIComponent(u)}`).then((x) => x.json());
+  if (!r.ok) {
+    setCwError(`불러오기 실패: ${r.error || ''}`);
+    if (String(r.error || '').includes('BOT_PROTECTION')) {
+      document.getElementById('cwRawInput')?.classList.remove('hidden');
+      document.getElementById('cwParseRawBtn')?.classList.remove('hidden');
+    }
+    return;
+  }
+
+  const docId = `chord:${hashString(u)}`;
+  state.chordDocId = docId;
+  state.chordSourceUrl = u;
+  state.chordBlocks = r.blocks || [];
+
+  // session/snapshot layer uses state.fileId. chord 모드에서는 docId를 fileId로 사용.
+  state.fileId = docId;
+  // reset per-doc state
+  state.annoStore = {};
+  state.undoStack = {};
+  state.redoStack = {};
+  if (state.isInSession && state.roomCode) socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId: state.fileId });
+
+  if (broadcast && state.isInSession && state.isPageTurner && state.roomCode) {
+    socket.emit('session:follow:file', { roomCode: state.roomCode, fileId: docId, originalLink: u }, () => {});
+  }
+
+  renderChordBlocks(state.chordBlocks);
+}
+
+async function openChordByRawText(rawText, sourceUrl = '', { broadcast } = { broadcast: true }) {
+  setMode('chord');
+  const text = String(rawText || '');
+  if (!text.trim()) return alert('원문이 비었습니다.');
+  setCwError('파싱 중...');
+
+  const r = await fetch('/api/proxy-chord', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rawText: text, sourceUrl: String(sourceUrl || '') })
+  }).then((x) => x.json());
+  if (!r.ok) return setCwError(`파싱 실패: ${r.error || ''}`);
+
+  const docId = `chord:${hashString(sourceUrl || text.slice(0, 5000))}`;
+  state.chordDocId = docId;
+  state.chordSourceUrl = sourceUrl;
+  state.chordBlocks = r.blocks || [];
+  state.fileId = docId;
+  state.annoStore = {};
+  state.undoStack = {};
+  state.redoStack = {};
+  if (state.isInSession && state.roomCode) socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId: state.fileId });
+
+  if (broadcast && state.isInSession && state.isPageTurner && state.roomCode) {
+    socket.emit('session:follow:file', { roomCode: state.roomCode, fileId: docId, originalLink: sourceUrl }, () => {});
+  }
+  setCwError('');
+  renderChordBlocks(state.chordBlocks);
+}
+
+document.getElementById('cwParseRawBtn')?.addEventListener('click', () => {
+  const t = document.getElementById('cwRawInput')?.value || '';
+  openChordByRawText(t, state.chordSourceUrl).catch(() => {});
+});
+
+// ---- CodeWiki scroll sync (Phase2-3) ---------------------------------------------
+const cwScrollEl = document.getElementById('cwScroll');
+function getScrollRatio(el) {
+  const max = Math.max(1, el.scrollHeight - el.clientHeight);
+  return Math.max(0, Math.min(1, el.scrollTop / max));
+}
+function setScrollRatio(el, ratio, smooth = true) {
+  const max = Math.max(1, el.scrollHeight - el.clientHeight);
+  const top = Math.max(0, Math.min(max, ratio * max));
+  el.scrollTo({ top, behavior: smooth ? 'smooth' : 'auto' });
+}
+
+const emitScrollSync = debounce(() => {
+  if (!cwScrollEl) return;
+  if (!state.isInSession || !state.isPageTurner) return;
+  if (state.mode !== 'chord') return;
+  if (!state.roomCode || !state.fileId) return;
+  socket.emit('session:scroll:sync', { roomCode: state.roomCode, fileId: state.fileId, ratio: getScrollRatio(cwScrollEl) }, () => {});
+}, 80);
+
+cwScrollEl?.addEventListener('scroll', () => {
+  if (state.mode !== 'chord') return;
+  // 페이지터너만 브로드캐스트
+  if (state.isInSession && state.isPageTurner) emitScrollSync();
+});
+
 // theme (persist)
 function applyTheme(theme) {
   document.body.classList.toggle('light', theme === 'light');
@@ -1074,7 +1338,13 @@ function extractDriveFileId(input) {
 }
 
 function openByInput(input) {
-  const fileId = extractDriveFileId(input);
+  const trimmed = String(input || '').trim();
+  // chordwiki mode: URL은 proxy로 처리
+  if (!extractDriveFileId(trimmed) && /^https?:\/\//i.test(trimmed)) {
+    return openChordByUrl(trimmed).catch(() => {});
+  }
+
+  const fileId = extractDriveFileId(trimmed);
   if (!fileId) return alert('fileId를 추출하지 못했습니다. Drive 링크 또는 fileId를 확인해 주세요.');
   // 이미 같은 파일을 보고 있으면 다시 네비게이션하지 않음(무한 루프/리프레시 방지)
   if (state.fileId && String(fileId) === String(state.fileId)) return;
@@ -1084,6 +1354,18 @@ function openByInput(input) {
     socket.emit('session:follow:file', { roomCode, fileId, originalLink: String(input || '').trim() }, (ack) => {
       if (!ack?.ok) alert('세션 곡 전환 브로드캐스트 실패(권한 확인)');
     });
+    // local apply (no full reload)
+    setMode('pdf');
+    state.fileId = String(fileId);
+    state.pdfFileId = String(fileId);
+    try {
+      setLastRoomForFile(state.fileId, roomCode);
+      window.history.replaceState(null, '', `${window.location.origin}/viewer/${encodeURIComponent(state.fileId)}?room=${encodeURIComponent(roomCode)}`);
+    } catch {}
+    state.annoStore = {};
+    state.undoStack = {};
+    state.redoStack = {};
+    loadPdf(state.fileId).catch(() => {});
   } else {
     const roomParam = state.isInSession && roomCode ? `?room=${roomCode}` : '';
     window.location.href = `${window.location.origin}/viewer/${fileId}${roomParam}`;
@@ -1093,6 +1375,7 @@ function openByInput(input) {
 // New: inline open input (GAS style)
 document.getElementById('openBtn')?.addEventListener('click', () => {
   const input = document.getElementById('linkInput')?.value || '';
+  if (state.mode === 'chord') return openChordByUrl(input).catch(() => {});
   openByInput(input);
 });
 document.getElementById('linkInput')?.addEventListener('keydown', (e) => {
@@ -1861,6 +2144,9 @@ function setTool(tool, shape = null) {
   state.shape = shape;
   document.body.dataset.tool = tool;
   document.body.classList.toggle('tool-text', tool === 'text');
+  // chord mode: select일 때는 스크롤/드래그가 우선이므로 캔버스 입력을 막는다.
+  const cwHost = document.getElementById('cwAnnoHost');
+  if (cwHost) cwHost.style.pointerEvents = state.mode === 'chord' && tool === 'select' ? 'none' : 'auto';
   applyToolToAll();
   updateToolActiveUI();
 }
@@ -2263,8 +2549,20 @@ socket.on('session:state', (p) => {
   const fileId = String(p?.currentFileId || '').trim();
   const pageNo = Number(p?.currentPageNo || 0);
   if (fileId && String(fileId) !== String(state.fileId || '')) {
-    state.fileId = fileId;
-    loadPdf(state.fileId).catch(() => {});
+    const originalLink = String(p?.currentOriginalLink || '').trim();
+    if (originalLink && /^https?:\/\//i.test(originalLink) && !extractDriveFileId(originalLink)) {
+      openChordByUrl(originalLink, { broadcast: false }).catch(() => {});
+    } else if (fileId.startsWith('chord:')) {
+      // late join chord doc without originalLink: show pane + request raw text
+      setMode('chord');
+      state.fileId = fileId;
+      setCwError('세션에서 코드위키 문서를 따라오려면 원문 텍스트가 필요합니다(원문 붙여넣기).');
+      socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId: state.fileId });
+    } else {
+      setMode('pdf');
+      state.fileId = fileId;
+      loadPdf(state.fileId).catch(() => {});
+    }
   }
   if (pageNo && !state.isPageTurner) {
     state.pageNo = pageNo;
@@ -2272,6 +2570,23 @@ socket.on('session:state', (p) => {
     updatePageLabels();
     renderSpread(state.pageNo).catch(() => {});
   }
+
+  // codewiki scroll ratio align (late joiners)
+  const ratio = Number(p?.currentScrollRatio);
+  if (state.mode === 'chord' && cwScrollEl && !state.isPageTurner && Number.isFinite(ratio) && ratio >= 0 && ratio <= 1) {
+    setScrollRatio(cwScrollEl, ratio, true);
+  }
+});
+
+socket.on('session:scroll:sync', (p) => {
+  if (!state.isInSession) return;
+  if (!cwScrollEl) return;
+  if (state.mode !== 'chord') return;
+  if (state.isPageTurner) return;
+  if (p?.fileId && String(p.fileId) !== String(state.fileId || '')) return;
+  const ratio = Number(p?.ratio);
+  if (!Number.isFinite(ratio)) return;
+  setScrollRatio(cwScrollEl, Math.max(0, Math.min(1, ratio)), true);
 });
 
 socket.on('viewer:cursor', (p) => {
@@ -2402,7 +2717,20 @@ socket.on('session:follow:file', (p) => {
 
   // originalLink가 있어도 재-broadcast 되지 않도록 "추출→로컬에서 로드"만 수행
   const originalLink = String(p?.originalLink || '').trim();
+  // codewiki URL follow
+  if (originalLink && /^https?:\/\//i.test(originalLink) && !extractDriveFileId(originalLink)) {
+    openChordByUrl(originalLink, { broadcast: false }).catch(() => {});
+    return;
+  }
+
   const targetId = originalLink ? extractDriveFileId(originalLink) || fileId : fileId;
+  if (String(targetId).startsWith('chord:')) {
+    setMode('chord');
+    state.fileId = String(targetId);
+    setCwError('코드위키 문서 follow: 원문 텍스트가 필요하면 “원문 붙여넣기”로 입력하세요.');
+    socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId: state.fileId });
+    return;
+  }
 
   // 세션 내에서는 페이지 리로드를 하지 않고 PDF만 교체한다(중복 접속/터너 깜빡임 방지)
   state.fileId = String(targetId);
@@ -2429,8 +2757,14 @@ socket.on('session:follow:file', (p) => {
 socket.on('wb:sync', (p) => {
   if (!p?.snapshot) return;
   state.annoStore = p.snapshot || {};
-  // re-render current spread overlays
-  if (state.isPdfReady) renderSpread(state.pageNo).catch(() => {});
+  // re-apply overlays
+  if (state.mode === 'chord') {
+    // chord 모드는 page=1 단일 캔버스
+    if (state.chordBlocks) renderChordBlocks(state.chordBlocks);
+    else setupChordAnnoAfterRender();
+  } else if (state.isPdfReady) {
+    renderSpread(state.pageNo).catch(() => {});
+  }
 });
 
 socket.on('wb:page:update', async (p) => {

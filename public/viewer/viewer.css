@@ -55,6 +55,26 @@ body.light{
 
 .inputRow{ display:flex; gap:8px; align-items:center; flex-wrap:nowrap; }
 body.link-collapsed .inputRow{ display:none; }
+
+.modeTabs{
+  display:flex;
+  align-items:center;
+  gap:0;
+  border:1px solid var(--border);
+  border-radius:12px;
+  overflow:hidden;
+}
+.modeTabs .tab{
+  height:28px;
+  padding:0 10px;
+  border:0;
+  border-radius:0;
+  background:rgba(255,255,255,0.04);
+  font-weight:900;
+}
+.modeTabs .tab.active{
+  background:rgba(122,162,255,0.22);
+}
 #linkInput{
   padding:7px 10px;
   border-radius:10px;
@@ -220,6 +240,64 @@ button.danger{ background:rgba(255,107,107,0.14); border-color:rgba(255,107,107,
   inset: 0;
   background: var(--bg);
 }
+
+#chordwikiPane{
+  position:absolute;
+  inset:0;
+  padding:14px;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  background: var(--bg);
+}
+.cwHead{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:12px;
+}
+.cwHead .row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+#cwRawInput{
+  width:100%;
+  resize:vertical;
+  border-radius:12px;
+  border:1px solid var(--border);
+  padding:10px 12px;
+  background:rgba(0,0,0,0.18);
+  color:var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Noto Sans Mono", monospace;
+}
+.cwScroll{
+  position:relative;
+  flex:1;
+  overflow:auto;
+  border:1px solid var(--border);
+  border-radius:14px;
+  background:rgba(255,255,255,0.03);
+  padding:0;
+}
+.cwInner{
+  position:relative;
+  padding:14px;
+  min-height:100%;
+}
+#cwAnnoHost{
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+}
+.chord-sheet{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Noto Sans Mono", monospace;
+  font-size:14px;
+  line-height:1.25;
+  white-space:nowrap;
+  position:relative;
+  z-index:1;
+}
+.chord-line{ display:flex; gap:0; }
+.chord-lyric-cell{ display:flex; flex-direction:column; min-width:max-content; }
+.cwChord{ font-weight:900; font-size:12px; color:rgba(222,236,255,0.95); height:16px; }
+.cwLyric{ font-weight:800; font-size:14px; height:18px; }
 
 /* 커서 공유(세로 형광펜 라인) */
 .cursor-marker{

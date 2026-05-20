@@ -86,7 +86,9 @@ function emitRoomState(io, room) {
   io.to(toSessionRoomName(room.roomCode)).emit('session:state', {
     roomCode: room.roomCode,
     currentFileId: room.currentFileId,
-    currentPageNo: room.currentPageNo
+    currentPageNo: room.currentPageNo,
+    currentOriginalLink: room.currentOriginalLink || '',
+    currentScrollRatio: Number(room.currentScrollRatio || 0)
   });
 }
 
@@ -199,7 +201,13 @@ function attachSockets(io) {
       const room = store.rooms.get(roomCode);
       if (!room) return;
       socket.emit('session:participants', buildParticipantsPayload(room));
-      socket.emit('session:state', { roomCode, currentFileId: room.currentFileId, currentPageNo: room.currentPageNo });
+      socket.emit('session:state', {
+        roomCode,
+        currentFileId: room.currentFileId,
+        currentPageNo: room.currentPageNo,
+        currentOriginalLink: room.currentOriginalLink || '',
+        currentScrollRatio: Number(room.currentScrollRatio || 0)
+      });
     });
 
     // --- Tool permission request/approve ------------------------------------------
@@ -311,7 +319,30 @@ function attachSockets(io) {
       room.currentPageNo = pageNo;
 
       io.to(toSessionRoomName(roomCode)).emit('viewer:page_change', { fileId, pageNo });
-      io.to(toSessionRoomName(roomCode)).emit('session:state', { roomCode, currentFileId: fileId, currentPageNo: pageNo });
+      io.to(toSessionRoomName(roomCode)).emit('session:state', {
+        roomCode,
+        currentFileId: fileId,
+        currentPageNo: pageNo,
+        currentOriginalLink: room.currentOriginalLink || '',
+        currentScrollRatio: Number(room.currentScrollRatio || 0)
+      });
+      ack?.({ ok: true });
+    });
+
+    // CodeWiki scroll sync (ratio 0..1) - page turner authoritative.
+    socket.on('session:scroll:sync', async (payload, ack) => {
+      const roomCode = String(payload?.roomCode || '').trim().toUpperCase();
+      const fileId = String(payload?.fileId || '').trim();
+      const ratio = Number(payload?.ratio);
+      const room = store.rooms.get(roomCode);
+      if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
+      if (room.pageTurnerSocketId !== socket.id) return ack?.({ ok: false, error: 'FORBIDDEN' });
+      if (!fileId) return ack?.({ ok: false, error: 'FILE_REQUIRED' });
+      if (!Number.isFinite(ratio) || ratio < 0 || ratio > 1) return ack?.({ ok: false, error: 'BAD_REQUEST' });
+
+      room.currentFileId = fileId;
+      room.currentScrollRatio = ratio;
+      io.to(toSessionRoomName(roomCode)).emit('session:scroll:sync', { fileId, ratio });
       ack?.({ ok: true });
     });
 
@@ -416,7 +447,13 @@ function attachSockets(io) {
 
       io.to(toSessionRoomName(roomCode)).emit('session:follow:file', { fileId, originalLink });
       io.to(toSessionRoomName(roomCode)).emit('viewer:page_change', { fileId, pageNo: 1 });
-      io.to(toSessionRoomName(roomCode)).emit('session:state', { roomCode, currentFileId: fileId, currentPageNo: 1 });
+      io.to(toSessionRoomName(roomCode)).emit('session:state', {
+        roomCode,
+        currentFileId: fileId,
+        currentPageNo: 1,
+        currentOriginalLink: room.currentOriginalLink || '',
+        currentScrollRatio: Number(room.currentScrollRatio || 0)
+      });
 
       // Lazy-load stored snapshot if exists (server restart case).
       const snap = await loadSnapshot(roomCode, fileId);

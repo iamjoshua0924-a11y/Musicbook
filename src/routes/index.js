@@ -10,5 +10,6 @@ router.use('/api', require('./admin'));
 router.use('/api', require('./mainPage'));
 router.use('/api', require('./availability'));
 router.use('/api', require('./socketMeta'));
+router.use('/api', require('./proxyChord'));
 
 module.exports = router;

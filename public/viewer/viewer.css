@@ -300,9 +300,32 @@ button.danger{ background:rgba(255,107,107,0.14); border-color:rgba(255,107,107,
   z-index:1;
 }
 .chord-line{ display:flex; gap:0; }
-.chord-lyric-cell{ display:flex; flex-direction:column; min-width:max-content; }
-.cwChord{ font-weight:900; font-size:12px; color:rgba(222,236,255,0.95); height:16px; }
-.cwLyric{ font-weight:800; font-size:14px; height:18px; }
+/* 핵심: "셀 폭 고정"으로 레고블록 정렬 보장 */
+.chord-lyric-cell{
+  display:flex;
+  flex-direction:column;
+  flex:0 0 1ch;
+  width:1ch;
+  min-width:1ch;
+  max-width:1ch;
+}
+.cwChord{
+  font-weight:900;
+  font-size:12px;
+  color:rgba(222,236,255,0.95);
+  height:16px;
+  line-height:16px;
+  white-space:pre;
+  overflow:visible;
+}
+.cwLyric{
+  font-weight:800;
+  font-size:14px;
+  height:18px;
+  line-height:18px;
+  white-space:pre;
+  overflow:visible;
+}
 
 /* 커서 공유(세로 형광펜 라인) */
 .cursor-marker{

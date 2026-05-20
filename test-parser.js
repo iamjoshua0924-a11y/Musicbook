@@ -445,6 +445,7 @@ function emitChordOnly(chordLine, chordMap, out) {
     const sp = spanByStart.get(i);
     if (sp) {
       out.push({ chord: sp.token, lyric_raw: '', lyric_kr: '' });
+      for (let x = sp.start + 1; x < sp.end; x += 1) out.push({ chord: '', lyric_raw: '', lyric_kr: '' });
       i = sp.end;
       continue;
     }

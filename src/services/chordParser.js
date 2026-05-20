@@ -93,8 +93,10 @@ function emitChordOnly(chordLine, _chordMap, out) {
   while (i < s.length) {
     const sp = spanByStart.get(i);
     if (sp) {
-      // chord token은 한 셀로 압축: 상단 chord만 표시, 하단은 공백(시각 폭은 chord 텍스트가 담당)
+      // 코드 토큰은 "폭 유지"를 위해 토큰 길이만큼 셀을 소비한다.
+      // 첫 셀에만 chord를 넣고, 나머지는 placeholder(빈 chord)로 둔다.
       out.push({ chord: sp.token, lyric_raw: '', lyric_kr: '' });
+      for (let x = sp.start + 1; x < sp.end; x += 1) out.push({ chord: '', lyric_raw: '', lyric_kr: '' });
       i = sp.end;
       continue;
     }
@@ -225,8 +227,10 @@ async function buildLyricCellsWithFurigana(line) {
         if (s[k] === ')' && k > j + 1) {
           const readingKana = s.slice(j + 1, k);
           const readingKr = toKoreanReadingMvp(readingKana);
-          cells[i] = { raw: kanjiRun, kr: readingKr };
-          for (let x = i + 1; x < j; x += 1) cells[x] = { raw: '', kr: '' };
+          // 가독성/정렬: 한자 런을 한 칸에 몰아넣지 않고 "한자 1글자=1칸"으로 유지한다.
+          // 독음(후리가나)은 첫 글자 칸의 kr에 주입(런 전체 독음을 대표).
+          cells[i] = { raw: kanjiRun[0], kr: readingKr };
+          for (let x = i + 1; x < j; x += 1) cells[x] = { raw: kanjiRun[x - i], kr: '' };
           for (let x = j; x <= k; x += 1) cells[x] = { raw: '', kr: '' };
           i = k + 1;
           continue;
@@ -296,8 +300,9 @@ async function emitLyricOnly(line, out) {
   while (i < s.length) {
     const sp = spanByStart.get(i);
     if (sp) {
-      // chord token 한 셀로 압축 (하단은 공백)
+      // inline chord도 폭 유지: 토큰 길이만큼 셀을 소비한다.
       out.push({ chord: sp.token, lyric_raw: '', lyric_kr: '' });
+      for (let x = sp.start + 1; x < sp.end; x += 1) out.push({ chord: '', lyric_raw: '', lyric_kr: '' });
       i = sp.end;
       continue;
     }
@@ -314,7 +319,9 @@ async function emitLyricOnly(line, out) {
         if (s[k] === ')' && k > j + 1) {
           const readingKana = s.slice(j + 1, k);
           const readingKr = toKoreanReadingMvp(readingKana);
-          out.push({ chord: '', lyric_raw: kanjiRun, lyric_kr: readingKr });
+          // 한자 런은 1글자=1칸 유지
+          out.push({ chord: '', lyric_raw: kanjiRun[0], lyric_kr: readingKr });
+          for (let x = i + 1; x < j; x += 1) out.push({ chord: '', lyric_raw: kanjiRun[x - i], lyric_kr: '' });
           i = k + 1;
           continue;
         }

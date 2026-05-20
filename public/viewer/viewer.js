@@ -943,6 +943,8 @@ const linkCollapsed = localStorage.getItem('mb_viewer_linkCollapsed') === '1';
 document.body.classList.toggle('link-collapsed', linkCollapsed);
 
 // ---- Mode (PDF / CodeWiki) -------------------------------------------------------
+const VIEWER_BUILD = '20260520_07';
+
 function hashString(s) {
   const str = String(s || '');
   let h = 5381;
@@ -1023,6 +1025,8 @@ function setMode(mode) {
     if (state.chordDocId) state.fileId = state.chordDocId;
     // chord 모드 진입 시 스크롤 우선(선택 도구)
     if (state.tool !== 'select') setTool('select');
+    // 디버그: 어떤 빌드의 viewer.js가 로드되었는지 항상 표시
+    setCwMeta(`뷰어 빌드: ${VIEWER_BUILD}`);
   }
 
   const cwHost = document.getElementById('cwAnnoHost');

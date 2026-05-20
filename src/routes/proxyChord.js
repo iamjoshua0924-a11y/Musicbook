@@ -2,6 +2,7 @@ const express = require('express');
 const { z } = require('zod');
 
 const { parseRawTextToBlocks } = require('../services/chordParser');
+const { fetchRenderedHtml } = require('../services/puppeteerFetch');
 
 const router = express.Router();
 
@@ -74,6 +75,14 @@ async function fetchWithTimeout(url, timeoutMs = 15_000) {
   }
 }
 
+function shouldTryPuppeteer({ status, text, errorCode }) {
+  // 403/429 또는 bot page로 보이면 puppeteer로 재시도
+  if (errorCode === 'BOT_PROTECTION_PAGE') return true;
+  if (status === 403 || status === 429) return true;
+  if (looksLikeBotPage(text)) return true;
+  return false;
+}
+
 router.get('/proxy-chord', async (req, res) => {
   const schema = z.object({ url: z.string().url() });
   const parsed = schema.safeParse(req.query);
@@ -90,22 +99,35 @@ router.get('/proxy-chord', async (req, res) => {
   const cached = cacheGet(key);
   if (cached) return res.json({ ok: true, ...cached, cached: true });
 
+  // 1) plain fetch (가벼움)
   const r = await fetchWithTimeout(urlObj.toString(), 15_000);
-  if (!r.ok) return res.status(502).json({ ok: false, error: `FETCH_FAILED_${r.status}` });
-  if (looksLikeBotPage(r.text)) {
-    return res.status(403).json({
-      ok: false,
-      error: 'BOT_PROTECTION_PAGE',
-      hint: '이 서버는 우회하지 않습니다. 사용자가 브라우저에서 본문 텍스트를 추출해 POST /api/proxy-chord(rawText)로 보내는 방식(유저 참여형)을 사용하세요.'
-    });
+  let html = r.text;
+  let finalUrl = urlObj.toString();
+
+  // 2) bot/403이면 puppeteer로 자동 폴백
+  if (!r.ok || looksLikeBotPage(r.text)) {
+    if (shouldTryPuppeteer({ status: r.status, text: r.text })) {
+      try {
+        const rendered = await fetchRenderedHtml(urlObj.toString(), { timeoutMs: 25_000, lang: 'ja-JP,ja;q=0.9' });
+        html = rendered.html;
+        finalUrl = rendered.finalUrl || finalUrl;
+      } catch (e) {
+        // puppeteer 환경 미구성/실패 -> 기존 에러 유지(뷰어에서 인증/원문붙여넣기 흐름으로)
+        const code = String(e?.message || e);
+        return res.status(502).json({ ok: false, error: !r.ok ? `FETCH_FAILED_${r.status}` : 'BOT_PROTECTION_PAGE', detail: code });
+      }
+    } else {
+      return res.status(502).json({ ok: false, error: `FETCH_FAILED_${r.status}` });
+    }
   }
 
-  const pre = extractLargestPre(r.text);
+  // 3) 본문 추출
+  const pre = extractLargestPre(html);
   if (!pre) return res.status(422).json({ ok: false, error: 'EXTRACT_FAILED' });
   const rawText = decodeHtml(pre);
   const blocks = await parseRawTextToBlocks(rawText);
 
-  const value = { meta: { source: 'fetch+pre', finalUrl: urlObj.toString() }, blocks };
+  const value = { meta: { source: 'fetch_or_puppeteer+pre', finalUrl }, blocks };
   cacheSet(key, value, 2 * 60 * 1000);
   return res.json({ ok: true, ...value });
 });

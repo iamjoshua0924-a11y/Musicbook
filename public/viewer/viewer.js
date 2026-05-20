@@ -989,6 +989,7 @@ function needsUserAuthForError(err) {
   if (e === 'FETCH_FAILED_403' || e.endsWith('_403')) return true;
   // extractor가 실패한 경우도 "수동 인증/원문 붙여넣기" 유도
   if (e === 'EXTRACT_FAILED') return true;
+  if (e === 'PUPPETEER_FAILED') return true;
   return false;
 }
 
@@ -1204,8 +1205,18 @@ async function openChordByUrl(url, { broadcast, preopenAuth } = { broadcast: tru
         try {
           if (r.detail) setCwMeta(`추출 실패 상세: ${JSON.stringify(r.detail)}`);
         } catch {}
+      } else if (String(r.error || '') === 'PUPPETEER_FAILED') {
+        setCwError('서버의 브라우저 엔진(Puppeteer) 수집이 실패했습니다. 원문 붙여넣기로 진행하거나, 아래 상세 에러를 확인하세요.');
+        try {
+          if (r.detail) setCwMeta(`Puppeteer 실패 상세: ${JSON.stringify(r.detail)}`);
+        } catch {}
       } else {
-        setCwError('보안 검증(403)이 감지되었습니다. 새창에서 인증/확인 후, “인증 완료(재시도)”를 누르세요. (필요 시 원문 붙여넣기도 가능)');
+        // NOTE: 서버에서 뜬 403은 "사용자 브라우저 인증"과 별개로,
+        //       서버 IP/데이터센터 차단 등으로 계속 403이 날 수 있다.
+        setCwError('보안 검증(403)이 감지되었습니다. 새창에서 확인 후 “인증 완료(재시도)”를 눌러보세요. 계속 실패하면 서버 IP 차단일 수 있어 원문 붙여넣기를 사용하세요.');
+        try {
+          if (r.detail) setCwMeta(`실패 상세: ${JSON.stringify(r.detail)}`);
+        } catch {}
       }
       document.getElementById('cwRawInput')?.classList.remove('hidden');
       document.getElementById('cwParseRawBtn')?.classList.remove('hidden');

@@ -214,9 +214,18 @@ router.get('/proxy-chord', async (req, res) => {
         puppeteerMeta = { ua: rendered.ua, elapsedMs: rendered.elapsedMs };
         extractedTextFromPuppeteer = String(rendered.extractedText || '');
       } catch (e) {
-        // puppeteer 환경 미구성/실패 -> 기존 에러 유지(뷰어에서 인증/원문붙여넣기 흐름으로)
+        // puppeteer 실패는 별도 코드로 내려서 원인 파악을 쉽게 한다.
         const code = String(e?.message || e);
-        return res.status(502).json({ ok: false, error: !r.ok ? `FETCH_FAILED_${r.status}` : 'BOT_PROTECTION_PAGE', detail: code });
+        return res.status(502).json({
+          ok: false,
+          error: 'PUPPETEER_FAILED',
+          detail: {
+            host: urlObj.hostname,
+            plainStatus: Number(r.status || 0),
+            finalUrl,
+            puppeteerError: code
+          }
+        });
       }
     } else {
       return res.status(502).json({ ok: false, error: `FETCH_FAILED_${r.status}` });

@@ -578,6 +578,7 @@ const state = {
   chordDocId: '',
   chordSourceUrl: '',
   chordBlocks: null,
+  chordPendingAuthUrl: '',
   pageNo: 1,
   totalPages: 1,
   roomCode: null,
@@ -954,6 +955,25 @@ function setCwError(msg) {
   if (el) el.textContent = String(msg || '');
 }
 
+function showChordAuthActions(show) {
+  document.getElementById('cwAuthOpenBtn')?.classList.toggle('hidden', !show);
+  document.getElementById('cwAuthDoneBtn')?.classList.toggle('hidden', !show);
+}
+
+function openAuthPopup(url) {
+  const u = String(url || '').trim();
+  if (!/^https?:\/\//i.test(u)) return false;
+  const w = window.open(u, '_blank', 'noopener,noreferrer');
+  if (!w) {
+    setCwError('팝업이 차단되었습니다. 브라우저 팝업 허용 후 다시 “인증창 열기”를 눌러주세요.');
+    return false;
+  }
+  try {
+    w.focus();
+  } catch {}
+  return true;
+}
+
 function setMode(mode) {
   state.mode = mode;
   document.getElementById('pdfModeBtn')?.classList.toggle('active', mode === 'pdf');
@@ -989,6 +1009,16 @@ document.getElementById('cwPasteToggleBtn')?.addEventListener('click', () => {
   const btn = document.getElementById('cwParseRawBtn');
   const nowHidden = raw?.classList.toggle('hidden');
   btn?.classList.toggle('hidden', Boolean(nowHidden));
+});
+
+document.getElementById('cwAuthOpenBtn')?.addEventListener('click', () => {
+  if (!state.chordPendingAuthUrl) return;
+  openAuthPopup(state.chordPendingAuthUrl);
+});
+document.getElementById('cwAuthDoneBtn')?.addEventListener('click', () => {
+  if (!state.chordPendingAuthUrl) return;
+  // 사용자가 새창에서 인증을 완료했다고 가정하고 동일 URL 재시도
+  openChordByUrl(state.chordPendingAuthUrl).catch(() => {});
 });
 
 function renderChordBlocks(blocks) {
@@ -1105,11 +1135,16 @@ async function openChordByUrl(url, { broadcast } = { broadcast: true }) {
 
   setMode('chord');
   setCwError('불러오는 중...');
+  showChordAuthActions(false);
+  state.chordPendingAuthUrl = '';
 
   const r = await fetch(`/api/proxy-chord?url=${encodeURIComponent(u)}`).then((x) => x.json());
   if (!r.ok) {
     setCwError(`불러오기 실패: ${r.error || ''}`);
     if (String(r.error || '').includes('BOT_PROTECTION')) {
+      state.chordPendingAuthUrl = u;
+      showChordAuthActions(true);
+      setCwError('보안 검증이 필요합니다. “인증창 열기”로 새창에서 인증 후, “인증 완료(재시도)”를 눌러주세요.');
       document.getElementById('cwRawInput')?.classList.remove('hidden');
       document.getElementById('cwParseRawBtn')?.classList.remove('hidden');
     }
@@ -1141,6 +1176,8 @@ async function openChordByRawText(rawText, sourceUrl = '', { broadcast } = { bro
   const text = String(rawText || '');
   if (!text.trim()) return alert('원문이 비었습니다.');
   setCwError('파싱 중...');
+  showChordAuthActions(false);
+  state.chordPendingAuthUrl = '';
 
   const r = await fetch('/api/proxy-chord', {
     method: 'POST',

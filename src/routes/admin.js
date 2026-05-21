@@ -162,6 +162,47 @@ router.get('/admin/users', requireAdmin, async (req, res) => {
   res.json({ ok: true, items: safe });
 });
 
+// Admin only: update user fields / reset password / deactivate
+router.patch('/admin/users/:userId', requireAdmin, async (req, res) => {
+  const userId = String(req.params?.userId || '').trim();
+  if (!userId) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+
+  const role = req.body?.role !== undefined ? String(req.body.role || '').trim() : undefined;
+  const displayName = req.body?.displayName !== undefined ? String(req.body.displayName || '').trim() : undefined;
+  const active = req.body?.active !== undefined ? Boolean(req.body.active) : undefined;
+  const password = req.body?.password !== undefined ? String(req.body.password || '') : undefined;
+
+  if (role !== undefined && !['admin', 'session'].includes(role)) {
+    return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+  }
+  if (password !== undefined && password.length < 4) {
+    return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+  }
+
+  /** @type {Record<string, any>} */
+  const $set = {};
+  if (role !== undefined) $set.role = role;
+  if (displayName !== undefined) $set.displayName = displayName;
+  if (active !== undefined) $set.active = active;
+  if (password !== undefined) $set.passwordHash = await bcrypt.hash(password, 10);
+
+  const doc = await User.findOneAndUpdate({ userId }, { $set }, { new: true }).lean();
+  if (!doc) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
+
+  res.json({
+    ok: true,
+    item: {
+      _id: String(doc._id),
+      userId: doc.userId,
+      role: doc.role,
+      displayName: doc.displayName,
+      active: doc.active,
+      profilePhoto: doc.profilePhoto,
+      mustChangePassword: doc.mustChangePassword
+    }
+  });
+});
+
 // Drive sync (admin/session only; for now admin only)
 router.get('/admin/sync/status', requireSessionOrAdmin, async (req, res) => {
   const status = await getJson(KEYS.driveSyncStatus, null);

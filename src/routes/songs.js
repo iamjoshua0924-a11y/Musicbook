@@ -81,11 +81,14 @@ router.get('/songs/cards', async (req, res) => {
         mood: s.mood || '',
         vocal: s.vocal || '',
         isLatest: Boolean(s.isLatest),
+          latestModifiedMs: s.driveModifiedTime ? new Date(s.driveModifiedTime).getTime() : 0,
         variantsByKey: new Map()
       };
       cardsByKey.set(cardKey, card);
     } else {
       card.isLatest = card.isLatest || Boolean(s.isLatest);
+        const ms = s.driveModifiedTime ? new Date(s.driveModifiedTime).getTime() : 0;
+        if (ms > (card.latestModifiedMs || 0)) card.latestModifiedMs = ms;
     }
 
     const k = String(s.key || '').trim();
@@ -95,7 +98,8 @@ router.get('/songs/cards', async (req, res) => {
         key: k,
         songId: String(s._id),
         googleFileId: s.googleFileId,
-        driveUrl: s.driveUrl || ''
+        driveUrl: s.driveUrl || '',
+        driveModifiedMs: s.driveModifiedTime ? new Date(s.driveModifiedTime).getTime() : 0
       });
     }
     fileIdToCardKey.set(String(s.googleFileId), cardKey);
@@ -129,6 +133,8 @@ router.get('/songs/cards', async (req, res) => {
     const variants = Array.from(card.variantsByKey.values()).sort((a, b) => String(a.key).localeCompare(String(b.key)));
     const keys = variants.map((v) => v.key);
     const searchText = `${card.title} ${card.artist} ${card.genre} ${card.mood} ${card.vocal} ${keys.join(' ')}`.toLowerCase();
+    const latestMs =
+      Number(card.latestModifiedMs || 0) || Math.max(0, ...variants.map((v) => Number(v.driveModifiedMs || 0)));
     const uids = Array.from(cardAvailUsers.get(card.cardId) || []);
     const availableUsers = uids
       .map((uid) => {
@@ -146,6 +152,8 @@ router.get('/songs/cards', async (req, res) => {
       mood: card.mood,
       vocal: card.vocal,
       isLatest: card.isLatest,
+      // musicbook UI의 "최신곡" 정렬 버튼(data-sort-field="createdAt") 호환을 위해 숫자(ms)로 제공
+      createdAt: latestMs || 0,
       keys,
       variants,
       availableUsers,

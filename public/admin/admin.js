@@ -19,7 +19,7 @@ async function apiJson(url, method, body) {
 
 function showAuthed(on) {
   $('loginCard').style.display = on ? 'none' : 'block';
-  ['meCard', 'mainCard', 'syncCard', 'parseErrorCard', 'csvImportCard', 'csvImportUsersCard', 'csvImportAvailabilityCard'].forEach((id) => {
+  ['meCard', 'mainCard', 'usersCard', 'syncCard', 'parseErrorCard', 'csvImportCard', 'csvImportUsersCard', 'csvImportAvailabilityCard'].forEach((id) => {
     $(id).style.display = on ? 'block' : 'none';
   });
 }
@@ -33,6 +33,46 @@ async function refreshMe() {
   $('meText').textContent = `${me.user.userId} (${me.user.role})`;
   showAuthed(true);
   return me.user;
+}
+
+async function loadUsers() {
+  const out = $('usersOut');
+  const wrap = $('usersList');
+  if (out) out.textContent = '로딩 중...';
+  if (wrap) wrap.innerHTML = '';
+  const r = await apiGet('/api/admin/users');
+  if (!r.ok) {
+    if (out) out.textContent = `불러오기 실패: ${r.error || ''}`;
+    return;
+  }
+  const items = Array.isArray(r.items) ? r.items : [];
+  if (out) out.textContent = `총 ${items.length}명`;
+  items.forEach((u) => {
+    const el = document.createElement('div');
+    el.className = 'item';
+    el.innerHTML = `
+      <div style="flex:1; display:grid; gap:6px;">
+        <div><span class="kbd">${escapeHtml(u.userId || '')}</span> · <b>${escapeHtml(u.role || '')}</b> ${u.active === false ? '<span class="muted">(비활성)</span>' : ''}</div>
+        <div class="muted">${escapeHtml(u.displayName || '')}</div>
+      </div>
+      <div class="row" style="justify-content:flex-end;">
+        <button class="light" data-action="reset">비번 1234</button>
+        <button class="light" data-action="toggle">${u.active === false ? '활성화' : '비활성'}</button>
+      </div>
+    `;
+    el.querySelector('[data-action="reset"]').onclick = async () => {
+      const rr = await apiJson(`/api/admin/users/${encodeURIComponent(u.userId)}`, 'PATCH', { password: '1234' });
+      if (!rr.ok) return alert('실패');
+      alert('비밀번호를 1234로 초기화했습니다.');
+    };
+    el.querySelector('[data-action="toggle"]').onclick = async () => {
+      const next = !(u.active === false);
+      const rr = await apiJson(`/api/admin/users/${encodeURIComponent(u.userId)}`, 'PATCH', { active: !next });
+      if (!rr.ok) return alert('실패');
+      await loadUsers();
+    };
+    wrap.appendChild(el);
+  });
 }
 
 async function loadMain() {
@@ -256,6 +296,20 @@ function wire() {
     if (!r.ok) return ($('importAvailabilityCsvOut').textContent = `실패: ${r.error || ''}`);
     startImportPolling('availability', 'importAvailabilityCsvOut', 'importAvailabilityCsvDetail');
   };
+
+  $('reloadUsersBtn').onclick = () => loadUsers().catch(() => {});
+  $('createUserBtn').onclick = async () => {
+    const userId = $('newUserId').value.trim();
+    const role = $('newUserRole').value;
+    const displayName = $('newUserName').value.trim();
+    if (!userId) return alert('userId를 입력하세요');
+    const r = await apiJson('/api/admin/users', 'POST', { userId, role, displayName });
+    if (!r.ok) return alert('생성 실패');
+    $('newUserId').value = '';
+    $('newUserName').value = '';
+    alert(`생성 완료: ${userId} (PW: ${r.password || '1234'})`);
+    await loadUsers();
+  };
 }
 
 async function boot() {
@@ -263,6 +317,7 @@ async function boot() {
   const me = await refreshMe();
   if (me) {
     await loadMain();
+    if (me.role === 'admin') await loadUsers();
     await loadDriveRoot();
     await loadSyncStatus();
     await loadParseErrors();

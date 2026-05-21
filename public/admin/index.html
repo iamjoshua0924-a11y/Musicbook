@@ -57,6 +57,25 @@
         </div>
       </div>
 
+      <div class="card" id="usersCard" style="display:none;">
+        <div class="title" style="font-size:16px;">유저 관리</div>
+        <div class="muted">유저 생성/활성/비활성/비밀번호 초기화(1234)</div>
+        <div class="row" style="margin-top:10px;">
+          <button id="reloadUsersBtn" class="light">새로고침</button>
+          <span class="muted" id="usersOut"></span>
+        </div>
+        <div class="row" style="margin-top:10px;">
+          <input id="newUserId" placeholder="userId" />
+          <select id="newUserRole">
+            <option value="session" selected>session</option>
+            <option value="admin">admin</option>
+          </select>
+          <input id="newUserName" placeholder="displayName(옵션)" />
+          <button id="createUserBtn">유저 생성</button>
+        </div>
+        <div class="list" id="usersList" style="margin-top:10px;"></div>
+      </div>
+
       <div class="card" id="syncCard" style="display:none;">
         <div class="title" style="font-size:16px;">Drive 동기화</div>
         <div class="row" style="margin-top:10px;">

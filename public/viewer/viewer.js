@@ -962,6 +962,55 @@ function setCwMeta(msg) {
   if (el) el.textContent = String(msg || '');
 }
 
+function buildCodewikiBookmarklet() {
+  // NOTE: bookmarklet는 사용자의 브라우저(코드위키 탭)에서 실행되어,
+  //       본문 텍스트를 추출한 뒤 우리 뷰어 창으로 postMessage로 전달한다.
+  const target = `${window.location.origin}/viewer?mode=chord`;
+  const targetOrigin = window.location.origin;
+  const js = `(()=>{try{
+const pick=(s)=>String(s||'').trimEnd();
+let t='';
+const pre=document.querySelector('pre'); if(pre) t=pick(pre.innerText||pre.textContent);
+if(!t){ const ta=document.querySelector('textarea'); if(ta) t=pick(ta.value||ta.textContent); }
+if(!t){ const mains=[...document.querySelectorAll('main,article,#content,#main')]; for(const m of mains){ const x=pick(m.innerText||m.textContent); if(x&&x.length>t.length) t=x; } }
+if(!t){ t=pick(document.body&& (document.body.innerText||document.body.textContent)); }
+if(!t){ alert('본문 텍스트를 찾지 못했습니다.'); return; }
+const url='${target}';
+const w=window.open(url,'_blank');
+if(!w){ alert('팝업이 차단되었습니다. 팝업 허용 후 다시 시도하세요.'); return; }
+const msg={type:'MB_RAW_CHORD_V1', rawText:t, sourceUrl:location.href};
+const send=()=>{ try{ w.postMessage(msg,'${targetOrigin}'); }catch(e){} };
+const it=setInterval(()=>{ if(!w||w.closed){ clearInterval(it); return; } send(); }, 400);
+setTimeout(()=>clearInterval(it), 5000);
+alert('뷰어로 전송했습니다. 뷰어 창에서 파싱을 진행하세요.');
+}catch(e){ alert('실패: '+(e&&e.message?e.message:e)); }})();`;
+  // eslint-disable-next-line no-useless-escape
+  return `javascript:${js.replace(/\n/g, '').replace(/\s+/g, ' ')}`;
+}
+
+// cross-origin postMessage로 원문 전달 받기(북마클릿/유저 참여형)
+window.addEventListener('message', (ev) => {
+  const d = ev?.data;
+  if (!d || typeof d !== 'object') return;
+  if (d.type !== 'MB_RAW_CHORD_V1') return;
+  const rawText = String(d.rawText || '');
+  const sourceUrl = String(d.sourceUrl || '');
+  if (!rawText.trim()) return;
+
+  setMode('chord');
+  document.getElementById('cwRawInput')?.classList.remove('hidden');
+  document.getElementById('cwParseRawBtn')?.classList.remove('hidden');
+  const ta = document.getElementById('cwRawInput');
+  if (ta) ta.value = rawText;
+  state.chordSourceUrl = sourceUrl;
+  setCwMeta(`소스: bookmarklet(postMessage)\n원문 URL: ${sourceUrl}`);
+
+  // 사용자가 원하면 자동 파싱
+  if (confirm('코드위키 원문을 받았습니다. 지금 바로 파싱할까요?')) {
+    openChordByRawText(rawText, sourceUrl).catch(() => {});
+  }
+});
+
 function showChordAuthActions(show) {
   const on = Boolean(show) && state.mode === 'chord';
   document.getElementById('cwAuthOpenBtn')?.classList.toggle('hidden', !on);
@@ -1041,6 +1090,19 @@ document.getElementById('cwPasteToggleBtn')?.addEventListener('click', () => {
   const btn = document.getElementById('cwParseRawBtn');
   const nowHidden = raw?.classList.toggle('hidden');
   btn?.classList.toggle('hidden', Boolean(nowHidden));
+});
+
+document.getElementById('cwBookmarkletBtn')?.addEventListener('click', () => {
+  setMode('chord');
+  const code = buildCodewikiBookmarklet();
+  prompt(
+    '코드위키 자동 가져오기(북마클릿)입니다.\n' +
+      '1) 아래 전체를 복사\n' +
+      '2) 브라우저 북마크바에 새 북마크를 만들고 URL에 붙여넣기\n' +
+      '3) 코드위키 페이지에서 그 북마크를 클릭하면, 원문이 이 뷰어로 전송됩니다.\n\n' +
+      '(참고: 서버가 403(Cloudflare)로 막히는 경우를 위한 “유저 참여형” 방식입니다.)',
+    code
+  );
 });
 
 document.getElementById('cwAuthOpenBtn')?.addEventListener('click', () => {

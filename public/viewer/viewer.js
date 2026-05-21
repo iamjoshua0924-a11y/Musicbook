@@ -615,6 +615,9 @@ const state = {
 
 state.pdfFileId = state.fileId;
 
+// 코드위키(ChordWiki) UI는 현재 사용하지 않으므로 비활성화한다.
+const ENABLE_CHORDWIKI_UI = false;
+
 // Initial UI state classes
 document.body.dataset.tool = state.tool;
 
@@ -1077,6 +1080,7 @@ function needsUserAuthForError(err) {
 }
 
 function setMode(mode) {
+  if (!ENABLE_CHORDWIKI_UI) mode = 'pdf';
   state.mode = mode;
   document.getElementById('pdfModeBtn')?.classList.toggle('active', mode === 'pdf');
   document.getElementById('chordModeBtn')?.classList.toggle('active', mode === 'chord');

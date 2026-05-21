@@ -41,7 +41,28 @@ body {
   padding:10px 12px;
 }
 .rowTitle{ font-weight: 1000; }
-.rowSub{ margin-top:4px; font-size: 12px; opacity: 0.8; }
+.rowSub{
+  margin-top:4px;
+  font-size: 12px;
+  opacity: 0.8;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap: 10px;
+}
+.rowSubLeft{
+  text-align:left;
+  min-width: 0;
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rowSubRight{
+  text-align:right;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
 .chip{
   display:inline-flex;
   align-items:center;

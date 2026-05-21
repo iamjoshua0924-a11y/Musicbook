@@ -32,15 +32,21 @@ function render(items) {
   arr.forEach((r) => {
     const el = document.createElement('div');
     el.className = 'row';
+    const requester = String(r.requesterName || '익명').trim() || '익명';
+    const artist = String(r.artist || '').trim();
+    const target = String(r.targetSinger || '').trim();
     el.innerHTML = `
       <div class="rowTitle">
         ${esc(r.songTitle || '')}
         <span class="chip">${esc(statusLabel(r.status))}</span>
       </div>
       <div class="rowSub">
-        ${esc(r.requesterName || '익명')}
-        ${r.artist ? ` · ${esc(r.artist)}` : ''}
-        ${r.targetSinger ? ` · 담당: ${esc(r.targetSinger)}` : ''}
+        <div class="rowSubLeft">
+          ${esc(artist || '-')} · 담당보컬 : ${esc(target || '-')}
+        </div>
+        <div class="rowSubRight">
+          신청자 : ${esc(requester)}
+        </div>
       </div>
     `;
     list.appendChild(el);
@@ -65,4 +71,3 @@ function boot() {
 }
 
 boot();
-

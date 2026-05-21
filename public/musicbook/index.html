@@ -140,17 +140,19 @@
                     <option>그룹곡</option>
                   </select>
 
-                  <!-- 가능보컬: 한 줄(칩 + 버튼) -->
-                  <div class="avail-inline">
-                    <span class="avail-inline-label">가능보컬</span>
-                    <div id="availableVocalChips" class="avail-chips"></div>
-                    <button class="floating-btn compact-btn avail-open-btn" id="availableVocalOpenBtn" type="button">선택</button>
-                  </div>
+                  <!-- 가능보컬: 스크롤 방지를 위해 버튼만 1행에 배치 -->
+                  <button class="avail-pick-btn" id="availableVocalOpenBtn" type="button">가능보컬[선택]</button>
 
                   <!-- legacy single-select (숨김) -->
                   <select id="availableVocalFilter" class="select" style="display:none;">
                     <option value="">가능보컬 전체</option>
                   </select>
+                </div>
+
+                <!-- 가능보컬 선택 시에만 임시 3행으로 칩 표시 -->
+                <div class="search-row search-row-vocal" id="availableVocalSelectedRow" style="display:none;">
+                  <div class="avail-selected-label">선택된 보컬</div>
+                  <div id="availableVocalChips" class="avail-chips"></div>
                 </div>
 
                 <div class="search-row search-row-2">

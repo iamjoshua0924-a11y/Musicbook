@@ -236,6 +236,8 @@ function renderAvailableVocalChips() {
   if (!wrap) return;
   wrap.innerHTML = '';
   const ids = getSelectedAvailableVocalUserIds();
+  const row = $('availableVocalSelectedRow');
+  if (row) row.style.display = ids.length ? 'flex' : 'none';
   if (!ids.length) return;
   const userMap = new Map((state.availableVocalUsers || []).map((u) => [String(u.userId), u]));
   ids.forEach((uid) => {

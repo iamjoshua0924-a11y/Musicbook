@@ -359,9 +359,11 @@ function setCursorMarker(el, { xNorm, yNorm, visible }) {
   // 높이: 화면에 비례(너무 작/크지 않게) - 기존 대비 1/2
   const h = clamp(r.height * 0.11, 40, 110);
   el.style.height = `${Math.round(h)}px`;
-  el.style.left = `${Math.round(x - r.left)}px`;
-  // y를 "중심"으로 정렬(기존은 y가 top이라 위/아래 체감 어긋남)
-  const top = clamp((y - r.top) - h / 2, 0, Math.max(0, r.height - h));
+  // CSS에서 transform: translate(-50%, -50%)로 "중심 기준" 정렬을 하므로,
+  // 여기서는 left/top에 중심 좌표를 그대로 넣는다.
+  const left = clamp(x - r.left, 0, r.width);
+  const top = clamp(y - r.top, h / 2, Math.max(h / 2, r.height - h / 2));
+  el.style.left = `${Math.round(left)}px`;
   el.style.top = `${Math.round(top)}px`;
   el.style.display = 'block';
 }

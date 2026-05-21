@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "node src/server.js",
     "start": "node src/server.js",
-    "postinstall": "npx puppeteer browsers install chrome",
+    "postinstall": "node -e \"const fs=require('fs');const p=process.env.PUPPETEER_CACHE_DIR||'/opt/render/.cache/puppeteer';try{fs.rmSync(p,{recursive:true,force:true});}catch(e){}\" && npx puppeteer browsers install chrome",
     "smoke": "node smoke-test.mjs"
   },
   "engines": {

@@ -7,7 +7,15 @@ const { fetchRenderedHtml } = require('../services/puppeteerFetch');
 const router = express.Router();
 
 // 안전을 위해 allowlist로만 허용(SSRF 방지의 핵심)
-const ALLOWED_HOSTS = new Set(['ja.chordwiki.org', 'chordwiki.org', 'www.ultimate-guitar.com', 'ultimate-guitar.com']);
+const ALLOWED_HOSTS = new Set([
+  'ja.chordwiki.org',
+  'chordwiki.org',
+  'www.chordwiki.org',
+  'chordwiki.jp',
+  'www.chordwiki.jp',
+  'www.ultimate-guitar.com',
+  'ultimate-guitar.com'
+]);
 
 const BOT_PATTERNS = [
   /performing security verification/i,

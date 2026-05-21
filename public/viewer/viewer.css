@@ -56,7 +56,25 @@ body.light{
 .inputRow{ display:flex; gap:8px; align-items:center; flex-wrap:nowrap; }
 body.link-collapsed .inputRow{ display:none; }
 
-/* (코드위키 모드 제거됨) */
+.modeTabs{
+  display:flex;
+  align-items:center;
+  gap:0;
+  border:1px solid var(--border);
+  border-radius:12px;
+  overflow:hidden;
+}
+.modeTabs .tab{
+  height:28px;
+  padding:0 10px;
+  border:0;
+  border-radius:0;
+  background:rgba(255,255,255,0.04);
+  font-weight:900;
+}
+.modeTabs .tab.active{
+  background:rgba(122,162,255,0.22);
+}
 #linkInput{
   padding:7px 10px;
   border-radius:10px;
@@ -228,7 +246,15 @@ button.danger{ background:rgba(255,107,107,0.14); border-color:rgba(255,107,107,
   background: var(--bg);
 }
 
-/* (chordwikiPane 스타일 제거됨) */
+#chordwikiPane{
+  position:absolute;
+  inset:0;
+  padding:14px;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  background: var(--bg);
+}
 #cwMeta{
   margin-top:-4px;
   opacity:0.85;

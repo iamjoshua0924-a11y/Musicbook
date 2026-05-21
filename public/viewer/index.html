@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes" />
     <title>Score Viewer</title>
     <!-- cache-bust for mobile browsers -->
-    <link rel="stylesheet" href="/public/viewer/viewer.css?v=20260521_01" />
+    <link rel="stylesheet" href="/public/viewer/viewer.css?v=20260521_02" />
   </head>
   <body>
     <div id="viewer-wrapper">
@@ -13,6 +13,10 @@
         <div class="left">
           <div class="brand">Score Viewer</div>
           <div class="inputRow">
+            <div class="modeTabs" id="modeTabs">
+              <button id="pdfModeBtn" type="button" class="tab active">구글 PDF</button>
+              <button id="chordModeBtn" type="button" class="tab">코드위키</button>
+            </div>
             <input id="linkInput" type="text" placeholder="구글드라이브 PDF 링크 또는 fileId" />
             <button id="openBtn" type="button" class="primary">열기</button>
             <button id="songBookPickBtn" type="button" class="primary hidden">노래책에서 고르기</button>
@@ -189,6 +193,19 @@
           <div id="tapZoneRight"></div>
         </div>
 
+        <!-- CodeWiki mode (패널 UI 최소화: 결과 영역만 유지) -->
+        <section id="chordwikiPane" class="hidden">
+          <textarea id="cwRawInput" class="hidden" rows="8"></textarea>
+          <div id="cwError" class="muted hidden"></div>
+          <div id="cwMeta" class="muted hidden"></div>
+          <div id="cwScroll" class="cwScroll">
+            <div id="cwInner" class="cwInner">
+              <div id="cwAnnoHost"></div>
+              <div id="cwContent" class="chord-sheet"></div>
+            </div>
+          </div>
+        </section>
+
         <div id="touchNavBottom">
           <button id="touchPrevBtn" type="button">◀</button>
           <button id="touchMenuBtn" type="button">세션</button>
@@ -251,6 +268,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
-    <script src="/public/viewer/viewer.js?v=20260521_01"></script>
+    <script src="/public/viewer/viewer.js?v=20260521_02"></script>
   </body>
 </html>

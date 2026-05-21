@@ -495,7 +495,7 @@ function renderSongCards(hideTags) {
 
     const isAdmin = state.role === 'admin';
     const users = Array.isArray(c.availableUsers) ? c.availableUsers : [];
-    const maxShown = 5;
+    const maxShown = 8;
     const shown = users.slice(0, maxShown);
     const more = users.length > maxShown ? users.length - maxShown : 0;
     const avatarHtml = `
@@ -513,20 +513,23 @@ function renderSongCards(hideTags) {
         ${more ? `<span class="mini-avatar more" title="+${more}명">+${more}</span>` : ''}
       </div>
     `;
-    // 카드 레이아웃: 제목(강조) 위, 가수(보조) 아래
+    // 카드 레이아웃(3행):
+    // 1행 제목(+new) + 우측 편집
+    // 2행 가수
+    // 3행 가능보컬 프로필(최대 8명 +N)
     el.innerHTML = `
       <div class="song-card-header">
-        <div>
+        <div class="song-card-top">
           <div class="song-card-title">
             <span>${esc(title)}</span>
             ${c.isLatest ? `<span class="new-badge">new!</span>` : ''}
           </div>
-          <div class="song-card-artist">${esc(c.artist || '')}</div>
+          <div class="song-card-actions">
+            ${isAdmin ? `<span class="chip edit-chip" data-action="editSong">편집</span>` : ''}
+          </div>
         </div>
-        <div class="song-card-right">
-          ${avatarHtml}
-          ${isAdmin ? `<span class="chip edit-chip" data-action="editSong">편집</span>` : ''}
-        </div>
+        <div class="song-card-artist">${esc(c.artist || '')}</div>
+        ${users.length ? `<div class="song-card-avatars">${avatarHtml}</div>` : ''}
       </div>
       ${hideTags ? '' : `
         <div class="song-chips">

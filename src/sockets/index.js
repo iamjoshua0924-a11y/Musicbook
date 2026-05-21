@@ -404,6 +404,8 @@ function attachSockets(io) {
       if (!fileId) return ack?.({ ok: false, error: 'FILE_REQUIRED' });
 
       const hide = Boolean(payload?.hide);
+      const modeRaw = String(payload?.mode || '').trim().toLowerCase();
+      const mode = modeRaw === 'row' ? 'row' : modeRaw === 'line' ? 'line' : undefined;
       const xNorm = Number(payload?.xNorm);
       const yNorm = Number(payload?.yNorm);
       const pageNo = Number(payload?.pageNo || 0);
@@ -420,6 +422,7 @@ function attachSockets(io) {
       io.to(toSessionRoomName(roomCode)).emit('viewer:cursor', {
         fileId,
         hide,
+        mode,
         // legacy
         xNorm,
         yNorm,

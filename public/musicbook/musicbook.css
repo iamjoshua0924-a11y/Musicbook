@@ -635,7 +635,7 @@ body.hide-tags .song-chips{ display:none; }
   position: fixed;
   left: 22px;
   bottom: 22px;
-  width: min(360px, calc(100vw - 44px));
+  width: min(240px, calc(100vw - 44px));
   max-height: 42vh;
   overflow: hidden;
   padding: 14px;

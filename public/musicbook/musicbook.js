@@ -684,12 +684,27 @@ function openTagRequiredModal(card) {
       if (!genre || !mood || !vocal) return toast('장르/분위기/보컬을 모두 선택해 주세요.');
       const vv = state._pendingVariant;
       if (!vv?.googleFileId) return cleanup(false);
-      const r = await apiJson('/api/songs/tags', 'PATCH', { googleFileId: vv.googleFileId, genre, mood, vocal });
-      if (!r.ok) return toast('저장 실패');
-      // 카드/검색에 바로 반영되도록 재조회
-      await loadSongs(true);
-      await loadSongFiles(true);
-      cleanup(true);
+      const saveBtn = $('tagReqSaveBtn');
+      const cancelBtn = $('tagReqCancelBtn');
+      const sp = $('tagReqSpinner');
+      try {
+        if (saveBtn) saveBtn.disabled = true;
+        if (cancelBtn) cancelBtn.disabled = true;
+        if (sp) sp.style.display = 'inline-block';
+        const r = await apiJson('/api/songs/tags', 'PATCH', { googleFileId: vv.googleFileId, genre, mood, vocal });
+        if (!r.ok) {
+          toast('저장 실패');
+          return;
+        }
+        // 카드/검색에 바로 반영되도록 재조회
+        await loadSongs(true);
+        await loadSongFiles(true);
+        cleanup(true);
+      } finally {
+        if (sp) sp.style.display = 'none';
+        if (saveBtn) saveBtn.disabled = false;
+        if (cancelBtn) cancelBtn.disabled = false;
+      }
     };
   });
 }

@@ -489,7 +489,7 @@ body[data-tool="text"] #brushGroup{
   position: absolute;
   right: 16px;
   top: 70px;
-  width: 160px;
+  width: 240px;
   max-height: calc(100% - 90px);
   overflow: auto;
   padding: 10px;

@@ -360,7 +360,7 @@ function ensureCursorEls() {
   }
 }
 
-function setCursorMarker(el, { xNorm, yNorm, visible, mode = 'line' }) {
+function setCursorMarker(el, { xNorm, yNorm, visible, mode = 'line', pageNo = 0, yPageNorm = null } = {}) {
   if (!el) return;
   if (!visible) {
     el.style.display = 'none';
@@ -371,6 +371,29 @@ function setCursorMarker(el, { xNorm, yNorm, visible, mode = 'line' }) {
   const container = document.getElementById('pdf-container');
   if (!container) return;
   const r = container.getBoundingClientRect();
+
+  // "한줄전체" 모드는 컨테이너 전체가 아니라, 특정 페이지 안쪽에서만 가로줄이 그어져야 한다.
+  if (m === 'row' && pageNo && Number.isFinite(Number(yPageNorm))) {
+    const v = viewMap.get(Number(pageNo));
+    if (v?.root) {
+      const pr = v.root.getBoundingClientRect();
+      const pad = 12;
+      const width = Math.max(40, pr.width - pad * 2);
+      // 페이지 내부에서만 꽉 채우기: 가운데 정렬
+      el.style.width = `${Math.round(width)}px`;
+      const leftPx = (pr.left - r.left) + pr.width / 2;
+      const yLocal = (pr.top - r.top) + clamp(Number(yPageNorm), 0, 1) * pr.height;
+      const h = clamp(r.height * 0.065, 34, 70);
+      el.style.height = `${Math.round(h)}px`;
+      el.style.left = `${Math.round(clamp(leftPx, 0, r.width))}px`;
+      el.style.top = `${Math.round(clamp(yLocal, h / 2, Math.max(h / 2, r.height - h / 2)))}px`;
+      el.style.display = 'block';
+      return;
+    }
+  }
+
+  // default(현재부분): 컨테이너 기준 정규화 좌표
+  el.style.width = '';
   // allow both normalized coords and absolute px (relative to container)
   const xPx = Number.isFinite(Number(xNorm)) ? r.width * clamp(Number(xNorm || 0), 0, 1) : null;
   const yPx = Number.isFinite(Number(yNorm)) ? r.height * clamp(Number(yNorm || 0), 0, 1) : null;
@@ -489,7 +512,7 @@ function startCursorShare() {
     const yNorm = r.height ? yLocal / r.height : 0;
 
     const mode = state.cursorShareMode || 'line';
-    setCursorMarker(localCursorEl, { xNorm, yNorm, visible: true, mode });
+    setCursorMarker(localCursorEl, { xNorm, yNorm, visible: true, mode, pageNo, yPageNorm });
     socket.emit('viewer:cursor', { roomCode: state.roomCode, fileId: state.fileId, pageNo, xPageNorm, yPageNorm, mode });
   };
 
@@ -2925,6 +2948,8 @@ socket.on('session:scroll:sync', (p) => {
 
 socket.on('viewer:cursor', (p) => {
   if (!state.isInSession) return;
+  // 페이지터너가 커서공유 중일 때는 서버 echo로 remote 커서가 겹쳐 보일 수 있으니 무시
+  if (state.isPageTurner && state.cursorShareOn) return;
   if (p?.fileId && state.fileId && String(p.fileId) !== String(state.fileId)) return;
   ensureCursorEls();
   if (p?.hide) return setCursorMarker(remoteCursorEl, { visible: false });
@@ -2951,7 +2976,7 @@ socket.on('viewer:cursor', (p) => {
     const yLocal = (pr.top - cr.top) + clamp(yPageNorm, 0, 1) * pr.height;
     const xNorm = cr.width ? xLocal / cr.width : 0;
     const yNorm = cr.height ? yLocal / cr.height : 0;
-    return setCursorMarker(remoteCursorEl, { xNorm, yNorm, visible: true, mode });
+    return setCursorMarker(remoteCursorEl, { xNorm, yNorm, visible: true, mode, pageNo, yPageNorm: yPageNorm });
   }
 
   // Legacy fallback: container-based normalized cursor

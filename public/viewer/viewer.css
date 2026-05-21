@@ -334,7 +334,6 @@ button.danger{ background:rgba(255,107,107,0.14); border-color:rgba(255,107,107,
   display: none;
 }
 .cursor-marker.row{
-  width: calc(100% - 24px); /* 좌우 꽉 채움(컨테이너 패딩 고려) */
   height: 46px;
   border-radius: 18px;
   background: rgba(255, 80, 80, 0.16);

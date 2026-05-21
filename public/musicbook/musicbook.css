@@ -113,6 +113,13 @@ body {
   border-radius: 14px;
   font-size: 13px;
 }
+.avail-open-btn{
+  width: fit-content;
+  padding: 6px 8px;
+  height: 28px;
+  border-radius: 10px;
+  font-size: 12px;
+}
 
 /* small inline spinner for buttons */
 .btn-spinner{

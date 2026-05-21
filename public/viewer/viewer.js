@@ -2291,6 +2291,13 @@ function applySnapshotToPage(pageNo, pageSnapshot) {
 async function renderSpread(leftPageNo) {
   if (!state.isPdfReady || !state.pdfDoc) return;
 
+  // IMPORTANT:
+  // renderSpread는 async(페이지 렌더 await)라서, 페이지 넘김/설정 동기화로 연속 호출되면
+  // 이전 렌더가 늦게 끝나면서 DOM에 중복 append(2p가 여러 번 보이는 현상)가 발생할 수 있다.
+  // 최신 호출만 유효하도록 토큰으로 중단(cancellation)한다.
+  renderSpread._seq = (renderSpread._seq || 0) + 1;
+  const seq = renderSpread._seq;
+
   // Remove preview fallback if any
   els.pdfPreview.classList.add('hidden');
   els.canvasStack.style.display = 'flex';
@@ -2302,8 +2309,11 @@ async function renderSpread(leftPageNo) {
   updatePageLabels();
 
   for (const p of pages) {
+    if (seq !== renderSpread._seq) return; // cancelled by newer render
     const page = await state.pdfDoc.getPage(p);
+    if (seq !== renderSpread._seq) return;
     const viewport = computeViewport(page);
+    if (seq !== renderSpread._seq) return;
     const v = makeView(p);
 
     v.pdfCanvas.width = Math.floor(viewport.width);
@@ -2320,6 +2330,7 @@ async function renderSpread(leftPageNo) {
 
     const ctx = v.pdfCanvas.getContext('2d');
     await page.render({ canvasContext: ctx, viewport }).promise;
+    if (seq !== renderSpread._seq) return;
 
     const saved = state.annoStore[p];
     if (saved) applySnapshotToPage(p, saved);

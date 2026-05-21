@@ -139,7 +139,13 @@
                   <option>그룹곡</option>
                 </select>
                 
-                <select id="availableVocalFilter" class="select">
+                <!-- 가능보컬 필터(AND): 여러 명 선택 가능 -->
+                <div class="avail-multi-wrap">
+                  <div class="avail-multi-title">가능보컬(AND)</div>
+                  <div id="availableVocalMulti" class="avail-multi"></div>
+                </div>
+                <!-- legacy single-select (숨김) -->
+                <select id="availableVocalFilter" class="select" style="display:none;">
                   <option value="">가능보컬 전체</option>
                 </select>
                 <button id="availabilityEditToggleBtn" class="floating-btn compact-btn" type="button" style="display:none;">가능곡 편집</button>

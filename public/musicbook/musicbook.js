@@ -16,6 +16,9 @@ const state = {
   // 가능보컬 필터용 (타인 포함)
   filterAvailableVocalUserId: '',
   filterAvailableVocalSet: null, // Set<googleFileId>
+  // 가능보컬 멀티 선택(AND)용
+  filterAvailableVocalUserIds: [],
+  filterAvailableVocalSetsByUserId: new Map(), // userId -> Set<googleFileId>
 
   // 본인 가능곡 편집용
   myAvailabilitySet: null, // Set<googleFileId>
@@ -202,6 +205,37 @@ async function loadAvailableVocalSet(userId) {
   state.filterAvailableVocalSet = set;
 }
 
+async function loadAvailableVocalSets(userIds) {
+  const ids = Array.isArray(userIds) ? userIds.map((x) => String(x || '').trim()).filter(Boolean) : [];
+  const selected = new Set(ids);
+  // prune cache
+  for (const k of state.filterAvailableVocalSetsByUserId.keys()) {
+    if (!selected.has(k)) state.filterAvailableVocalSetsByUserId.delete(k);
+  }
+  const missing = ids.filter((uid) => !state.filterAvailableVocalSetsByUserId.has(uid));
+  await Promise.all(
+    missing.map(async (uid) => {
+      const data = await apiGet(`/api/availability?userId=${encodeURIComponent(uid)}`);
+      if (!data.ok) return;
+      const set = new Set();
+      (data.items || []).forEach((a) => {
+        if (a.available) set.add(a.googleFileId);
+      });
+      state.filterAvailableVocalSetsByUserId.set(uid, set);
+    })
+  );
+}
+
+function getSelectedAvailableVocalUserIds() {
+  const wrap = $('availableVocalMulti');
+  if (!wrap) return [];
+  const ids = [];
+  wrap.querySelectorAll('input[type="checkbox"][data-uid]').forEach((inp) => {
+    if (inp.checked) ids.push(String(inp.getAttribute('data-uid') || '').trim());
+  });
+  return ids.filter(Boolean);
+}
+
 async function loadMyAvailabilitySet() {
   const userId = state.userId || '';
   state.myAvailabilitySet = null;
@@ -221,7 +255,7 @@ function applySongFilters() {
   const genre = $('genreFilter').value;
   const mood = $('moodFilter').value;
   const vocal = $('vocalFilter').value;
-  const availableVocalUserId = $('availableVocalFilter')?.value || '';
+  const availableVocalUserIds = getSelectedAvailableVocalUserIds();
 
   const hideTags = $('hideTagsToggle').checked;
 
@@ -267,9 +301,17 @@ function applySongFilters() {
         (c._artistNorm || normLower(c.artist || '')).includes(q)
     );
 
-  // 가능보컬 필터: variants 중 하나라도 해당 유저가 available이면 노출
-  if (availableVocalUserId && state.filterAvailableVocalUserId === availableVocalUserId && state.filterAvailableVocalSet) {
-    list = list.filter((c) => (c.variants || []).some((v) => state.filterAvailableVocalSet.has(v.googleFileId)));
+  // 가능보컬 필터(AND): 선택된 유저 "모두"가 가능한 곡만 노출
+  if (availableVocalUserIds.length) {
+    const ids = availableVocalUserIds;
+    list = list.filter((c) => {
+      const vars = Array.isArray(c.variants) ? c.variants : [];
+      return ids.every((uid) => {
+        const set = state.filterAvailableVocalSetsByUserId.get(uid);
+        if (!set) return false;
+        return vars.some((v) => set.has(v.googleFileId));
+      });
+    });
   }
 
   const f = state.sortField;
@@ -1105,13 +1147,14 @@ function wireEvents() {
     }
   };
 
-  // 가능보컬 필터
-  $('availableVocalFilter').onchange = async () => {
-    const userId = $('availableVocalFilter').value;
-    await loadAvailableVocalSet(userId);
+  // 가능보컬 필터(AND 멀티 선택)
+  $('availableVocalMulti')?.addEventListener('change', async () => {
+    const ids = getSelectedAvailableVocalUserIds();
+    state.filterAvailableVocalUserIds = ids;
+    await loadAvailableVocalSets(ids);
     state.page = 1;
     applySongFilters();
-  };
+  });
 
   // action modals
   $('keySelectCancelBtn').onclick = () => closeModal('keySelectModal');
@@ -1362,16 +1405,29 @@ function renderSessionMembers(members) {
 async function loadAvailableVocalUsers() {
   const r = await apiGet('/api/availability/users');
   if (!r.ok) return;
+  // legacy select (숨김) - 값 유지용
   const sel = $('availableVocalFilter');
-  const current = sel.value;
-  sel.innerHTML = `<option value="">가능보컬 전체</option>`;
+  if (sel) sel.innerHTML = `<option value="">가능보컬 전체</option>`;
+
+  const wrap = $('availableVocalMulti');
+  if (!wrap) return;
+  // preserve checked state
+  const prev = new Set(getSelectedAvailableVocalUserIds());
+  wrap.innerHTML = '';
   (r.items || []).forEach((u) => {
-    const opt = document.createElement('option');
-    opt.value = u.userId;
-    opt.textContent = u.displayName || u.userId;
-    sel.appendChild(opt);
+    const uid = String(u.userId || '').trim();
+    if (!uid) return;
+    if (sel) {
+      const opt = document.createElement('option');
+      opt.value = uid;
+      opt.textContent = u.displayName || uid;
+      sel.appendChild(opt);
+    }
+    const lab = document.createElement('label');
+    const name = String(u.displayName || uid);
+    lab.innerHTML = `<input type="checkbox" data-uid="${esc(uid)}" ${prev.has(uid) ? 'checked' : ''} /> ${esc(name)}`;
+    wrap.appendChild(lab);
   });
-  if (current) sel.value = current;
 }
 
 async function bootstrap() {

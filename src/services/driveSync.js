@@ -115,7 +115,28 @@ async function syncDriveFolderTree({
           // still mark as seen to avoid pruning when scanning the same root repeatedly
           await Song.updateOne(
             { googleFileId: f.id },
-            { $set: { syncRootId: rootFolderId, lastSeenAt: startedAt, driveModifiedTime } },
+            [
+              {
+                $set: {
+                  syncRootId: rootFolderId,
+                  lastSeenAt: startedAt,
+                  driveModifiedTime,
+                  // 최소 정보는 항상 채워서 "제목없음" 스텁 데이터가 쌓이지 않게 한다.
+                  driveUrl: buildViewUrl(f.id),
+                  folderPath: path
+                }
+              },
+              {
+                // title/displayTitle/artist는 비어있을 때만 채운다(수동 편집 보존)
+                $set: {
+                  title: { $cond: [{ $eq: [{ $ifNull: ['$title', ''] }, ''] }, title, '$title'] },
+                  displayTitle: {
+                    $cond: [{ $eq: [{ $ifNull: ['$displayTitle', ''] }, ''] }, displayTitle, '$displayTitle']
+                  },
+                  artist: { $cond: [{ $eq: [{ $ifNull: ['$artist', ''] }, ''] }, artist, '$artist'] }
+                }
+              }
+            ],
             { upsert: true }
           );
           skipped += 1;

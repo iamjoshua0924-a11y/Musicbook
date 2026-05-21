@@ -114,6 +114,24 @@ body {
   font-size: 13px;
 }
 
+/* small inline spinner for buttons */
+.btn-spinner{
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid rgba(0,0,0,0.20);
+  border-top-color: rgba(0,0,0,0.62);
+  display:inline-block;
+  vertical-align: -2px;
+  margin-left: 2px;
+  animation: mbspin 0.9s linear infinite;
+}
+.floating-btn.black-btn .btn-spinner{
+  border-color: rgba(255,255,255,0.40);
+  border-top-color: rgba(255,255,255,0.95);
+}
+@keyframes mbspin { to { transform: rotate(360deg); } }
+
 .nav-btn.active {
   background: #101010;
   color: #fff;
@@ -270,30 +288,58 @@ body {
   opacity:0.75;
   padding-left:2px;
 }
-.avail-multi{
-  width: 100%;
-  padding: 10px 12px;
-  border-radius: 16px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  background: rgba(255, 255, 255, 0.9);
+.avail-chips{
   display:flex;
   flex-wrap:wrap;
-  gap:8px 10px;
-  max-height: 92px;
-  overflow:auto;
+  gap:8px;
 }
-.avail-multi label{
+.avail-chip{
   display:inline-flex;
   align-items:center;
-  gap:6px;
-  font-weight:900;
-  font-size:12px;
-  white-space:nowrap;
-  cursor:pointer;
+  gap:8px;
+  padding:8px 10px;
+  border-radius:999px;
+  border:1px solid rgba(0,0,0,0.10);
+  background: rgba(255,255,255,0.86);
+  font-weight: 900;
+  font-size: 12px;
 }
-.avail-multi input[type="checkbox"]{
-  width:16px;
-  height:16px;
+.avail-chip button{
+  border:0;
+  background: transparent;
+  color: rgba(0,0,0,0.55);
+  cursor:pointer;
+  font-weight: 1000;
+  padding:0;
+  line-height:1;
+}
+.avail-modal-list{
+  margin-top:10px;
+  display:grid;
+  gap:8px;
+  max-height: 48vh;
+  overflow:auto;
+  padding-right: 2px;
+}
+.avail-modal-row{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+  border:1px solid rgba(0,0,0,0.08);
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.72);
+}
+.avail-modal-row label{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  font-weight: 900;
+}
+.avail-modal-row input[type="checkbox"]{
+  width:18px;
+  height:18px;
 }
 .search-grid .random-controls{
   flex:0 0 auto;

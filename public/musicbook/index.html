@@ -139,16 +139,19 @@
                   <option>그룹곡</option>
                 </select>
                 
-                <!-- 가능보컬 필터(AND): 여러 명 선택 가능 -->
+                <!-- 가능보컬 필터(AND): 모달에서 검색/선택 -->
                 <div class="avail-multi-wrap">
                   <div class="avail-multi-title">가능보컬(AND)</div>
-                  <div id="availableVocalMulti" class="avail-multi"></div>
+                  <button class="floating-btn compact-btn" id="availableVocalOpenBtn" type="button">선택</button>
+                  <div id="availableVocalChips" class="avail-chips"></div>
                 </div>
                 <!-- legacy single-select (숨김) -->
                 <select id="availableVocalFilter" class="select" style="display:none;">
                   <option value="">가능보컬 전체</option>
                 </select>
-                <button id="availabilityEditToggleBtn" class="floating-btn compact-btn" type="button" style="display:none;">가능곡 편집</button>
+                <button id="availabilityEditToggleBtn" class="floating-btn compact-btn" type="button" style="display:none;">
+                  가능곡 편집 <span class="btn-spinner" id="availabilityEditSpinner" style="display:none;"></span>
+                </button>
 
                 <div class="random-controls">
                   <div class="random-actions-row">
@@ -173,12 +176,7 @@
                 <button class="sort-btn" data-sort-field="mood" data-label="분위기" type="button">분위기</button>
                 <button class="sort-btn" data-sort-field="vocal" data-label="보컬" type="button">보컬</button>
 
-                <div class="sort-actions">
-                  <label class="inline-check">
-                    <input type="checkbox" id="hideTagsToggle" />
-                    태그 숨기기
-                  </label>
-                </div>
+                <!-- 태그는 기본 숨김(토글 제거) -->
               </div>
             </div>
 
@@ -353,10 +351,24 @@
 
     <!-- 가능곡 선택모드 하단 바 -->
     <div class="availability-edit-bar" id="availabilityEditBar" style="display:none;">
-      <div class="availability-edit-title" id="availabilityEditTitle">가능곡 선택모드</div>
+      <div class="availability-edit-title" id="availabilityEditTitle">
+        가능곡 선택모드 <span id="availabilityEditCount" class="muted" style="margin-left:8px;"></span>
+      </div>
       <div class="availability-edit-actions">
         <button class="floating-btn compact-btn" id="availabilityEditCancelBtn" type="button">취소</button>
         <button class="floating-btn black-btn" id="availabilityEditSaveBtn" type="button">저장</button>
+      </div>
+    </div>
+
+    <!-- 가능보컬 멀티 선택 모달 -->
+    <div class="modal-overlay" id="availableVocalModal">
+      <div class="modal">
+        <div class="modal-title">가능보컬 선택(AND)</div>
+        <input id="availableVocalSearch" class="input" placeholder="이름 검색" />
+        <div id="availableVocalModalList" class="avail-modal-list"></div>
+        <div class="modal-actions">
+          <button class="floating-btn black-btn" id="availableVocalCloseBtn" type="button">닫기</button>
+        </div>
       </div>
     </div>
 
@@ -438,6 +450,35 @@
         <div class="modal-actions">
           <button class="floating-btn" id="songTagCancelBtn" type="button">취소</button>
           <button class="floating-btn black-btn" id="songTagSaveBtn" type="button">저장</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tag required modal (session/admin) -->
+    <div class="modal-overlay" id="tagRequiredModal">
+      <div class="modal">
+        <div class="modal-title">태그 입력(최초 1회)</div>
+        <div class="muted" id="tagRequiredSubtitle" style="font-weight:1000;"></div>
+        <div class="muted" style="margin-top:6px;">태그가 비어있는 곡은 최초 1회만 입력하면 다음부터는 표시되지 않습니다.</div>
+
+        <select id="tagReqGenre" class="select">
+          <option value="">장르 선택</option>
+          <option>KPOP</option><option>JPOP</option><option>POP</option><option>OST</option><option>기타</option>
+        </select>
+
+        <select id="tagReqMood" class="select">
+          <option value="">분위기 선택</option>
+          <option>발라드</option><option>락발라드</option><option>밴드송</option><option>댄스</option><option>뮤지컬</option><option>힙합</option><option>동요</option>
+        </select>
+
+        <select id="tagReqVocal" class="select">
+          <option value="">보컬 선택</option>
+          <option>남솔로</option><option>여솔로</option><option>듀엣</option><option>그룹곡</option>
+        </select>
+
+        <div class="modal-actions">
+          <button class="floating-btn" id="tagReqCancelBtn" type="button">취소</button>
+          <button class="floating-btn black-btn" id="tagReqSaveBtn" type="button">저장 후 열기</button>
         </div>
       </div>
     </div>

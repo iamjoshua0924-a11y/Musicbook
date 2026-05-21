@@ -53,9 +53,27 @@ function isMobileLike() {
   return window.matchMedia('(max-width: 980px)').matches || isCoarse;
 }
 
+function getMobileModePref() {
+  const v = String(localStorage.getItem('mb_viewer_mobile_mode') || 'auto').toLowerCase();
+  return v === 'on' || v === 'off' || v === 'auto' ? v : 'auto';
+}
+
+function setMobileModePref(v) {
+  const vv = v === 'on' || v === 'off' || v === 'auto' ? v : 'auto';
+  localStorage.setItem('mb_viewer_mobile_mode', vv);
+}
+
+function isMobileModeEnabled() {
+  const pref = getMobileModePref();
+  if (pref === 'on') return true;
+  if (pref === 'off') return false;
+  return isMobileLike();
+}
+
 function isMobileViewer() {
   try {
-    return isMobileLike() && String(authState?.role || '') === 'viewer';
+    // 기존 로직은 화면 크기 기준 자동이었는데, 보기옵션에서 auto/on/off로 강제할 수 있게 한다.
+    return isMobileModeEnabled() && String(authState?.role || '') === 'viewer';
   } catch {
     return false;
   }
@@ -260,13 +278,14 @@ function setHidden(id, hidden) {
   el.classList.toggle('hidden', hidden);
 }
 
-function setParticipantsCollapsed(collapsed) {
-  const body = document.getElementById('participantsBody');
-  const btn = document.getElementById('participantsToggleBtn');
-  if (!body || !btn) return;
-  body.classList.toggle('isHidden', Boolean(collapsed));
-  btn.textContent = collapsed ? '보기' : '감추기';
-  localStorage.setItem('mb_viewer_participantsCollapsed', collapsed ? '1' : '0');
+function setParticipantsOpen(open) {
+  setHidden('participantsPanel', !open);
+}
+
+function toggleParticipantsPanel() {
+  const panel = document.getElementById('participantsPanel');
+  if (!panel) return;
+  setParticipantsOpen(panel.classList.contains('hidden'));
 }
 
 async function apiGet(url) {
@@ -1483,11 +1502,32 @@ function applyTouchModeAuto(on) {
   document.body.classList.toggle('touch-mode', Boolean(on));
 }
 
-document.getElementById('participantsToggleBtn')?.addEventListener('click', () => {
-  const body = document.getElementById('participantsBody');
-  if (!body) return;
-  setParticipantsCollapsed(!body.classList.contains('isHidden'));
+function applyMobileModeButtons() {
+  const pref = getMobileModePref();
+  document.getElementById('mobileAutoBtn')?.classList.toggle('active', pref === 'auto');
+  document.getElementById('mobileOnBtn')?.classList.toggle('active', pref === 'on');
+  document.getElementById('mobileOffBtn')?.classList.toggle('active', pref === 'off');
+}
+
+document.getElementById('mobileAutoBtn')?.addEventListener('click', () => {
+  setMobileModePref('auto');
+  applyMobileModeButtons();
+  updateLiveMode();
 });
+document.getElementById('mobileOnBtn')?.addEventListener('click', () => {
+  setMobileModePref('on');
+  applyMobileModeButtons();
+  updateLiveMode();
+});
+document.getElementById('mobileOffBtn')?.addEventListener('click', () => {
+  setMobileModePref('off');
+  applyMobileModeButtons();
+  updateLiveMode();
+});
+
+document.getElementById('participantsToggleBtn')?.addEventListener('click', () => setParticipantsOpen(false));
+document.getElementById('participantsBtn')?.addEventListener('click', () => toggleParticipantsPanel());
+document.getElementById('touchMenuBtn')?.addEventListener('click', () => toggleParticipantsPanel());
 
 document.getElementById('songBookPickBtn')?.addEventListener('click', () => {
   // 멤버+세션 상태에서만 노출되므로 별도 권한 체크는 생략
@@ -1784,27 +1824,26 @@ async function initMidi() {
 initMidi();
 
 // touch bottom buttons (원본)
+let touchNavTimer = null;
+function bumpTouchNav() {
+  const nav = document.getElementById('touchNavBottom');
+  if (!nav) return;
+  nav.classList.add('navActive');
+  clearTimeout(touchNavTimer);
+  touchNavTimer = setTimeout(() => nav.classList.remove('navActive'), 2000);
+}
+
 document.getElementById('touchPrevBtn')?.addEventListener('click', () => {
+  bumpTouchNav();
   changePage(state.pageNo - pageTurnStep(), 'touch');
   updateUrlState();
 });
 document.getElementById('touchNextBtn')?.addEventListener('click', () => {
+  bumpTouchNav();
   changePage(state.pageNo + pageTurnStep(), 'touch');
   updateUrlState();
 });
-function toggleSessionPanel(e) {
-  try {
-    e?.preventDefault?.();
-    e?.stopPropagation?.();
-  } catch {}
-  const panel = document.getElementById('participantsPanel');
-  if (!panel) return;
-  panel.classList.toggle('hidden');
-  flashHud(panel.classList.contains('hidden') ? '세션 목록 닫힘' : '세션 목록 열림', 700);
-}
-
-document.getElementById('touchMenuBtn')?.addEventListener('click', toggleSessionPanel);
-document.getElementById('touchMenuBtn')?.addEventListener('touchend', toggleSessionPanel, { passive: false });
+document.getElementById('touchMenuBtn')?.addEventListener('click', () => bumpTouchNav());
 
 document.getElementById('touchNavBottom')?.addEventListener('click', (e) => {
   if (e.target?.id !== 'touchMenuBtn') return;
@@ -2616,15 +2655,14 @@ window.addEventListener('keydown', (e) => {
 
 // Live mode (mobile/tablet)
 function updateLiveMode() {
-  const isCoarse = window.matchMedia('(pointer: coarse)').matches;
-  const isLive = window.matchMedia('(max-width: 980px)').matches || isCoarse;
+  const isLive = isMobileModeEnabled();
   document.body.classList.toggle('live-mode', isLive);
   document.body.classList.toggle('landscape', window.matchMedia('(orientation: landscape)').matches);
-  // 모바일 UX는 live-mode 기준으로 항상 시트 UI가 필요해서 자동 활성(사용자 설정과 무관)
-  if (isLive) applyTouchModeAuto(true);
+  applyTouchModeAuto(isLive);
+  applyMobileModeButtons();
 }
 updateLiveMode();
-window.addEventListener('resize', updateLiveMode);
+window.addEventListener('resize', debounce(updateLiveMode, 200));
 
 // Desktop toggles (GAS 원본)
 document.getElementById('toggleViewBtn')?.addEventListener('click', () => {

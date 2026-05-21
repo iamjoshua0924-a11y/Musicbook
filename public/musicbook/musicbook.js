@@ -19,6 +19,7 @@ const state = {
   // 가능보컬 멀티 선택(AND)용
   filterAvailableVocalUserIds: [],
   filterAvailableVocalSetsByUserId: new Map(), // userId -> Set<googleFileId>
+  availableVocalUsers: [], // [{userId,displayName}]
 
   // 본인 가능곡 편집용
   myAvailabilitySet: null, // Set<googleFileId>
@@ -227,13 +228,80 @@ async function loadAvailableVocalSets(userIds) {
 }
 
 function getSelectedAvailableVocalUserIds() {
-  const wrap = $('availableVocalMulti');
-  if (!wrap) return [];
-  const ids = [];
-  wrap.querySelectorAll('input[type="checkbox"][data-uid]').forEach((inp) => {
-    if (inp.checked) ids.push(String(inp.getAttribute('data-uid') || '').trim());
+  return Array.isArray(state.filterAvailableVocalUserIds) ? state.filterAvailableVocalUserIds.slice() : [];
+}
+
+function renderAvailableVocalChips() {
+  const wrap = $('availableVocalChips');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  const ids = getSelectedAvailableVocalUserIds();
+  if (!ids.length) return;
+  const userMap = new Map((state.availableVocalUsers || []).map((u) => [String(u.userId), u]));
+  ids.forEach((uid) => {
+    const u = userMap.get(uid);
+    const name = String(u?.displayName || u?.userId || uid);
+    const chip = document.createElement('span');
+    chip.className = 'avail-chip';
+    chip.innerHTML = `<span>${esc(name)}</span><button type="button" data-x="1" aria-label="remove">×</button>`;
+    chip.querySelector('[data-x="1"]').onclick = async () => {
+      state.filterAvailableVocalUserIds = ids.filter((x) => x !== uid);
+      await loadAvailableVocalSets(state.filterAvailableVocalUserIds);
+      state.page = 1;
+      applySongFilters();
+      renderAvailableVocalChips();
+    };
+    wrap.appendChild(chip);
   });
-  return ids.filter(Boolean);
+}
+
+function openAvailableVocalModal() {
+  const overlay = $('availableVocalModal');
+  if (!overlay) return;
+  overlay.classList.add('active');
+  $('availableVocalSearch').value = '';
+  renderAvailableVocalModalList('');
+}
+
+function closeAvailableVocalModal() {
+  $('availableVocalModal')?.classList.remove('active');
+}
+
+function renderAvailableVocalModalList(query) {
+  const q = normLower(String(query || '').trim());
+  const list = Array.isArray(state.availableVocalUsers) ? state.availableVocalUsers : [];
+  const wrap = $('availableVocalModalList');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  const selected = new Set(getSelectedAvailableVocalUserIds());
+  list
+    .filter((u) => {
+      if (!q) return true;
+      return normLower(u.displayName || u.userId || '').includes(q);
+    })
+    .slice(0, 200)
+    .forEach((u) => {
+      const uid = String(u.userId || '').trim();
+      if (!uid) return;
+      const row = document.createElement('div');
+      row.className = 'avail-modal-row';
+      const name = String(u.displayName || uid);
+      row.innerHTML = `<label><input type="checkbox" data-uid="${esc(uid)}" ${selected.has(uid) ? 'checked' : ''} /> ${esc(
+        name
+      )}</label>`;
+      row.querySelector('input[type="checkbox"]').onchange = async (e) => {
+        const on = Boolean(e.target.checked);
+        const cur = new Set(getSelectedAvailableVocalUserIds());
+        if (on) cur.add(uid);
+        else cur.delete(uid);
+        state.filterAvailableVocalUserIds = Array.from(cur);
+        await loadAvailableVocalSets(state.filterAvailableVocalUserIds);
+        state.page = 1;
+        applySongFilters();
+        renderAvailableVocalChips();
+      };
+      wrap.appendChild(row);
+    });
 }
 
 async function loadMyAvailabilitySet() {
@@ -257,7 +325,7 @@ function applySongFilters() {
   const vocal = $('vocalFilter').value;
   const availableVocalUserIds = getSelectedAvailableVocalUserIds();
 
-  const hideTags = $('hideTagsToggle').checked;
+  const hideTags = true; // 기본은 항상 태그 숨김(토글 제거)
 
   if (state.availabilityEditMode) {
     let list = state.songFilesAll.slice().filter((s) => !s.hidden);
@@ -272,6 +340,19 @@ function applySongFilters() {
           (s._displayTitleNorm || normLower(s.displayTitle || '')).includes(q) ||
           (s._artistNorm || normLower(s.artist || '')).includes(q)
     );
+
+    // 가능보컬(AND) 필터도 편집모드(파일 단위)에 동일 적용
+    if (availableVocalUserIds.length) {
+      const ids = availableVocalUserIds;
+      list = list.filter((s) => {
+        const fid = String(s.googleFileId || '');
+        return ids.every((uid) => {
+          const set = state.filterAvailableVocalSetsByUserId.get(uid);
+          if (!set) return false;
+          return set.has(fid);
+        });
+      });
+    }
 
     const f = state.sortField;
     const dir = state.sortDir === 'asc' ? 1 : -1;
@@ -412,6 +493,17 @@ async function toggleAvailabilityForFile(userId, googleFileId, next) {
   else state.myAvailabilitySet.delete(googleFileId);
 }
 
+function updateAvailabilityEditCount() {
+  const el = $('availabilityEditCount');
+  if (!el) return;
+  if (!state.availabilityEditMode) {
+    el.textContent = '';
+    return;
+  }
+  const n = state.availabilityDraftSet ? state.availabilityDraftSet.size : 0;
+  el.textContent = `선택됨: ${n}곡`;
+}
+
 function renderAvailabilityEditCards(hideTags) {
   const wrap = $('songCardList');
   wrap.innerHTML = '';
@@ -459,6 +551,7 @@ function renderAvailabilityEditCards(hideTags) {
         if (!state.availabilityDraftSet) state.availabilityDraftSet = new Set();
         if (next) state.availabilityDraftSet.add(s.googleFileId);
         else state.availabilityDraftSet.delete(s.googleFileId);
+        updateAvailabilityEditCount();
         return;
       }
       await toggleAvailabilityForFile(userId, s.googleFileId, next);
@@ -537,6 +630,58 @@ function openSongActionModal(card, variant) {
   openModal('songActionModal');
 }
 
+function needsTagGate(card) {
+  if (!card) return false;
+  // 장르/분위기/보컬 중 하나라도 비어있으면 입력 유도
+  return !(String(card.genre || '').trim() && String(card.mood || '').trim() && String(card.vocal || '').trim());
+}
+
+function openTagRequiredModal(card) {
+  const overlay = $('tagRequiredModal');
+  if (!overlay) return Promise.resolve(false);
+  $('tagRequiredSubtitle').textContent = `${card.title || ''} · ${card.artist || ''}`.trim();
+
+  const g = $('tagReqGenre');
+  const m = $('tagReqMood');
+  const v = $('tagReqVocal');
+  if (g) g.value = String(card.genre || '').trim();
+  if (m) m.value = String(card.mood || '').trim();
+  if (v) v.value = String(card.vocal || '').trim();
+
+  // 이미 값이 있는 필드는 수정 불가(최초 입력 보호)
+  if (g) g.disabled = Boolean(String(card.genre || '').trim());
+  if (m) m.disabled = Boolean(String(card.mood || '').trim());
+  if (v) v.disabled = Boolean(String(card.vocal || '').trim());
+
+  openModal('tagRequiredModal');
+
+  return new Promise((resolve) => {
+    const cleanup = (ok) => {
+      try {
+        $('tagReqCancelBtn').onclick = null;
+        $('tagReqSaveBtn').onclick = null;
+      } catch {}
+      closeModal('tagRequiredModal');
+      resolve(Boolean(ok));
+    };
+    $('tagReqCancelBtn').onclick = () => cleanup(false);
+    $('tagReqSaveBtn').onclick = async () => {
+      const genre = String(g?.value || '').trim();
+      const mood = String(m?.value || '').trim();
+      const vocal = String(v?.value || '').trim();
+      if (!genre || !mood || !vocal) return toast('장르/분위기/보컬을 모두 선택해 주세요.');
+      const vv = state._pendingVariant;
+      if (!vv?.googleFileId) return cleanup(false);
+      const r = await apiJson('/api/songs/tags', 'PATCH', { googleFileId: vv.googleFileId, genre, mood, vocal });
+      if (!r.ok) return toast('저장 실패');
+      // 카드/검색에 바로 반영되도록 재조회
+      await loadSongs(true);
+      await loadSongFiles(true);
+      cleanup(true);
+    };
+  });
+}
+
 async function copyDriveLink() {
   const v = state._pendingVariant;
   const url = String(v?.driveUrl || '').trim();
@@ -549,9 +694,13 @@ async function copyDriveLink() {
   }
 }
 
-function openInViewer() {
+async function openInViewer() {
   const v = state._pendingVariant;
   if (!v?.googleFileId) return;
+  if (needsTagGate(state._pendingCard)) {
+    const ok = await openTagRequiredModal(state._pendingCard);
+    if (!ok) return;
+  }
   const roomCode = state.sessionRoomCode;
   const targetUrl = roomCode ? `/viewer/${encodeURIComponent(v.googleFileId)}?room=${encodeURIComponent(roomCode)}` : `/viewer/${encodeURIComponent(v.googleFileId)}`;
   if (roomCode && state.isPageTurner) {
@@ -997,8 +1146,11 @@ function wireEvents() {
     $('availableVocalFilter').value = '';
     state.filterAvailableVocalUserId = '';
     state.filterAvailableVocalSet = null;
+    state.filterAvailableVocalUserIds = [];
+    state.filterAvailableVocalSetsByUserId = new Map();
     state.page = 1;
     applySongFilters();
+    renderAvailableVocalChips();
   };
 
   // 가능곡 편집(세션/관리자만): 버튼 클릭 즉시 "가능곡 선택모드" 진입 → 하단 취소/저장으로 종료
@@ -1006,16 +1158,26 @@ function wireEvents() {
     if (!(state.role === 'admin' || state.role === 'session')) return;
     const userId = state.userId || '';
     if (!userId) return toast('로그인이 필요합니다.');
-    await loadSongFiles(true);
-    await loadMyAvailabilitySet();
-    state.availabilityOriginalSet = new Set(Array.from(state.myAvailabilitySet || []));
-    state.availabilityDraftSet = new Set(Array.from(state.myAvailabilitySet || []));
-    state.availabilityEditMode = true;
-    $('availabilityEditToggleBtn').style.display = 'none';
-    $('availabilityEditBar').style.display = 'flex';
-    $('availabilityEditTitle').textContent = `가능곡 선택모드 · ${state.displayName || userId}`;
-    state.page = 1;
-    applySongFilters();
+    const btn = $('availabilityEditToggleBtn');
+    const sp = $('availabilityEditSpinner');
+    try {
+      if (btn) btn.disabled = true;
+      if (sp) sp.style.display = 'inline-block';
+      await loadSongFiles(true);
+      await loadMyAvailabilitySet();
+      state.availabilityOriginalSet = new Set(Array.from(state.myAvailabilitySet || []));
+      state.availabilityDraftSet = new Set(Array.from(state.myAvailabilitySet || []));
+      state.availabilityEditMode = true;
+      if (btn) btn.style.display = 'none';
+      $('availabilityEditBar').style.display = 'flex';
+      $('availabilityEditTitle').textContent = `가능곡 선택모드 · ${state.displayName || userId}`;
+      updateAvailabilityEditCount();
+      state.page = 1;
+      applySongFilters();
+    } finally {
+      if (sp) sp.style.display = 'none';
+      if (btn) btn.disabled = false;
+    }
   };
 
   $('availabilityEditCancelBtn').onclick = () => {
@@ -1025,6 +1187,7 @@ function wireEvents() {
     state.availabilityOriginalSet = null;
     $('availabilityEditBar').style.display = 'none';
     $('availabilityEditToggleBtn').style.display = state.role === 'admin' || state.role === 'session' ? 'inline-flex' : 'none';
+    updateAvailabilityEditCount();
     applySongFilters();
     toast('취소됨');
   };
@@ -1056,6 +1219,7 @@ function wireEvents() {
     state.availabilityDraftSet = null;
     $('availabilityEditBar').style.display = 'none';
     $('availabilityEditToggleBtn').style.display = state.role === 'admin' || state.role === 'session' ? 'inline-flex' : 'none';
+    updateAvailabilityEditCount();
     applySongFilters();
     toast('저장 완료');
   };
@@ -1071,7 +1235,7 @@ function wireEvents() {
     };
   })();
   ['searchInput', 'genreFilter', 'moodFilter', 'vocalFilter'].forEach((id) => $(id).addEventListener('input', debouncedFilter));
-  $('hideTagsToggle').addEventListener('change', () => applySongFilters());
+  // 태그 토글 제거됨
 
   $('pageSizeSelect').onchange = () => {
     state.pageSize = Number($('pageSizeSelect').value || 100);
@@ -1148,19 +1312,20 @@ function wireEvents() {
   };
 
   // 가능보컬 필터(AND 멀티 선택)
-  $('availableVocalMulti')?.addEventListener('change', async () => {
-    const ids = getSelectedAvailableVocalUserIds();
-    state.filterAvailableVocalUserIds = ids;
-    await loadAvailableVocalSets(ids);
-    state.page = 1;
-    applySongFilters();
+  $('availableVocalOpenBtn').onclick = () => openAvailableVocalModal();
+  $('availableVocalCloseBtn').onclick = () => closeAvailableVocalModal();
+  $('availableVocalModal')?.addEventListener('click', (e) => {
+    if (e.target?.id === 'availableVocalModal') closeAvailableVocalModal();
+  });
+  $('availableVocalSearch')?.addEventListener('input', (e) => {
+    renderAvailableVocalModalList(e.target.value || '');
   });
 
   // action modals
   $('keySelectCancelBtn').onclick = () => closeModal('keySelectModal');
   $('songActionCancelBtn').onclick = () => closeModal('songActionModal');
   $('copyDriveLinkBtn').onclick = () => copyDriveLink().catch(() => {});
-  $('openViewerBtn').onclick = () => openInViewer();
+  $('openViewerBtn').onclick = () => openInViewer().catch(() => toast('열기 실패'));
 }
 
 function attachSockets() {
@@ -1305,7 +1470,6 @@ function renderPresence(items) {
         ${avatarCircle(p.displayName || p.nickname || '익명', p.profilePhoto)}
         <div>
           <div>${esc(p.displayName || p.nickname || '익명')}</div>
-          <div class="presence-sub">${esc(p.role || 'viewer')}</div>
         </div>
       </div>
     `;
@@ -1383,7 +1547,6 @@ function renderSessionMembers(members) {
         ${photo ? `<span class="presence-avatar"><img src="${esc(photo)}" alt="" /></span>` : `<span class="presence-avatar">${esc(initial)}</span>`}
         <div>
           <div>${esc(name)} ${m.isPageTurner ? '<span class="chip">터너</span>' : ''}</div>
-          <div class="presence-sub">${esc(m.role || 'viewer')}</div>
         </div>
       </div>
       <div>
@@ -1408,13 +1571,8 @@ async function loadAvailableVocalUsers() {
   // legacy select (숨김) - 값 유지용
   const sel = $('availableVocalFilter');
   if (sel) sel.innerHTML = `<option value="">가능보컬 전체</option>`;
-
-  const wrap = $('availableVocalMulti');
-  if (!wrap) return;
-  // preserve checked state
-  const prev = new Set(getSelectedAvailableVocalUserIds());
-  wrap.innerHTML = '';
-  (r.items || []).forEach((u) => {
+  state.availableVocalUsers = Array.isArray(r.items) ? r.items.map((x) => ({ userId: x.userId, displayName: x.displayName })) : [];
+  (state.availableVocalUsers || []).forEach((u) => {
     const uid = String(u.userId || '').trim();
     if (!uid) return;
     if (sel) {
@@ -1423,11 +1581,8 @@ async function loadAvailableVocalUsers() {
       opt.textContent = u.displayName || uid;
       sel.appendChild(opt);
     }
-    const lab = document.createElement('label');
-    const name = String(u.displayName || uid);
-    lab.innerHTML = `<input type="checkbox" data-uid="${esc(uid)}" ${prev.has(uid) ? 'checked' : ''} /> ${esc(name)}`;
-    wrap.appendChild(lab);
   });
+  renderAvailableVocalChips();
 }
 
 async function bootstrap() {

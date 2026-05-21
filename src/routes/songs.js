@@ -87,6 +87,10 @@ router.get('/songs/cards', async (req, res) => {
       cardsByKey.set(cardKey, card);
     } else {
       card.isLatest = card.isLatest || Boolean(s.isLatest);
+      // 카드 레벨 태그는 "처음 값"이 비어있을 수 있으므로, 이후 곡에서 값이 있으면 채운다.
+      if (!card.genre && s.genre) card.genre = s.genre;
+      if (!card.mood && s.mood) card.mood = s.mood;
+      if (!card.vocal && s.vocal) card.vocal = s.vocal;
         const ms = s.driveModifiedTime ? new Date(s.driveModifiedTime).getTime() : 0;
         if (ms > (card.latestModifiedMs || 0)) card.latestModifiedMs = ms;
     }
@@ -162,6 +166,60 @@ router.get('/songs/cards', async (req, res) => {
   }
 
   res.json({ ok: true, items: cards, total: cards.length });
+});
+
+// session/admin: 태그가 비어있는 곡은 "최초 1회" 입력을 유도(빈 값만 채움)
+router.patch('/songs/tags', requireSessionOrAdmin, async (req, res) => {
+  const googleFileId = String(req.body?.googleFileId || '').trim();
+  const genre = String(req.body?.genre || '').trim();
+  const mood = String(req.body?.mood || '').trim();
+  const vocal = String(req.body?.vocal || '').trim();
+  if (!googleFileId || !genre || !mood || !vocal) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+
+  const one = await Song.findOne({ googleFileId }).lean();
+  if (!one) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
+
+  const title = String(one.title || '').trim();
+  const artist = String(one.artist || '').trim();
+  if (!title) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
+
+  const r = await Song.updateMany(
+    { title, artist },
+    [
+      {
+        $set: {
+          genre: { $cond: [{ $eq: [{ $ifNull: ['$genre', ''] }, ''] }, genre, '$genre'] },
+          mood: { $cond: [{ $eq: [{ $ifNull: ['$mood', ''] }, ''] }, mood, '$mood'] },
+          vocal: { $cond: [{ $eq: [{ $ifNull: ['$vocal', ''] }, ''] }, vocal, '$vocal'] }
+        }
+      },
+      {
+        $set: {
+          searchText: {
+            $toLower: {
+              $concat: [
+                { $ifNull: ['$displayTitle', ''] },
+                ' ',
+                { $ifNull: ['$title', ''] },
+                ' ',
+                { $ifNull: ['$artist', ''] },
+                ' ',
+                { $ifNull: ['$key', ''] },
+                ' ',
+                { $ifNull: ['$genre', ''] },
+                ' ',
+                { $ifNull: ['$mood', ''] },
+                ' ',
+                { $ifNull: ['$vocal', ''] }
+              ]
+            }
+          }
+        }
+      }
+    ]
+  );
+
+  return res.json({ ok: true, matched: r.matchedCount ?? r.n ?? 0, modified: r.modifiedCount ?? r.nModified ?? 0 });
 });
 
 // Admin/session write (for later: sync or manual edits)

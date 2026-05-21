@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes" />
     <title>Score Viewer</title>
     <!-- cache-bust for mobile browsers -->
-    <link rel="stylesheet" href="/public/viewer/viewer.css?v=20260521_03" />
+    <link rel="stylesheet" href="/public/viewer/viewer.css?v=20260521_04" />
   </head>
   <body>
     <div id="viewer-wrapper">
@@ -73,7 +73,20 @@
             <button id="zoomInBtn" type="button" class="mini">+</button>
           </div>
 
+          <div class="group" id="mobileModeGroup">
+            <span class="label">모바일</span>
+            <div class="seg">
+              <button id="mobileAutoBtn" type="button" class="mini">auto</button>
+              <button id="mobileOnBtn" type="button" class="mini">on</button>
+              <button id="mobileOffBtn" type="button" class="mini">off</button>
+            </div>
+          </div>
+
           <div class="spacer"></div>
+
+          <div class="group" id="participantsBtnGroup">
+            <button id="participantsBtn" type="button" class="mini">접속자</button>
+          </div>
 
           <div class="group" id="pageInfoGroup">
             <span class="label">페이지</span>
@@ -268,6 +281,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
-    <script src="/public/viewer/viewer.js?v=20260521_03"></script>
+    <script src="/public/viewer/viewer.js?v=20260521_04"></script>
   </body>
 </html>

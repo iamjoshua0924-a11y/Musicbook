@@ -653,7 +653,10 @@ body.live-mode .toolbarShell{
   padding:10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
   background:linear-gradient(0deg, rgba(17,18,20,0.86), rgba(17,18,20,0));
   pointer-events:none;
+  opacity:0.20;
+  transition: opacity 160ms ease;
 }
+#touchNavBottom.navActive{ opacity:0.90; }
 #touchNavBottom button{
   width:62px;
   height:48px;

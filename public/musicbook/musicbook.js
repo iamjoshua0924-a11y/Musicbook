@@ -477,7 +477,7 @@ function renderSongCards(hideTags) {
     });
     if (canOpen) {
       el.onclick = () => {
-        openCardFlow(c);
+        openCardFlow(c).catch(() => {});
       };
     }
     wrap.appendChild(el);
@@ -594,9 +594,21 @@ async function saveSongTagModal() {
 }
 
 // ---- Card flow (키 선택 -> 액션 선택) ---------------------------------------------
-function openCardFlow(card) {
+async function openCardFlow(card) {
   if (state.role === 'viewer') return;
   if (!card?.variants?.length) return;
+
+  // 태그 입력 모달은 "뷰어 선택지(키/액션)"보다 먼저 등장해야 한다.
+  if (needsTagGate(card)) {
+    // 태그 저장 API는 googleFileId를 요구하므로 대표 variant를 pending으로 넣는다.
+    state._pendingCard = card;
+    state._pendingVariant = card.variants[0];
+    const ok = await openTagRequiredModal(card);
+    if (!ok) return;
+    // 최신 태그 반영된 카드로 교체(재조회 완료 후)
+    card = state.songCardsAll.find((c) => String(c.cardId) === String(card.cardId)) || card;
+  }
+
   const keys = (card.keys || []).filter((x) => x !== undefined);
   if (keys.length > 1) return openKeySelectModal(card);
   return openSongActionModal(card, card.variants[0]);
@@ -697,10 +709,6 @@ async function copyDriveLink() {
 async function openInViewer() {
   const v = state._pendingVariant;
   if (!v?.googleFileId) return;
-  if (needsTagGate(state._pendingCard)) {
-    const ok = await openTagRequiredModal(state._pendingCard);
-    if (!ok) return;
-  }
   const roomCode = state.sessionRoomCode;
   const targetUrl = roomCode ? `/viewer/${encodeURIComponent(v.googleFileId)}?room=${encodeURIComponent(roomCode)}` : `/viewer/${encodeURIComponent(v.googleFileId)}`;
   if (roomCode && state.isPageTurner) {
@@ -1133,7 +1141,7 @@ function wireEvents() {
   };
   $('randomOpenBtn').onclick = () => {
     closeModal('randomModal');
-    if (state._rouletteCard) openCardFlow(state._rouletteCard);
+    if (state._rouletteCard) openCardFlow(state._rouletteCard).catch(() => {});
   };
   $('randomCloseBtn').onclick = () => closeModal('randomModal');
   $('randomRerollBtn').onclick = () => spinRoulette();

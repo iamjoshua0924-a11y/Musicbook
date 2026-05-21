@@ -360,12 +360,14 @@ function ensureCursorEls() {
   }
 }
 
-function setCursorMarker(el, { xNorm, yNorm, visible }) {
+function setCursorMarker(el, { xNorm, yNorm, visible, mode = 'line' }) {
   if (!el) return;
   if (!visible) {
     el.style.display = 'none';
     return;
   }
+  const m = mode === 'row' ? 'row' : 'line';
+  el.classList.toggle('row', m === 'row');
   const container = document.getElementById('pdf-container');
   if (!container) return;
   const r = container.getBoundingClientRect();
@@ -375,8 +377,8 @@ function setCursorMarker(el, { xNorm, yNorm, visible }) {
   const x = r.left + (xPx ?? 0);
   const y = r.top + (yPx ?? 0);
 
-  // 높이: 화면에 비례(너무 작/크지 않게) - 기존 대비 1/2
-  const h = clamp(r.height * 0.11, 40, 110);
+  // 높이: 화면에 비례(너무 작/크지 않게)
+  const h = m === 'row' ? clamp(r.height * 0.065, 34, 70) : clamp(r.height * 0.11, 40, 110);
   el.style.height = `${Math.round(h)}px`;
   // CSS에서 transform: translate(-50%, -50%)로 "중심 기준" 정렬을 하므로,
   // 여기서는 left/top에 중심 좌표를 그대로 넣는다.
@@ -422,6 +424,9 @@ function updateCursorShareUI() {
   btn.disabled = !canUse;
   btn.classList.toggle('disabled', !canUse);
   btn.classList.toggle('active', Boolean(state.cursorShareOn));
+  document.getElementById('cursorModeGroup')?.style && (document.getElementById('cursorModeGroup').style.display = state.cursorShareOn ? 'inline-flex' : 'none');
+  document.getElementById('cursorModeLineBtn')?.classList.toggle('active', state.cursorShareMode === 'line');
+  document.getElementById('cursorModeRowBtn')?.classList.toggle('active', state.cursorShareMode === 'row');
   updateToolActiveUI();
 }
 
@@ -483,8 +488,9 @@ function startCursorShare() {
     const xNorm = r.width ? xLocal / r.width : 0;
     const yNorm = r.height ? yLocal / r.height : 0;
 
-    setCursorMarker(localCursorEl, { xNorm, yNorm, visible: true });
-    socket.emit('viewer:cursor', { roomCode: state.roomCode, fileId: state.fileId, pageNo, xPageNorm, yPageNorm });
+    const mode = state.cursorShareMode || 'line';
+    setCursorMarker(localCursorEl, { xNorm, yNorm, visible: true, mode });
+    socket.emit('viewer:cursor', { roomCode: state.roomCode, fileId: state.fileId, pageNo, xPageNorm, yPageNorm, mode });
   };
 
   container.addEventListener('pointermove', cursorMoveHandler, { passive: true });
@@ -607,6 +613,7 @@ const state = {
   isPageTurner: false,
   isToolAuthorized: false,
   cursorShareOn: false,
+  cursorShareMode: String(localStorage.getItem('mb_viewer_cursorMode') || 'line') === 'row' ? 'row' : 'line',
   nickname: getOrCreateNickname(),
   overlapPx: 0,
 
@@ -2475,6 +2482,16 @@ document.getElementById('cursorShareBtn')?.addEventListener('click', () => {
   if (state.cursorShareOn) stopCursorShare(true);
   else startCursorShare();
 });
+document.getElementById('cursorModeLineBtn')?.addEventListener('click', () => {
+  state.cursorShareMode = 'line';
+  localStorage.setItem('mb_viewer_cursorMode', 'line');
+  updateCursorShareUI();
+});
+document.getElementById('cursorModeRowBtn')?.addEventListener('click', () => {
+  state.cursorShareMode = 'row';
+  localStorage.setItem('mb_viewer_cursorMode', 'row');
+  updateCursorShareUI();
+});
 document.getElementById('laserBtn')?.addEventListener('click', () => setTool('laser'));
 document.getElementById('eraserBtn')?.addEventListener('click', () => setTool('eraser'));
 document.getElementById('selectBtn').addEventListener('click', () => setTool('select'));
@@ -2911,6 +2928,7 @@ socket.on('viewer:cursor', (p) => {
   if (p?.fileId && state.fileId && String(p.fileId) !== String(state.fileId)) return;
   ensureCursorEls();
   if (p?.hide) return setCursorMarker(remoteCursorEl, { visible: false });
+  const mode = String(p?.mode || 'line') === 'row' ? 'row' : 'line';
 
   // New format: page-based cursor (preferred)
   const pageNo = Number(p?.pageNo || 0);
@@ -2933,11 +2951,11 @@ socket.on('viewer:cursor', (p) => {
     const yLocal = (pr.top - cr.top) + clamp(yPageNorm, 0, 1) * pr.height;
     const xNorm = cr.width ? xLocal / cr.width : 0;
     const yNorm = cr.height ? yLocal / cr.height : 0;
-    return setCursorMarker(remoteCursorEl, { xNorm, yNorm, visible: true });
+    return setCursorMarker(remoteCursorEl, { xNorm, yNorm, visible: true, mode });
   }
 
   // Legacy fallback: container-based normalized cursor
-  setCursorMarker(remoteCursorEl, { xNorm: p?.xNorm, yNorm: p?.yNorm, visible: true });
+  setCursorMarker(remoteCursorEl, { xNorm: p?.xNorm, yNorm: p?.yNorm, visible: true, mode });
 });
 
 socket.on('session:tool:request', (p) => {

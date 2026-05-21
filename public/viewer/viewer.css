@@ -333,6 +333,14 @@ button.danger{ background:rgba(255,107,107,0.14); border-color:rgba(255,107,107,
   z-index: 1100;
   display: none;
 }
+.cursor-marker.row{
+  width: calc(100% - 24px); /* 좌우 꽉 채움(컨테이너 패딩 고려) */
+  height: 46px;
+  border-radius: 18px;
+  background: rgba(255, 80, 80, 0.16);
+  border: 1px solid rgba(255, 80, 80, 0.38);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.18);
+}
 body.light .cursor-marker{
   box-shadow: 0 10px 30px rgba(0,0,0,0.12);
 }
@@ -481,7 +489,7 @@ body[data-tool="text"] #brushGroup{
   position: absolute;
   right: 16px;
   top: 70px;
-  width: 240px;
+  width: 160px;
   max-height: calc(100% - 90px);
   overflow: auto;
   padding: 10px;

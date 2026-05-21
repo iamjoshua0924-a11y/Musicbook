@@ -962,6 +962,48 @@ function setCwMeta(msg) {
   if (el) el.textContent = String(msg || '');
 }
 
+function handleIncomingRawChord(rawText, sourceUrl, via = '') {
+  const text = String(rawText || '');
+  const su = String(sourceUrl || '');
+  if (!text.trim()) return;
+
+  setMode('chord');
+  document.getElementById('cwRawInput')?.classList.remove('hidden');
+  document.getElementById('cwParseRawBtn')?.classList.remove('hidden');
+  const ta = document.getElementById('cwRawInput');
+  if (ta) ta.value = text;
+  state.chordSourceUrl = su;
+  setCwMeta(`소스: ${via || 'external'}\n원문 URL: ${su}\n(원문이 입력창에 채워졌습니다)`);
+
+  // 사용자가 원하면 자동 파싱
+  if (confirm('코드위키 원문을 받았습니다. 지금 바로 파싱할까요?')) {
+    openChordByRawText(text, su).catch(() => {});
+  }
+}
+
+function decodeB64Unicode(b64) {
+  const s = String(b64 || '');
+  // eslint-disable-next-line no-undef
+  const bin = atob(s);
+  // eslint-disable-next-line no-undef
+  return decodeURIComponent(
+    Array.prototype.map
+      .call(bin, (c) => `%${(`00${c.charCodeAt(0).toString(16)}`).slice(-2)}`)
+      .join('')
+  );
+}
+
+function consumeWindowNamePayload() {
+  try {
+    const n = String(window.name || '');
+    const prefix = 'MB_RAW_CHORD_V1|';
+    if (!n.startsWith(prefix)) return;
+    const payload = JSON.parse(decodeB64Unicode(n.slice(prefix.length)));
+    window.name = '';
+    handleIncomingRawChord(payload?.rawText, payload?.sourceUrl, 'bookmarklet(window.name)');
+  } catch {}
+}
+
 function buildCodewikiBookmarklet() {
   // NOTE: bookmarklet는 사용자의 브라우저(코드위키 탭)에서 실행되어,
   //       본문 텍스트를 추출한 뒤 우리 뷰어 창으로 postMessage로 전달한다.
@@ -979,9 +1021,12 @@ const url='${target}';
 const w=window.open(url,'_blank');
 if(!w){ alert('팝업이 차단되었습니다. 팝업 허용 후 다시 시도하세요.'); return; }
 const msg={type:'MB_RAW_CHORD_V1', rawText:t, sourceUrl:location.href};
+// window.name fallback (postMessage 수신 타이밍/차단 이슈 대비)
+const b64=(str)=>btoa(unescape(encodeURIComponent(str)));
+try{ w.name='MB_RAW_CHORD_V1|'+b64(JSON.stringify(msg)); }catch(e){}
 const send=()=>{ try{ w.postMessage(msg,'${targetOrigin}'); }catch(e){} };
-const it=setInterval(()=>{ if(!w||w.closed){ clearInterval(it); return; } send(); }, 400);
-setTimeout(()=>clearInterval(it), 5000);
+const it=setInterval(()=>{ if(!w||w.closed){ clearInterval(it); return; } send(); }, 350);
+setTimeout(()=>clearInterval(it), 20000);
 alert('뷰어로 전송했습니다. 뷰어 창에서 파싱을 진행하세요.');
 }catch(e){ alert('실패: '+(e&&e.message?e.message:e)); }})();`;
   // eslint-disable-next-line no-useless-escape
@@ -995,20 +1040,7 @@ window.addEventListener('message', (ev) => {
   if (d.type !== 'MB_RAW_CHORD_V1') return;
   const rawText = String(d.rawText || '');
   const sourceUrl = String(d.sourceUrl || '');
-  if (!rawText.trim()) return;
-
-  setMode('chord');
-  document.getElementById('cwRawInput')?.classList.remove('hidden');
-  document.getElementById('cwParseRawBtn')?.classList.remove('hidden');
-  const ta = document.getElementById('cwRawInput');
-  if (ta) ta.value = rawText;
-  state.chordSourceUrl = sourceUrl;
-  setCwMeta(`소스: bookmarklet(postMessage)\n원문 URL: ${sourceUrl}`);
-
-  // 사용자가 원하면 자동 파싱
-  if (confirm('코드위키 원문을 받았습니다. 지금 바로 파싱할까요?')) {
-    openChordByRawText(rawText, sourceUrl).catch(() => {});
-  }
+  handleIncomingRawChord(rawText, sourceUrl, 'bookmarklet(postMessage)');
 });
 
 function showChordAuthActions(show) {
@@ -3020,6 +3052,10 @@ async function init() {
   }
 
   await loadMe();
+
+  // bookmarklet window.name fallback 수신 (postMessage보다 더 안정적)
+  consumeWindowNamePayload();
+
   // 방문자(익명)로 /viewer 접속 시: 무조건 닉네임을 설정하도록 강제
   if (authState.role === 'viewer') {
     const nick = await ensureNicknameForVisitorAlways();

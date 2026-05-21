@@ -500,8 +500,13 @@ function updateAvailabilityEditCount() {
     el.textContent = '';
     return;
   }
-  const n = state.availabilityDraftSet ? state.availabilityDraftSet.size : 0;
-  el.textContent = `선택됨: ${n}곡`;
+  const orig = state.availabilityOriginalSet || new Set();
+  const draft = state.availabilityDraftSet || new Set();
+  let added = 0;
+  for (const fid of draft) {
+    if (!orig.has(fid)) added += 1;
+  }
+  el.textContent = `새로 체크: ${added}곡`;
 }
 
 function renderAvailabilityEditCards(hideTags) {

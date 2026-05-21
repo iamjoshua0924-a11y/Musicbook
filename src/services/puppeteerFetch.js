@@ -10,7 +10,7 @@
 
 const path = require('node:path');
 
-/** @type {import('puppeteer-core') | null} */
+/** @type {import('puppeteer-extra') | null} */
 let puppeteer = null;
 let browserPromise = null;
 
@@ -45,13 +45,62 @@ function resolveExecutablePath() {
   return '';
 }
 
+function buildLaunchOptions(executablePath) {
+  const opt = {
+    headless: 'new',
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--no-zygote']
+  };
+  // puppeteer-core를 쓰는 환경에서는 executablePath가 필수이고,
+  // puppeteer(Chromium 번들) 환경에서는 없어도 동작하므로 "있을 때만" 넣는다.
+  if (executablePath) opt.executablePath = executablePath;
+  return opt;
+}
+
+async function waitForCloudflare(page, timeoutMs) {
+  // Cloudflare/Turnstile 챌린지가 풀릴 때까지 대기 (자동 해결 가능한 케이스만)
+  // - "Just a moment..." / "Checking your browser" 등의 중간 페이지
+  // - challenge iframe / turnstile input 존재 여부로 판단
+  const max = Math.max(5_000, Math.min(120_000, Number(timeoutMs || 60_000)));
+  const started = Date.now();
+  while (Date.now() - started < max) {
+    const ok = await page
+      .evaluate(() => {
+        const t = String(document.title || '').toLowerCase();
+        const badTitle =
+          t.includes('just a moment') ||
+          t.includes('checking your browser') ||
+          t.includes('attention required') ||
+          t.includes('verify you are human');
+        const hasChallenge =
+          Boolean(document.querySelector('form#challenge-form')) ||
+          Boolean(document.querySelector('iframe[src*="challenge-platform"]')) ||
+          Boolean(document.querySelector('script[src*="challenge-platform"]')) ||
+          Boolean(document.querySelector('input[name="cf-turnstile-response"]')) ||
+          Boolean(document.querySelector('[id*="cf-challenge"], [class*="cf-challenge"], [class*="challenge-platform"]'));
+        return !(badTitle || hasChallenge);
+      })
+      .catch(() => false);
+
+    if (ok) return;
+    // 네트워크/JS 리다이렉트로 페이지가 바뀌는 경우가 있어 짧게 대기
+    await page.waitForTimeout(900);
+  }
+  const err = new Error('CLOUDFLARE_CHALLENGE_TIMEOUT');
+  err.hint = 'Cloudflare 챌린지가 일정 시간 내에 해제되지 않았습니다.';
+  throw err;
+}
+
 async function getBrowser() {
   if (browserPromise) return browserPromise;
   browserPromise = (async () => {
     // lazy require to avoid crash when dependency missing
     try {
+      // puppeteer-extra는 설치된 puppeteer/puppeteer-core를 자동으로 사용한다.
       // eslint-disable-next-line global-require, import/no-extraneous-dependencies
-      puppeteer = require('puppeteer-core');
+      puppeteer = require('puppeteer-extra');
+      // eslint-disable-next-line global-require, import/no-extraneous-dependencies
+      const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+      puppeteer.use(StealthPlugin());
     } catch (e) {
       const err = new Error('PUPPETEER_NOT_INSTALLED');
       err.cause = e;
@@ -59,25 +108,30 @@ async function getBrowser() {
     }
 
     const executablePath = resolveExecutablePath();
-    if (!executablePath) {
+    // puppeteer-core만 설치된 환경에서는 executablePath가 없으면 런치가 실패하므로 명시적으로 에러.
+    // puppeteer(Chromium 번들) 환경에서는 없어도 가능하므로 "있으면 사용" 정책을 채택.
+    const hasCoreOnly = (() => {
+      try {
+        // eslint-disable-next-line global-require
+        require.resolve('puppeteer');
+        return false;
+      } catch {}
+      try {
+        // eslint-disable-next-line global-require
+        require.resolve('puppeteer-core');
+        return true;
+      } catch {}
+      return false;
+    })();
+    if (hasCoreOnly && !executablePath) {
       const err = new Error('CHROME_NOT_FOUND');
       err.hint =
-        '배포 환경에 Chrome/Chromium이 필요합니다. ' +
+        'puppeteer-core 환경에서는 Chrome/Chromium 실행 파일이 필요합니다. ' +
         '환경변수 PUPPETEER_EXECUTABLE_PATH로 실행 파일 경로를 지정하세요.';
       throw err;
     }
 
-    const browser = await puppeteer.launch({
-      headless: 'new',
-      executablePath,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--no-zygote'
-      ]
-    });
+    const browser = await puppeteer.launch(buildLaunchOptions(executablePath));
     return browser;
   })();
   return browserPromise;
@@ -111,7 +165,7 @@ function pickBestTextCandidate(list) {
  */
 async function fetchRenderedHtml(url, opt = {}) {
   const t0 = Date.now();
-  const timeoutMs = Math.max(5_000, Math.min(60_000, Number(opt.timeoutMs || 25_000)));
+  const timeoutMs = Math.max(5_000, Math.min(120_000, Number(opt.timeoutMs || 60_000)));
   const lang = String(opt.lang || 'ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7');
   const browser = await getBrowser();
   const page = await browser.newPage();
@@ -136,7 +190,11 @@ async function fetchRenderedHtml(url, opt = {}) {
       return req.continue();
     });
 
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: timeoutMs });
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+    // Cloudflare 챌린지/리다이렉트가 끝날 때까지 기다린다.
+    await waitForCloudflare(page, timeoutMs);
+    // 최종 렌더/동적 로딩까지 한 번 더 안정화
+    await page.waitForNetworkIdle({ idleTime: 800, timeout: timeoutMs }).catch(() => {});
     const finalUrl = page.url();
     const html = await page.content();
 

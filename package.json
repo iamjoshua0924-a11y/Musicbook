@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "node src/server.js",
     "start": "node src/server.js",
-    "postinstall": "node -e \"const fs=require('fs');const p=process.env.PUPPETEER_CACHE_DIR||'/opt/render/.cache/puppeteer';try{fs.rmSync(p,{recursive:true,force:true});}catch(e){}\" && npx puppeteer browsers install chrome",
+    "postinstall": "node -e \"const fs=require('fs');const p=process.env.PUPPETEER_CACHE_DIR||'/opt/render/.cache/puppeteer';console.log('[postinstall] PUPPETEER_CACHE_DIR=',p);try{fs.rmSync(p,{recursive:true,force:true});console.log('[postinstall] cache cleared');}catch(e){console.log('[postinstall] cache clear skipped');}\" && npx puppeteer browsers install chrome && node -e \"const fs=require('fs');const puppeteer=require('puppeteer');const exe=puppeteer.executablePath();console.log('[postinstall] puppeteer.executablePath=',exe);if(!exe||!fs.existsSync(exe)){console.error('[postinstall] chrome executable missing');process.exit(1);}console.log('[postinstall] chrome ok');\"",
     "smoke": "node smoke-test.mjs"
   },
   "engines": {

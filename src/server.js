@@ -6,6 +6,7 @@ const { connectMongo } = require('./db/mongoose');
 const { createApp } = require('./app');
 const { attachSockets } = require('./sockets');
 const { runDriveSync } = require('./services/driveSyncRunner');
+const { chzzkIngestor } = require('./services/chzzkIngestor');
 
 async function main() {
   // In dev, allow the server to start even if MongoDB is not reachable
@@ -30,6 +31,8 @@ async function main() {
   attachSockets(io);
   // Expose io to routes for broadcasting (MVP).
   app.locals.io = io;
+  // Expose io to chzzk ingestor for request broadcasting
+  chzzkIngestor.attachIO(io);
 
   if (env === 'production' && autoDriveSync) {
     const intervalMs = Math.max(10, Number(autoDriveSyncIntervalMin || 10)) * 60 * 1000;

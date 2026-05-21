@@ -1,4 +1,5 @@
 const { ChzzkModule } = require('chzzk-z');
+const Request = require('../models/Request');
 
 /**
  * 치지직 채팅 Ingestor (PoC)
@@ -20,8 +21,25 @@ class ChzzkIngestor {
 
     this._timer = null;
     this._module = null;
+    this._io = null;
     this._stopRequested = false;
     this._connectStartedAt = 0;
+
+    this._recentRequestKeys = new Map(); // key -> ts
+    this._rateByNick = new Map(); // nick -> [ts...]
+
+    this.stats = {
+      chatReceived: 0,
+      requestInserted: 0,
+      requestIgnored: 0,
+      requestRateLimited: 0,
+      requestDeduped: 0,
+      requestParseFailed: 0
+    };
+  }
+
+  attachIO(io) {
+    this._io = io;
   }
 
   getStatus() {
@@ -33,7 +51,8 @@ class ChzzkIngestor {
       connected: Boolean(this._module?.chat?.connected),
       lastMessageAt: Number(this.lastMessageAt || 0),
       lastMessagePreview: String(this.lastMessagePreview || ''),
-      lastError: String(this.lastError || '')
+      lastError: String(this.lastError || ''),
+      stats: { ...this.stats }
     };
   }
 
@@ -151,6 +170,11 @@ class ChzzkIngestor {
           this.lastMessageAt = Date.now();
           this.lastMessagePreview = `${nick ? nick + ': ' : ''}${msg}`.slice(0, 120);
         }
+        // 신청곡 파싱/등록 (채팅 읽기만 하던 PoC의 2차 단계)
+        for (const m of messages) {
+          if (String(m?.type || '').toUpperCase() !== 'CHAT') continue;
+          await this._handleChatMessage(m).catch(() => {});
+        }
       }
 
       return this._schedule(500);
@@ -160,6 +184,118 @@ class ChzzkIngestor {
       // eslint-disable-next-line no-console
       console.error('[chzzk] tick failed:', this.lastError);
       return this._schedule(5_000);
+    }
+  }
+
+  _cleanupCaches(now) {
+    // recent dedupe: keep 10 minutes
+    for (const [k, ts] of this._recentRequestKeys.entries()) {
+      if (now - ts > 10 * 60 * 1000) this._recentRequestKeys.delete(k);
+    }
+    // rate: keep 2 minutes worth
+    for (const [nick, arr] of this._rateByNick.entries()) {
+      const next = (arr || []).filter((t) => now - t < 2 * 60 * 1000);
+      if (!next.length) this._rateByNick.delete(nick);
+      else this._rateByNick.set(nick, next);
+    }
+  }
+
+  _parseRequestText(raw) {
+    const s = String(raw || '').trim();
+    if (!s) return null;
+    // allow: !신청, !신청곡
+    const m = s.match(/^!(신청곡|신청)\s*(.*)$/);
+    if (!m) return null;
+    const body = String(m[2] || '').trim();
+    if (!body) return null;
+
+    const pickParts = (input) => {
+      const str = String(input || '').trim();
+      if (!str) return [];
+      // prioritize separators that are less likely inside titles
+      if (str.includes('|')) return str.split(/\s*\|\s*/);
+      if (str.includes('/')) return str.split(/\s*\/\s*/);
+      if (str.includes(' - ')) return str.split(/\s*-\s*/);
+      if (str.includes('-')) return str.split(/\s*-\s*/);
+      return [str];
+    };
+
+    const parts = pickParts(body).map((x) => String(x || '').trim()).filter(Boolean);
+    if (!parts.length) return null;
+
+    const songTitle = parts[0] || '';
+    const artist = parts[1] || '';
+    const targetSinger = parts[2] || '';
+    if (!songTitle) return null;
+
+    // trim lengths defensively
+    return {
+      songTitle: songTitle.slice(0, 80),
+      artist: artist.slice(0, 60),
+      targetSinger: targetSinger.slice(0, 40),
+      raw: body.slice(0, 240)
+    };
+  }
+
+  _rateLimit(nick, now) {
+    const key = String(nick || '익명').trim() || '익명';
+    const arr = this._rateByNick.get(key) || [];
+    const recent = arr.filter((t) => now - t < 60 * 1000);
+    if (recent.length >= 2) {
+      this._rateByNick.set(key, recent);
+      return true;
+    }
+    recent.push(now);
+    this._rateByNick.set(key, recent);
+    return false;
+  }
+
+  async _handleChatMessage(m) {
+    const now = Date.now();
+    this.stats.chatReceived += 1;
+    this._cleanupCaches(now);
+
+    const nick = String(m?.profile?.nickname || '').trim() || '익명';
+    const msg = String(m?.msg || '').trim();
+    if (!msg) return;
+
+    const parsed = this._parseRequestText(msg);
+    if (!parsed) {
+      // not a request command
+      return;
+    }
+
+    if (this._rateLimit(nick, now)) {
+      this.stats.requestRateLimited += 1;
+      return;
+    }
+
+    const dedupeKey = `${nick}||${parsed.songTitle}||${parsed.artist}||${parsed.targetSinger}`.toLowerCase();
+    const prev = this._recentRequestKeys.get(dedupeKey);
+    if (prev && now - prev < 3 * 60 * 1000) {
+      this.stats.requestDeduped += 1;
+      return;
+    }
+    this._recentRequestKeys.set(dedupeKey, now);
+
+    try {
+      const doc = await Request.create({
+        requesterSessionId: `chzzk:${this.channelId}`,
+        requesterName: nick,
+        songTitle: parsed.songTitle,
+        artist: parsed.artist,
+        targetSinger: parsed.targetSinger,
+        memo: `치지직 채팅 신청: ${parsed.raw}`
+      });
+      this.stats.requestInserted += 1;
+      this.lastMessageAt = now;
+      this.lastMessagePreview = `[신청등록] ${nick}: ${parsed.songTitle}${parsed.artist ? `-${parsed.artist}` : ''}${parsed.targetSinger ? `-${parsed.targetSinger}` : ''}`.slice(0, 120);
+      // push to connected clients
+      this._io?.broadcastRequests?.().catch?.(() => {});
+      return doc;
+    } catch (e) {
+      this.stats.requestParseFailed += 1;
+      this.lastError = String(e?.message || e || 'REQUEST_INSERT_FAILED');
     }
   }
 }

@@ -137,7 +137,8 @@ router.post('/admin/users', requireAdmin, async (req, res) => {
     return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
   }
 
-  const password = passwordInput || crypto.randomBytes(6).toString('base64url');
+  // 초기 비밀번호는 기본값 1234로 통일(원하면 요청에서 password로 override 가능)
+  const password = passwordInput || '1234';
   const passwordHash = await bcrypt.hash(password, 10);
   const doc = await User.findOneAndUpdate(
     { userId },

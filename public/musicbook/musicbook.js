@@ -892,6 +892,8 @@ function renderRequests() {
 
   const showManage = state.requestManageMode;
   $('requestManageBar').style.display = showManage ? 'block' : 'none';
+  const isAdmin = state.role === 'admin';
+  const isSession = state.role === 'session';
 
   state.requests.forEach((r) => {
     const row = document.createElement('div');
@@ -907,7 +909,7 @@ function renderRequests() {
         <div class="req-sub"><b>신청자:</b> ${esc(requester)}${target ? ` <span style="opacity:.7">담당보컬:</span> ${esc(target)}` : ''}</div>
       </div>
       <div class="req-actions">
-        ${showManage ? `<span class="chip">선택</span>` : `<button class="floating-btn compact-btn" data-action="del" type="button">삭제</button>`}
+        ${showManage ? `<span class="chip">선택</span>` : isSession ? '' : `<button class="floating-btn compact-btn" data-action="del" type="button">삭제</button>`}
       </div>
     `;
 
@@ -925,11 +927,14 @@ function renderRequests() {
           state.selectedRequestIds.size ? `${state.selectedRequestIds.size}개 선택됨` : '신청곡 선택 후 상태 변경';
       };
     } else {
-      row.querySelector('[data-action="del"]').onclick = async (e) => {
-        e.stopPropagation();
-        await apiJson(`/api/requests/${encodeURIComponent(r._id)}`, 'DELETE');
-        await loadRequests(true);
-      };
+      const delBtn = row.querySelector('[data-action="del"]');
+      if (delBtn) {
+        delBtn.onclick = async (e) => {
+          e.stopPropagation();
+          await apiJson(`/api/requests/${encodeURIComponent(r._id)}`, 'DELETE');
+          await loadRequests(true);
+        };
+      }
     }
 
     wrap.appendChild(row);
@@ -991,8 +996,7 @@ function applyRoleUI() {
   $('profileButton').style.display = isPriv ? 'inline-flex' : 'none';
   $('requestManageToggleBtn').style.display = isAdmin ? 'inline-flex' : 'none';
   $('availabilityEditToggleBtn').style.display = isPriv ? 'inline-flex' : 'none';
-  // 가능보컬 필터는 유지(필터용). 편집은 본인 기준으로 별도 동작.
-  $('availableVocalFilter').style.display = 'inline-flex';
+  // (legacy) 단일 가능보컬 드롭다운은 사용하지 않음(멀티 선택 모달로 대체)
 
   $('clearRequestsBtn').style.display = isAdmin ? 'inline-flex' : 'none';
 
@@ -1247,7 +1251,6 @@ function wireEvents() {
     $('genreFilter').value = '';
     $('moodFilter').value = '';
     $('vocalFilter').value = '';
-    $('availableVocalFilter').value = '';
     state.filterAvailableVocalUserId = '';
     state.filterAvailableVocalSet = null;
     state.filterAvailableVocalUserIds = [];
@@ -1313,11 +1316,6 @@ function wireEvents() {
       if (!res.ok) return toast('저장 실패');
     }
     state.myAvailabilitySet = new Set(Array.from(after));
-    // 필터가 "본인"을 보고 있는 상태면 필터셋도 갱신
-    if (String($('availableVocalFilter')?.value || '') === String(userId)) {
-      state.filterAvailableVocalUserId = userId;
-      state.filterAvailableVocalSet = new Set(Array.from(after));
-    }
     state.availabilityEditMode = false;
     state.availabilityOriginalSet = null;
     state.availabilityDraftSet = null;

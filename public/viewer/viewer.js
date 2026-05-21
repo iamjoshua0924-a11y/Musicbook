@@ -1077,7 +1077,11 @@ function needsUserAuthForError(err) {
   return false;
 }
 
+// 코드위키 모드(ChordWiki view)는 당분간 비활성화한다(서버 크롤링 안정화 전까지 숨김).
+const ENABLE_CHORDWIKI_MODE = false;
+
 function setMode(mode) {
+  if (!ENABLE_CHORDWIKI_MODE) mode = 'pdf';
   state.mode = mode;
   document.getElementById('pdfModeBtn')?.classList.toggle('active', mode === 'pdf');
   document.getElementById('chordModeBtn')?.classList.toggle('active', mode === 'chord');

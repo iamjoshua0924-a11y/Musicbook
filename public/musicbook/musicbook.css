@@ -243,6 +243,17 @@ body {
 .admin-menu.active {
   display: flex;
 }
+.admin-menu .admin-status{
+  flex: 1 1 100%;
+  font-size: 12px;
+  font-weight: 900;
+  opacity: 0.75;
+  padding: 6px 10px;
+  border-radius: 14px;
+  border: 1px dashed rgba(0,0,0,0.12);
+  background: rgba(255,255,255,0.55);
+  min-width: 240px;
+}
 
 .songs-title-row {
   /* 타이틀 이미지는 검색 패널을 침범하지 않도록 일반 흐름에 배치 */

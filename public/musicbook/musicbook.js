@@ -164,6 +164,71 @@ async function loadMainPage() {
   $('chzzkBtn').onclick = () => openUrlOrToast(state.main.chzzkUrl, '치지직');
 }
 
+// ---- CHZZK admin controls (PoC) --------------------------------------------------
+let _chzzkStatusTimer = null;
+async function refreshChzzkStatus() {
+  if (state.role !== 'admin') return;
+  const el = $('chzzkStatusText');
+  if (!el) return;
+  try {
+    const r = await apiGet('/api/admin/chzzk/status');
+    if (!r?.ok) {
+      el.textContent = '치지직 상태: 오류';
+      return;
+    }
+    const st = String(r.state || 'OFF');
+    const map = { OFF: 'OFF', WAIT_LIVE: '대기', CONNECTING: '연결중', CONNECTED: '연결됨', ERROR: '오류' };
+    const label = map[st] || st;
+    const lastAt = Number(r.lastMessageAt || 0);
+    const lastMsg = String(r.lastMessagePreview || '').trim();
+    const time = lastAt ? new Date(lastAt).toLocaleTimeString() : '';
+    const extra = lastMsg ? ` · 최근(${time}): ${lastMsg}` : lastAt ? ` · 최근(${time})` : '';
+    el.textContent = `치지직 상태: ${label}${extra}`;
+  } catch {
+    el.textContent = '치지직 상태: 오류';
+  }
+}
+
+function startChzzkStatusPolling() {
+  if (_chzzkStatusTimer) return;
+  _chzzkStatusTimer = setInterval(() => refreshChzzkStatus().catch(() => {}), 1500);
+  refreshChzzkStatus().catch(() => {});
+}
+
+async function chzzkStart() {
+  const btn = $('chzzkStartBtn');
+  const stopBtn = $('chzzkStopBtn');
+  try {
+    if (btn) btn.disabled = true;
+    if (stopBtn) stopBtn.disabled = true;
+    const r = await apiJson('/api/admin/chzzk/start', 'POST', {});
+    if (!r?.ok) toast('치지직 시작 실패');
+  } catch {
+    toast('치지직 시작 실패');
+  } finally {
+    if (btn) btn.disabled = false;
+    if (stopBtn) stopBtn.disabled = false;
+    refreshChzzkStatus().catch(() => {});
+  }
+}
+
+async function chzzkStop() {
+  const btn = $('chzzkStartBtn');
+  const stopBtn = $('chzzkStopBtn');
+  try {
+    if (btn) btn.disabled = true;
+    if (stopBtn) stopBtn.disabled = true;
+    const r = await apiJson('/api/admin/chzzk/stop', 'POST', {});
+    if (!r?.ok) toast('치지직 정지 실패');
+  } catch {
+    toast('치지직 정지 실패');
+  } finally {
+    if (btn) btn.disabled = false;
+    if (stopBtn) stopBtn.disabled = false;
+    refreshChzzkStatus().catch(() => {});
+  }
+}
+
 async function loadSongs(force = false) {
   if (!force && state.songCardsAll.length) return;
   const data = await apiGet('/api/songs/cards');
@@ -930,6 +995,8 @@ function applyRoleUI() {
 
   $('authButton').textContent = state.role === 'viewer' ? '세션 / 관리자 로그인' : '로그아웃';
   if (!isAdmin) state.requestManageMode = false;
+
+  if (isAdmin) startChzzkStatusPolling();
 }
 
 function openCreateUserModal() {
@@ -1156,6 +1223,10 @@ function wireEvents() {
 
   $('songTagCancelBtn').onclick = () => closeModal('songTagModal');
   $('songTagSaveBtn').onclick = () => saveSongTagModal().catch(() => {});
+
+  // CHZZK controls (admin)
+  if ($('chzzkStartBtn')) $('chzzkStartBtn').onclick = () => chzzkStart().catch(() => {});
+  if ($('chzzkStopBtn')) $('chzzkStopBtn').onclick = () => chzzkStop().catch(() => {});
 
   $('randomPickBtn').onclick = () => {
     openModal('randomModal');

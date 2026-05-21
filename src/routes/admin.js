@@ -8,6 +8,7 @@ const { requireLogin, requireAdmin, requireSessionOrAdmin } = require('../middle
 const { runDriveSync, stopDriveSync, getDriveRootFolderId } = require('../services/driveSyncRunner');
 const { KEYS, getJson } = require('../services/syncStatus');
 const { start: startCsvImport, getStatus: getCsvImportStatus } = require('../services/csvImportRunner');
+const { chzzkIngestor } = require('../services/chzzkIngestor');
 
 const { driveToThumb } = require('../services/legacyCsvImport');
 
@@ -384,6 +385,21 @@ router.get('/admin/import/status', requireAdmin, async (req, res) => {
   const kind = String(req.query?.kind || '').trim().toLowerCase();
   const status = await getCsvImportStatus(kind);
   res.json({ ok: true, status });
+});
+
+// ---- CHZZK Chat Ingestor (PoC) ----------------------------------------------------
+router.get('/admin/chzzk/status', requireAdmin, async (_req, res) => {
+  res.json(chzzkIngestor.getStatus());
+});
+
+router.post('/admin/chzzk/start', requireAdmin, async (_req, res) => {
+  const r = await chzzkIngestor.start();
+  res.json(r);
+});
+
+router.post('/admin/chzzk/stop', requireAdmin, async (_req, res) => {
+  const r = await chzzkIngestor.stop();
+  res.json(r);
 });
 
 module.exports = router;

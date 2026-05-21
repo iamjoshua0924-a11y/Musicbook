@@ -31,5 +31,10 @@ module.exports = {
 
   // Auto drive sync (production default: on, dev default: off)
   autoDriveSync: optional('AUTO_DRIVE_SYNC', optional('NODE_ENV', 'development') === 'production' ? '1' : '0') === '1',
-  autoDriveSyncIntervalMin: Number(optional('AUTO_DRIVE_SYNC_INTERVAL_MIN', '10'))
+  autoDriveSyncIntervalMin: Number(optional('AUTO_DRIVE_SYNC_INTERVAL_MIN', '10')),
+
+  // CHZZK (chat ingestor PoC)
+  chzzkChannelId: optional('CHZZK_CHANNEL_ID', ''),
+  chzzkNidAut: optional('CHZZK_NID_AUT', ''),
+  chzzkNidSes: optional('CHZZK_NID_SES', '')
 };

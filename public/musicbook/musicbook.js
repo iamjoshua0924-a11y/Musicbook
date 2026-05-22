@@ -893,7 +893,6 @@ function renderRequests() {
   const showManage = state.requestManageMode;
   $('requestManageBar').style.display = showManage ? 'block' : 'none';
   const isAdmin = state.role === 'admin';
-  const isSession = state.role === 'session';
 
   state.requests.forEach((r) => {
     const row = document.createElement('div');
@@ -909,7 +908,7 @@ function renderRequests() {
         <div class="req-sub"><b>신청자:</b> ${esc(requester)}${target ? ` <span style="opacity:.7">담당보컬:</span> ${esc(target)}` : ''}</div>
       </div>
       <div class="req-actions">
-        ${showManage ? `<span class="chip">선택</span>` : isSession ? '' : `<button class="floating-btn compact-btn" data-action="del" type="button">삭제</button>`}
+        ${showManage ? `<span class="chip">선택</span>` : isAdmin ? `<button class="floating-btn compact-btn" data-action="del" type="button">삭제</button>` : ''}
       </div>
     `;
 

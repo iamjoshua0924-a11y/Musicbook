@@ -6,8 +6,22 @@ const User = require('../models/User');
 
 const router = express.Router();
 
+// "(A#)","(Bb)","(Gm)" 같은 조성 표기(끝에 붙은 것만)
+const KEY_SUFFIX_RE = /[（(]\s*([A-Ga-g])\s*([#b♯♭]?)\s*(m?)\s*[)）]\s*$/;
+
 function escRegex(s) {
   return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizeKeySuffix(s) {
+  const m = String(s || '').trim().match(KEY_SUFFIX_RE);
+  if (!m) return { found: false, key: '', title: String(s || '').trim() };
+  const letter = String(m[1] || '').toUpperCase();
+  const acc = m[2] === '♭' ? 'b' : m[2] === '♯' ? '#' : String(m[2] || '');
+  const minor = m[3] ? 'm' : '';
+  const key = `${letter}${acc}${minor}`.trim();
+  const title = String(s || '').replace(KEY_SUFFIX_RE, '').trim();
+  return { found: Boolean(key), key, title };
 }
 
 // Public read: viewer/main can list songs
@@ -28,10 +42,43 @@ router.get('/songs', async (req, res) => {
   if (mood) filter.mood = mood;
   if (vocal) filter.vocal = vocal;
 
-  const [items, total] = await Promise.all([
+  const [items0, total] = await Promise.all([
     Song.find(filter).sort({ isLatest: -1, title: 1 }).skip(skip).limit(limit).lean(),
     Song.countDocuments(filter)
   ]);
+
+  // 기존 데이터 중 title에 "(조성)"이 붙어있는 케이스 자동 정리(점진적 self-heal)
+  const ops = [];
+  const items = items0.map((s) => {
+    const baseTitle = String(s.displayTitle || s.title || '').trim();
+    const t = normalizeKeySuffix(baseTitle);
+    if (!t.found) return s;
+    const currentKey = String(s.key || '').trim();
+    const canAdopt = !currentKey || currentKey === t.key;
+    if (!canAdopt) return s;
+    const next = { ...s };
+    // remove suffix from title/displayTitle (if existed)
+    if (String(next.title || '').trim() === baseTitle) next.title = t.title;
+    if (String(next.displayTitle || '').trim() === baseTitle) next.displayTitle = t.title;
+    if (!currentKey) next.key = t.key;
+    ops.push({
+      updateOne: {
+        filter: { _id: s._id },
+        update: {
+          $set: {
+            title: next.title,
+            displayTitle: next.displayTitle,
+            key: next.key,
+            searchText: `${next.displayTitle || ''} ${next.title || ''} ${next.artist || ''} ${next.genre || ''} ${next.mood || ''} ${next.vocal || ''} ${next.key || ''}`
+              .toLowerCase()
+              .trim()
+          }
+        }
+      }
+    });
+    return next;
+  });
+  if (ops.length) Song.bulkWrite(ops, { ordered: false }).catch(() => {});
 
   res.json({ ok: true, items, total, page, limit });
 });
@@ -64,12 +111,38 @@ router.get('/songs/cards', async (req, res) => {
   const songs = await Song.find(filter).sort({ title: 1, artist: 1, key: 1, googleFileId: 1 }).limit(5000).lean();
   const cardsByKey = new Map(); // cardKey -> card
   const fileIdToCardKey = new Map(); // googleFileId -> cardKey
+  const fixOps = [];
 
   for (const s of songs) {
     if (availSet && !availSet.has(s.googleFileId)) continue;
 
-    const title = String(s.displayTitle || s.title || '').trim();
+    // self-heal: title 끝에 "(조성)"이 붙어있는 경우 key로 흡수하고 title에서 제거
+    const baseTitle = String(s.displayTitle || s.title || '').trim();
+    const t = normalizeKeySuffix(baseTitle);
+    const currentKey = String(s.key || '').trim();
+    const canAdopt = t.found && (!currentKey || currentKey === t.key);
+    const title = canAdopt ? t.title : baseTitle;
+    const key = canAdopt ? (currentKey || t.key) : currentKey;
     const artist = String(s.artist || '').trim();
+    if (canAdopt) {
+      const nextTitle = title;
+      const nextDisplay = String(s.displayTitle || '').trim() === baseTitle ? nextTitle : s.displayTitle;
+      fixOps.push({
+        updateOne: {
+          filter: { _id: s._id },
+          update: {
+            $set: {
+              title: String(s.title || '').trim() === baseTitle ? nextTitle : s.title,
+              displayTitle: nextDisplay,
+              key,
+              searchText: `${nextDisplay || ''} ${String(s.title || '').trim() === baseTitle ? nextTitle : (s.title || '')} ${artist} ${s.genre || ''} ${s.mood || ''} ${s.vocal || ''} ${key}`
+                .toLowerCase()
+                .trim()
+            }
+          }
+        }
+      });
+    }
     const cardKey = `${title.toLowerCase()}||${artist.toLowerCase()}`;
     let card = cardsByKey.get(cardKey);
     if (!card) {
@@ -95,7 +168,7 @@ router.get('/songs/cards', async (req, res) => {
         if (ms > (card.latestModifiedMs || 0)) card.latestModifiedMs = ms;
     }
 
-    const k = String(s.key || '').trim();
+    const k = String(key || '').trim();
     const existing = card.variantsByKey.get(k);
     if (!existing || String(s.googleFileId) < String(existing.googleFileId)) {
       card.variantsByKey.set(k, {
@@ -108,6 +181,7 @@ router.get('/songs/cards', async (req, res) => {
     }
     fileIdToCardKey.set(String(s.googleFileId), cardKey);
   }
+  if (fixOps.length) Song.bulkWrite(fixOps, { ordered: false }).catch(() => {});
 
   // Availability -> card별 가능한 유저(프로필) 집계
   const cardAvailUsers = new Map(); // cardKey -> Set<userId>

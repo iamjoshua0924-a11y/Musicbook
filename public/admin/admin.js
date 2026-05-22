@@ -165,25 +165,39 @@ async function loadParseErrors() {
   $('parseErrorOut').textContent = `총 ${r.items?.length || 0}건`;
 
   (r.items || []).forEach((s) => {
+    const parseLabel = (() => {
+      const code = String(s.parseError || '').trim();
+      if (!code) return '-';
+      if (code === 'EMPTY_NAME') return '제목 인식 안됨';
+      if (code === 'HIDDEN_BAD_PATTERN') return '패턴 불량(숨김)';
+      if (code.startsWith('AMBIGUOUS')) return '제목/가수 모호';
+      if (code.startsWith('NO_HYPHEN')) return '구분자(-) 없음';
+      if (code.includes('KEY')) return '조성 인식 안됨';
+      return code;
+    })();
     const el = document.createElement('div');
     el.className = 'item';
     el.style.alignItems = 'flex-start';
+    const driveName = String(s.driveName || '').trim() || '(원본 파일명 없음)';
+    const driveUrl = String(s.driveUrl || '').trim();
     el.innerHTML = `
       <div style="flex:1; display:grid; gap:6px;">
-        <div><span class="kbd">${s.googleFileId}</span></div>
-        <div class="muted">${s.folderPath || ''}</div>
-        <div class="muted">${s.parseError || ''}</div>
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <b>원본파일명:</b> <span class="kbd">${escapeHtml(driveName)}</span>
+          ${driveUrl ? `<a href="${escapeHtml(driveUrl)}" target="_blank" class="muted">파일 열기</a>` : ''}
+        </div>
+        <div class="muted"><b>오류형태:</b> ${escapeHtml(parseLabel)}</div>
         <div class="row" style="margin-top:6px;">
-          <input data-k="artist" placeholder="artist" value="${escapeHtml(s.artist || '')}" />
           <input data-k="title" placeholder="title" value="${escapeHtml(s.title || '')}" />
-          <input data-k="displayTitle" placeholder="displayTitle(옵션)" value="${escapeHtml(s.displayTitle || '')}" />
           <input data-k="key" placeholder="key(옵션)" value="${escapeHtml(s.key || '')}" style="max-width:110px;" />
+          <input data-k="artist" placeholder="artist" value="${escapeHtml(s.artist || '')}" />
+          <input data-k="displayTitle" placeholder="displayTitle(옵션)" value="${escapeHtml(s.displayTitle || '')}" />
         </div>
         <label class="muted" style="display:flex; align-items:center; gap:8px; margin-top:6px;">
           <input type="checkbox" data-k="renameDriveName" checked />
           원본 파일명도 변경
         </label>
-        ${s.driveUrl ? `<a href="${escapeHtml(s.driveUrl)}" target="_blank" class="muted">Drive 열기</a>` : ''}
+        ${s.folderPath ? `<div class="muted">${escapeHtml(s.folderPath)}</div>` : ''}
       </div>
       <div>
         <button class="light" data-action="save">저장</button>

@@ -251,14 +251,36 @@ router.get('/admin/songs/parse-errors', requireAdmin, async (req, res) => {
     .sort({ updatedAt: -1 })
     .limit(limit)
     .lean();
+
+  // enrich with Drive original file name (best-effort, limited concurrency)
+  const withDriveName = [];
+  const conc = 8;
+  for (let i = 0; i < items.length; i += conc) {
+    const chunk = items.slice(i, i + conc);
+    // eslint-disable-next-line no-await-in-loop
+    const metas = await Promise.all(
+      chunk.map(async (s) => {
+        try {
+          const meta = await getFileMetadata(String(s.googleFileId || '').trim());
+          return meta?.name || '';
+        } catch {
+          return '';
+        }
+      })
+    );
+    chunk.forEach((s, idx) => withDriveName.push({ ...s, driveName: metas[idx] || '' }));
+  }
+
   res.json({
     ok: true,
-    items: items.map((s) => ({
+    items: withDriveName.map((s) => ({
       _id: String(s._id),
       googleFileId: s.googleFileId,
+      driveName: s.driveName || '',
       title: s.title,
       displayTitle: s.displayTitle,
       artist: s.artist,
+      key: s.key,
       driveUrl: s.driveUrl,
       folderPath: s.folderPath,
       parseError: s.parseError

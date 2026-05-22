@@ -8,6 +8,7 @@ const { requireLogin, requireAdmin, requireSessionOrAdmin } = require('../middle
 const { runDriveSync, stopDriveSync, getDriveRootFolderId } = require('../services/driveSyncRunner');
 const { KEYS, getJson } = require('../services/syncStatus');
 const { start: startCsvImport, getStatus: getCsvImportStatus } = require('../services/csvImportRunner');
+const { getFileMetadata, renameFile } = require('../services/drive');
 const { chzzkIngestor } = require('../services/chzzkIngestor');
 
 const { driveToThumb } = require('../services/legacyCsvImport');
@@ -271,6 +272,7 @@ router.patch('/admin/songs/:id', requireAdmin, async (req, res) => {
   const displayTitle = req.body?.displayTitle !== undefined ? String(req.body.displayTitle || '').trim() : undefined;
   const artist = req.body?.artist !== undefined ? String(req.body.artist || '').trim() : undefined;
   const key = req.body?.key !== undefined ? String(req.body.key || '').trim() : undefined;
+  const renameDriveName = req.body?.renameDriveName !== undefined ? Boolean(req.body.renameDriveName) : false;
   const genre = req.body?.genre !== undefined ? String(req.body.genre || '').trim() : undefined;
   const mood = req.body?.mood !== undefined ? String(req.body.mood || '').trim() : undefined;
   const vocal = req.body?.vocal !== undefined ? String(req.body.vocal || '').trim() : undefined;
@@ -305,10 +307,41 @@ router.patch('/admin/songs/:id', requireAdmin, async (req, res) => {
     .toLowerCase()
     .trim();
 
+  const buildDriveName = (merged2, existingName) => {
+    const extM = String(existingName || '').match(/\.[^.]+$/);
+    const ext = extM ? extM[0] : '.pdf';
+    const t0 = String(merged2.displayTitle || merged2.title || '').trim() || '제목없음';
+    const k0 = String(merged2.key || '').trim();
+    const a0 = String(merged2.artist || '').trim();
+    const safe = (s) => String(s || '').replace(/[\\/]/g, '_').trim();
+    const t = safe(t0);
+    const k = safe(k0);
+    const a = safe(a0);
+    const base = `${t}${k ? `(${k})` : ''}${a ? `-${a}` : ''}`;
+    return `${base}${ext}`;
+  };
+
+  /** @type {string} */
+  let renameError = '';
   const doc = await Song.findByIdAndUpdate(id, { $set: update }, { new: true }).lean();
   if (!doc) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
+
+  // Optional: rename original Drive file name
+  if (renameDriveName) {
+    try {
+      const fileId = String(before.googleFileId || '').trim();
+      if (fileId) {
+        const meta = await getFileMetadata(fileId);
+        const desired = buildDriveName(merged, meta?.name || '');
+        await renameFile(fileId, desired);
+      }
+    } catch (e) {
+      renameError = String(e?.message || e || 'DRIVE_RENAME_FAILED');
+    }
+  }
   res.json({
     ok: true,
+    renameError: renameError || undefined,
     item: {
       _id: String(doc._id),
       title: doc.title,

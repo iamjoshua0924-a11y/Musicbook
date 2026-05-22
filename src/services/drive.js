@@ -17,7 +17,8 @@ function getDriveClient() {
   const credentials = getServiceAccountCredentials();
   const auth = new google.auth.GoogleAuth({
     credentials,
-    scopes: ['https://www.googleapis.com/auth/drive.readonly']
+    // NOTE: 파일명 변경을 위해 write scope가 필요하다.
+    scopes: ['https://www.googleapis.com/auth/drive']
   });
 
   cachedDrive = google.drive({ version: 'v3', auth });
@@ -33,6 +34,16 @@ async function getFileMetadata(fileId) {
   return res.data;
 }
 
+async function renameFile(fileId, name) {
+  const drive = getDriveClient();
+  const res = await drive.files.update({
+    fileId,
+    requestBody: { name: String(name || '').trim() },
+    fields: 'id,name'
+  });
+  return res.data;
+}
+
 function buildPreviewUrl(fileId) {
   return `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/preview`;
 }
@@ -41,4 +52,4 @@ function buildViewUrl(fileId) {
   return `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/view`;
 }
 
-module.exports = { getDriveClient, getFileMetadata, buildPreviewUrl, buildViewUrl };
+module.exports = { getDriveClient, getFileMetadata, renameFile, buildPreviewUrl, buildViewUrl };

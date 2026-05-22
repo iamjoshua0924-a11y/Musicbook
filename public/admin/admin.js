@@ -177,7 +177,12 @@ async function loadParseErrors() {
           <input data-k="artist" placeholder="artist" value="${escapeHtml(s.artist || '')}" />
           <input data-k="title" placeholder="title" value="${escapeHtml(s.title || '')}" />
           <input data-k="displayTitle" placeholder="displayTitle(옵션)" value="${escapeHtml(s.displayTitle || '')}" />
+          <input data-k="key" placeholder="key(옵션)" value="${escapeHtml(s.key || '')}" style="max-width:110px;" />
         </div>
+        <label class="muted" style="display:flex; align-items:center; gap:8px; margin-top:6px;">
+          <input type="checkbox" data-k="renameDriveName" checked />
+          원본 파일명도 변경
+        </label>
         ${s.driveUrl ? `<a href="${escapeHtml(s.driveUrl)}" target="_blank" class="muted">Drive 열기</a>` : ''}
       </div>
       <div>
@@ -186,9 +191,13 @@ async function loadParseErrors() {
     `;
     el.querySelector('[data-action="save"]').onclick = async () => {
       const payload = {};
-      el.querySelectorAll('input[data-k]').forEach((inp) => (payload[inp.dataset.k] = inp.value));
+      el.querySelectorAll('input[data-k]').forEach((inp) => {
+        if (inp.type === 'checkbox') payload[inp.dataset.k] = Boolean(inp.checked);
+        else payload[inp.dataset.k] = inp.value;
+      });
       const rr = await apiJson(`/api/admin/songs/${encodeURIComponent(s._id)}`, 'PATCH', payload);
       if (!rr.ok) return alert('저장 실패');
+      if (rr.renameError) alert(`저장은 됐는데 파일명 변경 실패: ${rr.renameError}`);
       el.remove();
     };
     wrap.appendChild(el);

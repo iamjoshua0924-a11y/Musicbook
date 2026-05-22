@@ -59,7 +59,6 @@ async function loadOnce() {
 }
 
 function boot() {
-  $('refreshBtn').onclick = () => loadOnce().catch(() => {});
   loadOnce().catch(() => {});
 
   try {

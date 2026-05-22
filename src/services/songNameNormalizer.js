@@ -83,44 +83,28 @@ function normalizeSongFileName({ filenameNoExt, artistFreqMap } = {}) {
 
   if (!ok) {
     // delimiter가 없으면 기본은 제목만 저장.
-    // 단, "가수 곡제목(조성)"처럼 공백으로 구분되고 괄호 조성이 있으면:
-    // - 괄호(조성)가 붙은 텍스트는 무조건 제목으로 분류
-    // - 앞 토큰(숫자/영문 위주)은 가수로 분류
+    // (요구사항) 아래 케이스는 파싱 실패로 보지 않는다.
+    // - "곡제목(키)" -> title=곡제목, key=키, artist=''
+    // - "곡제목" -> title=곡제목, key='', artist=''
     const kOnly = extractKeyAndStrip(raw);
     const stripped = kOnly.stripped || raw;
-    const parts = stripped.split(/\s+/).map((x) => clean(x)).filter(Boolean);
-    const first = parts[0] || '';
-    const rest = parts.slice(1).join(' ').trim();
-    const looksAsciiArtist = /^[0-9A-Za-z._-]{2,}$/.test(first);
-    if (kOnly.found && looksAsciiArtist && rest) {
-      return {
-        title: rest,
-        key: kOnly.key || '',
-        artist: first,
-        normalized: `${rest}//${kOnly.key || ''}//${first}`,
-        parseError: 'NO_HYPHEN_SPLIT_BY_SPACE'
-      };
-    }
-    // 파싱오류 케이스 처리(요구사항):
-    // - "제목(조성)"만 있는 경우: 아티스트는 공백으로 두고, 제목은 괄호 포함 원문을 유지
-    //   (키 태그는 비워서 UI에서 '-'로 표시)
+    // "곡제목(키)"만 있는 경우
     if (kOnly.found) {
-      const titleWithKey = raw; // 괄호 포함 원문 유지
       return {
-        title: titleWithKey,
-        key: '',
+        title: stripped,
+        key: kOnly.key || '',
         artist: '',
-        normalized: `${titleWithKey}// //`,
-        parseError: 'FILENAME_PARSE_FAILED_TITLE_WITH_KEY'
+        normalized: `${stripped}//${kOnly.key || ''}//`,
+        parseError: ''
       };
     }
-    // 제목만 달랑 있는 경우(조성 없음): key는 비워서 '-' 처리, artist도 공백
+    // 제목만 달랑 있는 경우(조성 없음)
     return {
       title: stripped,
       key: '',
       artist: '',
       normalized: `${stripped}// //`,
-      parseError: 'FILENAME_PARSE_FAILED'
+      parseError: ''
     };
   }
 

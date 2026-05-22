@@ -1192,7 +1192,6 @@ function wireEvents() {
       window.open('/requests', 'requestBoard', 'width=420,height=820');
     } catch {}
   };
-  $('requestRefreshBtn').onclick = () => loadRequests(true).catch(() => {});
   $('requestHideBtn').onclick = () => {
     $('requestPanel').style.display = 'none';
     $('requestShowBtn').style.display = 'inline-flex';
@@ -1203,7 +1202,6 @@ function wireEvents() {
   };
 
   // presence panel
-  $('presenceRefreshBtn').onclick = () => state._socket?.emit?.('presence:refresh');
   $('presenceHideBtn').onclick = () => {
     $('presencePanel').style.display = 'none';
     $('presenceShowBtn').style.display = 'inline-flex';

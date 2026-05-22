@@ -6,6 +6,20 @@ const { KEYS, setJson, getJson } = require('./syncStatus');
 let running = false;
 let abortRequested = false;
 
+function isDriveSyncRunning() {
+  return running;
+}
+
+async function waitForDriveSyncStop(timeoutMs = 60_000) {
+  const started = Date.now();
+  while (running) {
+    if (Date.now() - started > timeoutMs) return false;
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  return true;
+}
+
 async function getDriveRootFolderId() {
   const s = await Setting.findOne({ key: 'driveRootFolderId' }).lean();
   return String(s?.value || driveRootFolderId || '').trim();
@@ -120,4 +134,20 @@ function stopDriveSync() {
   return { ok: true };
 }
 
-module.exports = { runDriveSync, stopDriveSync, getDriveRootFolderId };
+async function restartDriveSync(opts = {}) {
+  if (!running) return runDriveSync(opts);
+  // request abort and wait until the runner actually stops, then start a new run.
+  stopDriveSync();
+  const ok = await waitForDriveSyncStop(60_000);
+  if (!ok) return { ok: false, error: 'STOP_TIMEOUT' };
+  return runDriveSync(opts);
+}
+
+module.exports = {
+  runDriveSync,
+  restartDriveSync,
+  stopDriveSync,
+  isDriveSyncRunning,
+  waitForDriveSyncStop,
+  getDriveRootFolderId
+};

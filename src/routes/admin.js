@@ -5,7 +5,7 @@ const User = require('../models/User');
 const Setting = require('../models/Setting');
 const Song = require('../models/Song');
 const { requireLogin, requireAdmin, requireSessionOrAdmin } = require('../middleware/auth');
-const { runDriveSync, stopDriveSync, getDriveRootFolderId } = require('../services/driveSyncRunner');
+const { restartDriveSync, stopDriveSync, getDriveRootFolderId } = require('../services/driveSyncRunner');
 const { KEYS, getJson } = require('../services/syncStatus');
 const { start: startCsvImport, getStatus: getCsvImportStatus } = require('../services/csvImportRunner');
 const { getFileMetadata, renameFile } = require('../services/drive');
@@ -218,7 +218,8 @@ router.post('/admin/sync/drive', requireAdmin, async (req, res) => {
     const pruneMissing = req.body?.pruneMissing !== undefined ? Boolean(req.body.pruneMissing) : true;
     const incremental = Boolean(req.body?.incremental);
     const rootFolderId = String(req.body?.rootFolderId || '').trim();
-    const r = await runDriveSync({ latestDays, limit, pruneMissing, incremental, rootFolderId });
+    // If a sync is already running, stop it first then start the new one (best-effort).
+    const r = await restartDriveSync({ latestDays, limit, pruneMissing, incremental, rootFolderId });
     if (!r.ok) return res.status(400).json({ ok: false, error: r.error || 'SYNC_FAILED' });
     res.json({ ok: true, ...r });
   } catch (e) {

@@ -1,7 +1,6 @@
 const $ = (id) => document.getElementById(id);
 let syncRunning = false;
 let syncPoller = null;
-const importPollers = new Map(); // kind -> intervalId
 
 async function apiGet(url) {
   const res = await fetch(url, { credentials: 'include' });
@@ -19,7 +18,8 @@ async function apiJson(url, method, body) {
 
 function showAuthed(on) {
   $('loginCard').style.display = on ? 'none' : 'block';
-  ['meCard', 'mainCard', 'usersCard', 'syncCard', 'parseErrorCard', 'csvImportCard', 'csvImportUsersCard', 'csvImportAvailabilityCard'].forEach((id) => {
+  // CSV 임포트 기능은 더 이상 사용하지 않으므로 UI에서 제거
+  ['meCard', 'mainCard', 'usersCard', 'syncCard', 'parseErrorCard'].forEach((id) => {
     $(id).style.display = on ? 'block' : 'none';
   });
 }
@@ -157,38 +157,6 @@ function stopSyncPolling() {
   syncPoller = null;
 }
 
-async function loadImportStatus(kind) {
-  const r = await apiGet(`/api/admin/import/status?kind=${encodeURIComponent(kind)}`);
-  if (!r.ok) return null;
-  return r.status;
-}
-
-function startImportPolling(kind, outId, detailId) {
-  const k = String(kind || '').trim().toLowerCase();
-  if (importPollers.has(k)) return;
-  const tick = async () => {
-    const s = await loadImportStatus(k);
-    if (!s) return;
-    const out = $(outId);
-    const detail = $(detailId);
-    if (detail) detail.textContent = JSON.stringify({ ok: true, status: s }, null, 2);
-    if (out) {
-      if (s.running) out.textContent = `진행중 · ${s.processedRows ?? 0}/${s.totalRows ?? '?'} · created=${s.created ?? 0} updated=${s.updated ?? 0} skipped=${s.skippedSame ?? 0}`;
-      else out.textContent = `완료 · ${s.processedRows ?? 0}/${s.totalRows ?? '?'} · created=${s.created ?? 0} updated=${s.updated ?? 0} skipped=${s.skippedSame ?? 0}`;
-    }
-    if (!s.running) {
-      clearInterval(importPollers.get(k));
-      importPollers.delete(k);
-      setTimeout(() => {
-        if (out) out.textContent = '';
-      }, 2500);
-    }
-  };
-  const id = setInterval(() => tick().catch(() => {}), 900);
-  importPollers.set(k, id);
-  tick().catch(() => {});
-}
-
 async function loadParseErrors() {
   const r = await apiGet('/api/admin/songs/parse-errors?limit=200');
   if (!r.ok) return;
@@ -262,40 +230,6 @@ function wire() {
     await syncDrive();
   };
   $('reloadParseErrorsBtn').onclick = () => loadParseErrors().catch(() => {});
-
-  $('importSongsCsvBtn').onclick = async () => {
-    const f = $('songsCsvFile')?.files?.[0];
-    if (!f) return alert('CSV 파일을 선택하세요.');
-    $('importSongsCsvOut').textContent = '업로드/임포트 중...';
-    const text = await f.text();
-    const r = await apiJson('/api/admin/import/songs-csv', 'POST', { csvText: text });
-    $('importSongsCsvDetail').textContent = JSON.stringify(r, null, 2);
-    if (!r.ok) return ($('importSongsCsvOut').textContent = `실패: ${r.error || ''}`);
-    startImportPolling('songs', 'importSongsCsvOut', 'importSongsCsvDetail');
-  };
-
-  $('importUsersCsvBtn').onclick = async () => {
-    const f = $('usersCsvFile')?.files?.[0];
-    if (!f) return alert('CSV 파일을 선택하세요.');
-    $('importUsersCsvOut').textContent = '업로드/임포트 중...';
-    const text = await f.text();
-    const updatePasswordExisting = Boolean($('updateUserPwToggle')?.checked);
-    const r = await apiJson('/api/admin/import/users-csv', 'POST', { csvText: text, updatePasswordExisting });
-    $('importUsersCsvDetail').textContent = JSON.stringify(r, null, 2);
-    if (!r.ok) return ($('importUsersCsvOut').textContent = `실패: ${r.error || ''}`);
-    startImportPolling('users', 'importUsersCsvOut', 'importUsersCsvDetail');
-  };
-
-  $('importAvailabilityCsvBtn').onclick = async () => {
-    const f = $('availabilityCsvFile')?.files?.[0];
-    if (!f) return alert('CSV 파일을 선택하세요.');
-    $('importAvailabilityCsvOut').textContent = '업로드/임포트 중...';
-    const text = await f.text();
-    const r = await apiJson('/api/admin/import/availability-csv', 'POST', { csvText: text });
-    $('importAvailabilityCsvDetail').textContent = JSON.stringify(r, null, 2);
-    if (!r.ok) return ($('importAvailabilityCsvOut').textContent = `실패: ${r.error || ''}`);
-    startImportPolling('availability', 'importAvailabilityCsvOut', 'importAvailabilityCsvDetail');
-  };
 
   $('reloadUsersBtn').onclick = () => loadUsers().catch(() => {});
   $('createUserBtn').onclick = async () => {

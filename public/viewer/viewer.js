@@ -1689,21 +1689,61 @@ function openByInput(input) {
 
   const roomCode = state.roomCode;
   if (state.isInSession && state.isPageTurner && roomCode) {
-    socket.emit('session:follow:file', { roomCode, fileId, originalLink: String(input || '').trim() }, (ack) => {
-      if (!ack?.ok) alert('세션 곡 전환 브로드캐스트 실패(권한 확인)');
-    });
-    // local apply (no full reload)
-    setMode('pdf');
-    state.fileId = String(fileId);
-    state.pdfFileId = String(fileId);
-    try {
-      setLastRoomForFile(state.fileId, roomCode);
-      window.history.replaceState(null, '', `${window.location.origin}/viewer/${encodeURIComponent(state.fileId)}?room=${encodeURIComponent(roomCode)}`);
-    } catch {}
-    state.annoStore = {};
-    state.undoStack = {};
-    state.redoStack = {};
-    loadPdf(state.fileId).catch(() => {});
+    const originalLink = String(input || '').trim();
+    const isUrl = /^https?:\/\//i.test(trimmed);
+
+    const applyLocal = (nextFileId) => {
+      // local apply (no full reload)
+      setMode('pdf');
+      state.fileId = String(nextFileId);
+      state.pdfFileId = String(nextFileId);
+      try {
+        setLastRoomForFile(state.fileId, roomCode);
+        window.history.replaceState(
+          null,
+          '',
+          `${window.location.origin}/viewer/${encodeURIComponent(state.fileId)}?room=${encodeURIComponent(roomCode)}`
+        );
+      } catch {}
+      state.annoStore = {};
+      state.undoStack = {};
+      state.redoStack = {};
+      loadPdf(state.fileId).catch(() => {});
+    };
+
+    const broadcast = (nextFileId) => {
+      socket.emit('session:follow:file', { roomCode, fileId: nextFileId, originalLink }, (ack) => {
+        if (!ack?.ok) alert('세션 곡 전환 브로드캐스트 실패(권한 확인)');
+      });
+    };
+
+    // 외부 Drive URL이면 먼저 서버로 가져오기(import) 시도 -> 가져온 fileId를 공유
+    if (isUrl) {
+      setHidden('pageHud', false);
+      setText('pageHud', '외부 악보 가져오는 중...');
+      fetch('/api/drive/import', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceUrl: originalLink })
+      })
+        .then((r) => r.json())
+        .then((r) => {
+          if (!r?.ok || !r?.imported?.googleFileId) throw new Error(r?.error || 'IMPORT_FAILED');
+          const nextId = String(r.imported.googleFileId);
+          broadcast(nextId);
+          applyLocal(nextId);
+        })
+        .catch(() => {
+          // import 실패 시 기존 fileId로 fallback
+          broadcast(fileId);
+          applyLocal(fileId);
+        });
+      return;
+    }
+
+    broadcast(fileId);
+    applyLocal(fileId);
   } else {
     const roomParam = state.isInSession && roomCode ? `?room=${roomCode}` : '';
     window.location.href = `${window.location.origin}/viewer/${fileId}${roomParam}`;

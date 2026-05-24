@@ -1,9 +1,51 @@
 const express = require('express');
 const { pipeline } = require('node:stream/promises');
+const { Readable } = require('node:stream');
 const router = express.Router();
 
-const { getDriveClient, getFileMetadata, buildPreviewUrl } = require('../services/drive');
+const Song = require('../models/Song');
+const { getDriveClient, getFileMetadata, buildPreviewUrl, buildViewUrl } = require('../services/drive');
+const { normalizeSongFileName } = require('../services/songNameNormalizer');
+const { getDriveRootFolderId } = require('../services/driveSyncRunner');
 const { requireSessionOrAdmin } = require('../middleware/auth');
+
+function extractDriveFileIdFromAny(input) {
+  const s = String(input || '').trim();
+  if (!s) return '';
+  const m1 = s.match(/\/file\/d\/([^/]+)/);
+  if (m1) return m1[1];
+  try {
+    const u = new URL(s);
+    const id = u.searchParams.get('id');
+    if (id) return id;
+  } catch {}
+  return '';
+}
+
+function stripExt(name) {
+  return String(name || '').replace(/\.[^.]+$/, '').trim();
+}
+
+function safeName(name) {
+  return String(name || '').replace(/[\\/]/g, '_').trim();
+}
+
+async function fetchPublicDriveDownload(fileId) {
+  const firstUrl = `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`;
+  let res = await fetch(firstUrl, { redirect: "follow" });
+  const ct = String(res.headers.get('content-type') || '');
+  if (res.ok && !ct.includes('text/html')) return res;
+
+  const html = await res.text().catch(() => '');
+  const m = html.match(/confirm=([0-9A-Za-z_]+)&amp;id=([^&]+)/);
+  if (!m) throw new Error('PUBLIC_DOWNLOAD_CONFIRM_REQUIRED');
+  const confirm = m[1];
+  const id = m[2] || fileId;
+  const url = `https://drive.google.com/uc?export=download&confirm=${encodeURIComponent(confirm)}&id=${encodeURIComponent(id)}`;
+  res = await fetch(url, { redirect: "follow" });
+  if (!res.ok) throw new Error(`PUBLIC_DOWNLOAD_FAILED_${res.status}`);
+  return res;
+}
 
 async function allowSessionOrPublicFile(req, res, next) {
   const role = req.session?.user?.role;
@@ -95,6 +137,117 @@ router.get('/drive/meta/:fileId', requireSessionOrAdmin, async (req, res) => {
   } catch (err) {
     res.status(404).json({ ok: false, error: 'NOT_FOUND' });
   }
+});
+
+/**
+ * 외부 Drive 파일을 "동기화된 파일처럼" 세션에서 열 수 있도록 가져오기.
+ * - 1순위: Drive API copy (서비스계정이 접근 가능한 경우)
+ * - 2순위: public download(uc?export=download) -> 업로드 (링크 공개지만 API 접근이 막힌 경우)
+ * - 가져온 파일은 rootFolderId 아래에 생성되고, Song DB에 즉시 반영된다.
+ */
+router.post('/drive/import', requireSessionOrAdmin, async (req, res) => {
+  const sourceUrl = String(req.body?.sourceUrl || '').trim();
+  const sourceFileId = String(req.body?.sourceFileId || '').trim();
+  const srcId = sourceFileId || extractDriveFileIdFromAny(sourceUrl);
+  if (!srcId) return res.status(400).json({ ok: false, error: 'FILE_ID_REQUIRED' });
+
+  const rootFolderId = String(await getDriveRootFolderId()).trim();
+  if (!rootFolderId) return res.status(400).json({ ok: false, error: 'ROOT_FOLDER_ID_REQUIRED' });
+
+  const drive = getDriveClient();
+  /** @type {{id?:string,name?:string,mimeType?:string,modifiedTime?:string}|null} */
+  let created = null;
+  let originalName = '';
+
+  // 1) Drive API copy
+  try {
+    const meta = await getFileMetadata(srcId);
+    originalName = String(meta?.name || '').trim();
+    const mime = String(meta?.mimeType || '').trim();
+    const isPdf = mime === 'application/pdf' || originalName.toLowerCase().endsWith('.pdf');
+    if (!isPdf) return res.status(400).json({ ok: false, error: 'PDF_ONLY' });
+
+    const copied = await drive.files.copy({
+      fileId: srcId,
+      supportsAllDrives: true,
+      requestBody: { parents: [rootFolderId], name: safeName(originalName || `${srcId}.pdf`) },
+      fields: 'id,name,mimeType,modifiedTime'
+    });
+    created = copied.data;
+  } catch {
+    created = null;
+  }
+
+  // 2) Public download -> upload
+  if (!created?.id) {
+    try {
+      const dl = await fetchPublicDriveDownload(srcId);
+      const ct = String(dl.headers.get('content-type') || 'application/pdf');
+      if (!ct.includes('pdf') && !ct.includes('octet-stream')) {
+        return res.status(400).json({ ok: false, error: 'PUBLIC_DOWNLOAD_NOT_PDF' });
+      }
+      const cd = String(dl.headers.get('content-disposition') || '');
+      const fnm = cd.match(/filename\*=UTF-8''([^;]+)|filename=\"?([^\";]+)\"?/i);
+      originalName = safeName(decodeURIComponent(fnm?.[1] || fnm?.[2] || `${srcId}.pdf`));
+      if (!originalName.toLowerCase().endsWith('.pdf')) originalName = `${stripExt(originalName)}.pdf`;
+
+      const bodyStream = dl.body ? Readable.fromWeb(dl.body) : null;
+      if (!bodyStream) return res.status(400).json({ ok: false, error: 'PUBLIC_DOWNLOAD_EMPTY' });
+
+      const up = await drive.files.create({
+        supportsAllDrives: true,
+        requestBody: { name: originalName, parents: [rootFolderId], mimeType: 'application/pdf' },
+        media: { mimeType: 'application/pdf', body: bodyStream },
+        fields: 'id,name,mimeType,modifiedTime'
+      });
+      created = up.data;
+    } catch (e) {
+      return res.status(400).json({ ok: false, error: String(e?.message || 'IMPORT_FAILED') });
+    }
+  }
+
+  const newId = String(created?.id || '').trim();
+  if (!newId) return res.status(400).json({ ok: false, error: 'IMPORT_FAILED' });
+
+  const name = String(created?.name || originalName || `${newId}.pdf`).trim();
+  const nameNoExt = stripExt(name);
+  const norm = normalizeSongFileName({ filenameNoExt: nameNoExt, artistFreqMap: null });
+  const driveUrl = buildViewUrl(newId);
+
+  const doc = await Song.findOneAndUpdate(
+    { googleFileId: newId },
+    {
+      $set: {
+        title: norm.title || nameNoExt,
+        displayTitle: norm.title || nameNoExt,
+        artist: norm.artist || '',
+        key: norm.key || '',
+        parseError: norm.parseError || '',
+        driveUrl,
+        folderPath: '[외부 가져오기]',
+        hidden: false,
+        syncRootId: rootFolderId,
+        lastSeenAt: new Date(),
+        driveModifiedTime: created?.modifiedTime ? new Date(created.modifiedTime) : null,
+        searchText: `${norm.title || nameNoExt} ${norm.artist || ''} ${norm.key || ''}`.toLowerCase().trim(),
+        updatedAt: new Date()
+      }
+    },
+    { upsert: true, new: true }
+  ).lean();
+
+  res.json({
+    ok: true,
+    imported: {
+      googleFileId: newId,
+      driveUrl,
+      name,
+      title: doc?.displayTitle || doc?.title || '',
+      artist: doc?.artist || '',
+      key: doc?.key || '',
+      parseError: doc?.parseError || ''
+    }
+  });
 });
 
 module.exports = router;

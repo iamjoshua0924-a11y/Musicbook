@@ -30,9 +30,12 @@ function safeName(name) {
   return String(name || '').replace(/[\\/]/g, '_').trim();
 }
 
-async function fetchPublicDriveDownload(fileId) {
+async function fetchPublicDriveDownload(fileId, { range } = {}) {
   const firstUrl = `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`;
-  let res = await fetch(firstUrl, { redirect: "follow" });
+  let res = await fetch(firstUrl, {
+    redirect: 'follow',
+    headers: range ? { Range: range } : undefined
+  });
   const ct = String(res.headers.get('content-type') || '');
   if (res.ok && !ct.includes('text/html')) return res;
 
@@ -42,7 +45,10 @@ async function fetchPublicDriveDownload(fileId) {
   const confirm = m[1];
   const id = m[2] || fileId;
   const url = `https://drive.google.com/uc?export=download&confirm=${encodeURIComponent(confirm)}&id=${encodeURIComponent(id)}`;
-  res = await fetch(url, { redirect: "follow" });
+  res = await fetch(url, {
+    redirect: 'follow',
+    headers: range ? { Range: range } : undefined
+  });
   if (!res.ok) throw new Error(`PUBLIC_DOWNLOAD_FAILED_${res.status}`);
   return res;
 }
@@ -114,12 +120,30 @@ router.get('/drive/pdf/:fileId', allowSessionOrPublicFile, async (req, res) => {
 
     await pipeline(driveRes.data, res);
   } catch (err) {
-    // Do not leak details; client can use preview fallback.
-    res.status(403).json({
-      ok: false,
-      error: 'DRIVE_STREAM_FAILED',
-      fallback: { mode: 'iframe', previewUrl: buildPreviewUrl(fileId) }
-    });
+    // Fallback: if Drive API streaming is blocked but link is public,
+    // try public download streaming (so sessions can still view without Google login).
+    try {
+      const dl = await fetchPublicDriveDownload(fileId, { range });
+      const ct = String(dl.headers.get('content-type') || 'application/pdf');
+      res.setHeader('Content-Type', ct.includes('pdf') ? 'application/pdf' : ct);
+      const clen = dl.headers.get('content-length');
+      const cr = dl.headers.get('content-range');
+      if (clen) res.setHeader('Content-Length', clen);
+      if (cr) res.setHeader('Content-Range', cr);
+      res.setHeader('Accept-Ranges', 'bytes');
+      const upstreamStatus = Number(dl.status) || 200;
+      if (range && (upstreamStatus === 206 || cr)) res.status(206);
+      const bodyStream = dl.body ? Readable.fromWeb(dl.body) : null;
+      if (!bodyStream) throw new Error('PUBLIC_STREAM_EMPTY');
+      await pipeline(bodyStream, res);
+    } catch {
+      // Do not leak details; client can use preview fallback.
+      res.status(403).json({
+        ok: false,
+        error: 'DRIVE_STREAM_FAILED',
+        fallback: { mode: 'iframe', previewUrl: buildPreviewUrl(fileId) }
+      });
+    }
   }
 });
 

@@ -2463,6 +2463,9 @@ async function loadPdf(fileId) {
     const loadingTask = pdfjsLib.getDocument({
       url,
       withCredentials: true,
+      // 외부/공개 Drive의 Range 요청이 종종 막혀 로딩이 깨지는 케이스가 있어,
+      // 서버 스트리밍(전체 파일) 기반으로 안정성을 우선한다.
+      disableRange: true,
       disableStream: false,
       disableAutoFetch: false
     });

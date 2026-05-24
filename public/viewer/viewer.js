@@ -643,6 +643,8 @@ const state = {
   pdfDoc: null,
   pdfScale: 1,
   isPdfReady: false,
+  // preview slice mode: iframe(임베드) + transform으로 "페이지처럼" 보여주기(보기 전용)
+  previewMode: false,
 
   // pageNo -> { json, w, h }
   annoStore: {},
@@ -2031,6 +2033,87 @@ function computeViewport(page) {
   return page.getViewport({ scale });
 }
 
+// ---- Preview slice mode (iframe) --------------------------------------------------
+// GAS식 "iframe을 크게 띄우고 clip+transform으로 페이지처럼 보이게" 하는 보기 전용 모드.
+// NOTE: 실제 PDF 페이지를 파싱/렌더하지 않으므로, 페이지 수는 알 수 없어 9999로 가정한다.
+const PREVIEW_A4 = 1.41421356237;
+const PREVIEW_OVERLAP_Y_PX = 30; // 위/아래 겹침(연속 스크롤 느낌)
+const PREVIEW_STEP_ADJUST_PX = 0;
+const PREVIEW_SCALE = 1.02;
+const PREVIEW_X_OFFSET_PX = 0;
+const PREVIEW_Y_OFFSET_PX = 0;
+const PREVIEW_IFRAME_H_PX = 220000; // 크게 잡아야 "아래 페이지"가 보임(스크롤 대신 viewport 확장)
+
+let previewPageW = 360;
+let previewPageH = 520;
+
+function computePreviewPageBox() {
+  const gap = 12;
+  const pad = 24;
+  const availW = Math.max(200, els.pdfContainer.clientWidth - pad - gap * (state.spreadCount - 1));
+  const availH = Math.max(240, els.pdfContainer.clientHeight - pad);
+
+  let wFromWidth = availW / Math.max(1, state.spreadCount);
+  wFromWidth = Math.max(220, wFromWidth);
+  let wFromHeight = Math.max(220, availH / PREVIEW_A4);
+
+  let pageW = Math.min(wFromWidth, wFromHeight);
+  // fitMode가 꺼져있으면 줌을 조금 반영
+  if (!state.fitMode) pageW *= Math.max(0.5, Math.min(2.0, Number(state.zoom) || 1));
+  pageW *= 0.985;
+
+  previewPageW = Math.floor(Math.max(220, pageW));
+  previewPageH = Math.floor(Math.max(260, previewPageW * PREVIEW_A4));
+}
+
+function getPreviewStep() {
+  return Math.max(80, previewPageH - PREVIEW_OVERLAP_Y_PX + PREVIEW_STEP_ADJUST_PX);
+}
+
+function clearPreviewViews() {
+  els.canvasStack.innerHTML = '';
+}
+
+function renderPreviewSpread(leftPageNo) {
+  computePreviewPageBox();
+  const step = getPreviewStep();
+  const s = PREVIEW_SCALE;
+  const roomParam = state.isInSession && state.roomCode ? `?room=${encodeURIComponent(state.roomCode)}` : '';
+  const src = `/api/drive/embed/${encodeURIComponent(state.fileId)}${roomParam}`;
+
+  clearPreviewViews();
+
+  for (let i = 0; i < state.spreadCount; i += 1) {
+    const pageNo = leftPageNo + i;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'preview-view';
+    wrap.dataset.pageNo = String(pageNo);
+    wrap.style.width = `${previewPageW}px`;
+    wrap.style.height = `${previewPageH}px`;
+
+    const clip = document.createElement('div');
+    clip.className = 'preview-clip';
+
+    const iframe = document.createElement('iframe');
+    iframe.className = 'preview-iframe';
+    iframe.referrerPolicy = 'no-referrer';
+    iframe.allow = 'fullscreen';
+    iframe.loading = 'eager';
+    iframe.src = src;
+    iframe.style.width = `${previewPageW}px`;
+    iframe.style.height = `${PREVIEW_IFRAME_H_PX}px`;
+
+    const y = -((pageNo - 1) * step * s) + PREVIEW_Y_OFFSET_PX;
+    const x = PREVIEW_X_OFFSET_PX;
+    iframe.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${s})`;
+
+    clip.appendChild(iframe);
+    wrap.appendChild(clip);
+    els.canvasStack.appendChild(wrap);
+  }
+}
+
 function makeView(pageNo) {
   const root = document.createElement('div');
   root.className = 'page-view';
@@ -2398,6 +2481,18 @@ function applySnapshotToPage(pageNo, pageSnapshot) {
 }
 
 async function renderSpread(leftPageNo) {
+  // preview slice mode: PDF 파싱이 안 되더라도 "보기"는 가능해야 한다.
+  if (state.previewMode) {
+    renderSpread._seq = (renderSpread._seq || 0) + 1;
+    els.pdfPreview.classList.add('hidden');
+    els.canvasStack.style.display = 'flex';
+    try {
+      renderPreviewSpread(leftPageNo);
+      updatePageLabels();
+    } catch {}
+    return;
+  }
+
   if (!state.isPdfReady || !state.pdfDoc) return;
 
   // IMPORTANT:
@@ -2471,6 +2566,7 @@ async function loadPdf(fileId) {
       disableAutoFetch: false
     });
     const pdf = await loadingTask.promise;
+    state.previewMode = false;
     state.pdfDoc = pdf;
     state.totalPages = pdf.numPages;
     state.isPdfReady = true;
@@ -2480,14 +2576,20 @@ async function loadPdf(fileId) {
     if (state.isInSession && state.roomCode) socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId });
   } catch (e) {
     try {
-      // 최후 수단: same-origin embed 엔드포인트(서버가 PDF 스트리밍 or public download로 시도).
-      // 이것마저 실패하면 서버가 Drive preview로 redirect한다.
-      const roomParam = state.isInSession && state.roomCode ? `?room=${encodeURIComponent(state.roomCode)}` : '';
-      els.pdfPreview.src = `/api/drive/embed/${encodeURIComponent(fileId)}${roomParam}`;
-      els.pdfPreview.classList.remove('hidden');
-      els.canvasStack.style.display = 'none';
+      // Preview slice mode:
+      // - PDF 파싱 실패 시, iframe(임베드) + transform으로 페이지처럼 보이게(보기 전용)
+      // - 세션 참여자에게 "무조건 보이게" 하는 것이 목표
+      state.previewMode = true;
+      state.pdfDoc = null;
+      state.isPdfReady = true;
+      state.totalPages = 9999;
+      state.pageNo = Math.max(1, Number(state.pageNo) || 1);
+
+      els.pdfPreview.classList.add('hidden');
+      els.canvasStack.style.display = 'flex';
+      await renderSpread(state.pageNo);
       setHidden('pageHud', false);
-      setText('pageHud', '스트리밍이 제한되어 미리보기/임베드 모드로 열었습니다(보기 전용)');
+      setText('pageHud', '스트리밍이 제한되어 미리보기(슬라이스) 모드로 열었습니다(보기 전용)');
     } catch {
       setHidden('pageHud', false);
       setText('pageHud', 'PDF 로딩 실패: Drive 공유/권한 또는 fileId 확인');

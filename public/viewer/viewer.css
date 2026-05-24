@@ -362,6 +362,30 @@ body.light .cursor-marker{
   padding: 12px;
 }
 
+.preview-view{
+  position: relative;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.14);
+}
+.preview-view:not(:first-child){
+  margin-left: calc(var(--spreadOverlapPx) * -1);
+}
+.preview-clip{
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.preview-iframe{
+  position: absolute;
+  left: 0;
+  top: 0;
+  border: 0;
+  transform-origin: 0 0;
+  pointer-events: none; /* 보기 전용 */
+}
+
 .page-view {
   position: relative;
   display: grid;

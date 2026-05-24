@@ -7,6 +7,7 @@ const Song = require('../models/Song');
 const { getDriveClient, getFileMetadata, buildPreviewUrl, buildViewUrl } = require('../services/drive');
 const { normalizeSongFileName } = require('../services/songNameNormalizer');
 const { getDriveRootFolderId } = require('../services/driveSyncRunner');
+const { isFileOpenInRoom } = require('../sockets');
 const { requireSessionOrAdmin } = require('../middleware/auth');
 
 function extractDriveFileIdFromAny(input) {
@@ -58,6 +59,11 @@ async function allowSessionOrPublicFile(req, res, next) {
   if (role === 'admin' || role === 'session') return next();
   const fileId = String(req.params?.fileId || '').trim();
   if (!fileId) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+
+  // 세션 참여자(로그인 없이 viewer로 접속)도 room 현재 파일은 볼 수 있어야 한다.
+  // viewer에서 /viewer/:fileId?room=XXXX 형태로 접근하므로, room의 currentFileId와 일치하면 허용.
+  const roomCode = String(req.query?.room || '').trim().toUpperCase();
+  if (roomCode && isFileOpenInRoom(roomCode, fileId)) return next();
 
   try {
     const drive = getDriveClient();

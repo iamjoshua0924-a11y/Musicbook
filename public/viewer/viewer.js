@@ -2455,7 +2455,8 @@ async function loadPdf(fileId) {
   state.activeDrawPageNo = 1;
   updatePageLabels();
 
-  const url = `${window.location.origin}/api/drive/pdf/${fileId}`;
+  const roomParam = state.isInSession && state.roomCode ? `?room=${encodeURIComponent(state.roomCode)}` : '';
+  const url = `${window.location.origin}/api/drive/pdf/${fileId}${roomParam}`;
   setHidden('pageHud', false);
   setText('pageHud', 'PDF 로딩 중...');
 

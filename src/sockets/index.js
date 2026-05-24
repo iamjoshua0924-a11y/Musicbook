@@ -5,6 +5,15 @@ const { verifySocketMetaToken } = require('../services/socketMeta');
 
 const store = new SessionStore();
 
+function isFileOpenInRoom(roomCode, fileId) {
+  const rc = String(roomCode || '').trim().toUpperCase();
+  const fid = String(fileId || '').trim();
+  if (!rc || !fid) return false;
+  const room = store.rooms.get(rc);
+  if (!room) return false;
+  return String(room.currentFileId || '') === fid;
+}
+
 // Presence (main page) - in-memory only
 const presence = new Map(); // socketId -> { nickname, role, displayName, profilePhoto, ts }
 
@@ -566,4 +575,4 @@ function attachSockets(io) {
   io.broadcastRequests = broadcastRequests;
 }
 
-module.exports = { attachSockets };
+module.exports = { attachSockets, isFileOpenInRoom };

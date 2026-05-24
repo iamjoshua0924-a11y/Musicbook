@@ -41,7 +41,10 @@ async function fetchPublicDriveDownload(fileId, { range } = {}) {
   if (res.ok && !ct.includes('text/html')) return res;
 
   const html = await res.text().catch(() => '');
-  const m = html.match(/confirm=([0-9A-Za-z_]+)&amp;id=([^&]+)/);
+  // Google Drive download confirm patterns vary; support both "&amp;" and "&"
+  const m =
+    html.match(/confirm=([0-9A-Za-z_]+).*?(?:id=)([^&"']+)/i) ||
+    html.match(/confirm=([0-9A-Za-z_]+)&(?:amp;)?id=([^&]+)/i);
   if (!m) throw new Error('PUBLIC_DOWNLOAD_CONFIRM_REQUIRED');
   const confirm = m[1];
   const id = m[2] || fileId;
@@ -53,6 +56,52 @@ async function fetchPublicDriveDownload(fileId, { range } = {}) {
   if (!res.ok) throw new Error(`PUBLIC_DOWNLOAD_FAILED_${res.status}`);
   return res;
 }
+
+/**
+ * Same-origin iframe target:
+ * - tries to stream a PDF (Drive API -> public download fallback)
+ * - if all fail, redirects to Drive preview URL so at least "view" might work.
+ */
+router.get('/drive/embed/:fileId', async (req, res) => {
+  const { fileId } = req.params;
+  const range = req.headers.range;
+  try {
+    // reuse the pdf streaming route logic by calling handlers inline:
+    // 1) Drive API stream
+    const drive = getDriveClient();
+    const driveRes = await drive.files.get(
+      { fileId, alt: 'media' },
+      { responseType: 'stream', headers: range ? { Range: range } : undefined }
+    );
+    res.setHeader('Content-Type', driveRes.headers?.['content-type'] || 'application/pdf');
+    if (driveRes.headers?.['content-length']) res.setHeader('Content-Length', driveRes.headers['content-length']);
+    if (driveRes.headers?.['content-range']) res.setHeader('Content-Range', driveRes.headers['content-range']);
+    res.setHeader('Accept-Ranges', 'bytes');
+    const upstreamStatus = Number(driveRes.status) || 200;
+    if (range && (upstreamStatus === 206 || driveRes.headers?.['content-range'])) res.status(206);
+    await pipeline(driveRes.data, res);
+  } catch {
+    try {
+      // 2) public download stream
+      const dl = await fetchPublicDriveDownload(fileId, { range });
+      const ct = String(dl.headers.get('content-type') || 'application/pdf');
+      res.setHeader('Content-Type', ct.includes('pdf') ? 'application/pdf' : ct);
+      const clen = dl.headers.get('content-length');
+      const cr = dl.headers.get('content-range');
+      if (clen) res.setHeader('Content-Length', clen);
+      if (cr) res.setHeader('Content-Range', cr);
+      res.setHeader('Accept-Ranges', 'bytes');
+      const upstreamStatus = Number(dl.status) || 200;
+      if (range && (upstreamStatus === 206 || cr)) res.status(206);
+      const bodyStream = dl.body ? Readable.fromWeb(dl.body) : null;
+      if (!bodyStream) throw new Error('PUBLIC_STREAM_EMPTY');
+      await pipeline(bodyStream, res);
+    } catch {
+      // 3) last resort: redirect to Drive preview
+      res.redirect(buildPreviewUrl(fileId));
+    }
+  }
+});
 
 async function allowSessionOrPublicFile(req, res, next) {
   const role = req.session?.user?.role;

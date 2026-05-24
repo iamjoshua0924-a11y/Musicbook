@@ -2480,12 +2480,14 @@ async function loadPdf(fileId) {
     if (state.isInSession && state.roomCode) socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId });
   } catch (e) {
     try {
-      const meta = await fetch(`/api/drive/preview/${encodeURIComponent(fileId)}`).then((r) => r.json());
-      els.pdfPreview.src = meta.previewUrl;
+      // 최후 수단: same-origin embed 엔드포인트(서버가 PDF 스트리밍 or public download로 시도).
+      // 이것마저 실패하면 서버가 Drive preview로 redirect한다.
+      const roomParam = state.isInSession && state.roomCode ? `?room=${encodeURIComponent(state.roomCode)}` : '';
+      els.pdfPreview.src = `/api/drive/embed/${encodeURIComponent(fileId)}${roomParam}`;
       els.pdfPreview.classList.remove('hidden');
       els.canvasStack.style.display = 'none';
       setHidden('pageHud', false);
-      setText('pageHud', '스트리밍이 제한되어 미리보기 모드로 열었습니다(권한/공유 확인)');
+      setText('pageHud', '스트리밍이 제한되어 미리보기/임베드 모드로 열었습니다(보기 전용)');
     } catch {
       setHidden('pageHud', false);
       setText('pageHud', 'PDF 로딩 실패: Drive 공유/권한 또는 fileId 확인');

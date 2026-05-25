@@ -2050,6 +2050,15 @@ function applyPanTransform() {
 
   const tx = -Math.round(maxX * state.panX);
   const ty = -Math.round(maxY * state.panY);
+  // Guard against NaN/Infinity which can "blank out" the whole stage.
+  if (!Number.isFinite(tx) || !Number.isFinite(ty)) {
+    els.canvasStack.style.transform = '';
+    els.canvasStack.style.justifyContent = 'center';
+    els.canvasStack.style.alignItems = 'center';
+    state.panX = 0;
+    state.panY = 0;
+    return;
+  }
   els.canvasStack.style.transform = `translate3d(${tx}px, ${ty}px, 0)`;
   els.canvasStack.style.justifyContent = 'flex-start';
   els.canvasStack.style.alignItems = 'flex-start';
@@ -2128,11 +2137,6 @@ function renderPreviewSpread(leftPageNo) {
   const src = `/api/drive/embed/${encodeURIComponent(state.fileId)}${roomParam}`;
 
   clearPreviewViews();
-  // content box for pan calc
-  const gap = 12;
-  state._contentW = Math.max(1, state.spreadCount) * previewPageW + gap * Math.max(0, state.spreadCount - 1);
-  state._contentH = previewPageH;
-
   for (let i = 0; i < state.spreadCount; i += 1) {
     const pageNo = leftPageNo + i;
 
@@ -2162,6 +2166,9 @@ function renderPreviewSpread(leftPageNo) {
     wrap.appendChild(clip);
     els.canvasStack.appendChild(wrap);
   }
+  // content box for pan calc (use actual layout metrics; safer than manual sum)
+  state._contentW = els.canvasStack.scrollWidth || 0;
+  state._contentH = els.canvasStack.scrollHeight || 0;
   applyPanTransform();
 }
 
@@ -2573,11 +2580,6 @@ async function renderSpread(leftPageNo) {
   const pages = getSpreadPages(leftPageNo);
   updatePageLabels();
 
-  // content size for pan
-  let sumW = 0;
-  let maxH = 0;
-  const gap = 12;
-
   for (const p of pages) {
     if (seq !== renderSpread._seq) return; // cancelled by newer render
     const page = await state.pdfDoc.getPage(p);
@@ -2606,13 +2608,11 @@ async function renderSpread(leftPageNo) {
     if (saved) applySnapshotToPage(p, saved);
     else applySnapshotToPage(p, { json: { objects: [] }, w: v.pdfCanvas.width, h: v.pdfCanvas.height });
 
-    sumW += v.pdfCanvas.width;
-    maxH = Math.max(maxH, v.pdfCanvas.height);
   }
 
-  // store content size and apply pan transform
-  state._contentW = sumW + gap * Math.max(0, pages.length - 1);
-  state._contentH = maxH;
+  // store content size and apply pan transform (use actual layout metrics; safer)
+  state._contentW = els.canvasStack.scrollWidth || 0;
+  state._contentH = els.canvasStack.scrollHeight || 0;
   applyPanTransform();
 }
 

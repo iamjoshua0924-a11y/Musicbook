@@ -35,7 +35,7 @@ const state = {
   sortField: 'createdAt',
   sortDir: 'desc',
   page: 1,
-  pageSize: 100,
+  pageSize: 500,
 
   // card click selection
   _pendingCard: null,
@@ -1348,6 +1348,10 @@ function wireEvents() {
     state.page = 1;
     applySongFilters();
   };
+  // 초기 기본값(HTML 기본 selected + state.pageSize) 반영
+  try {
+    $('pageSizeSelect').value = String(state.pageSize || 500);
+  } catch {}
   $('prevPageBtn').onclick = () => {
     state.page = Math.max(1, state.page - 1);
     applySongFilters();

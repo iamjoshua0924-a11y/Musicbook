@@ -2045,12 +2045,28 @@ function clamp01(x) {
 
 let suppressScrollSync = false;
 
+function setContentBoxSize(w, h) {
+  const ww = Math.max(1, Math.floor(Number(w) || 0));
+  const hh = Math.max(1, Math.floor(Number(h) || 0));
+  state._contentW = ww;
+  state._contentH = hh;
+  if (state.fitMode) {
+    // keep centered fit layout
+    els.canvasStack.style.width = '100%';
+    els.canvasStack.style.height = '100%';
+  } else {
+    // IMPORTANT: 줌 모드에서는 "양수 방향"으로 스크롤 영역이 생기도록, 컨텐츠 박스를 실치수로 고정한다.
+    // (flex-center 상태에서 overflow가 좌/상 방향으로 튀면 스크롤/동기화가 깨지는 문제 방지)
+    els.canvasStack.style.width = `${ww}px`;
+    els.canvasStack.style.height = `${hh}px`;
+  }
+}
+
 function applyPanScroll() {
   const contW = Math.max(1, els.pdfContainer.clientWidth || 1);
   const contH = Math.max(1, els.pdfContainer.clientHeight || 1);
-  // Use scroll metrics of the actual scroll container (more robust than manual content size).
-  const maxX = Math.max(0, Number(els.pdfContainer.scrollWidth || 0) - contW);
-  const maxY = Math.max(0, Number(els.pdfContainer.scrollHeight || 0) - contH);
+  const maxX = Math.max(0, Number(state._contentW || 0) - contW);
+  const maxY = Math.max(0, Number(state._contentH || 0) - contH);
   state._panMaxX = maxX;
   state._panMaxY = maxY;
 
@@ -2066,6 +2082,9 @@ function applyPanScroll() {
     setTimeout(() => (suppressScrollSync = false), 0);
     els.canvasStack.style.justifyContent = 'center';
     els.canvasStack.style.alignItems = 'center';
+    // restore sizing for fit
+    els.canvasStack.style.width = '100%';
+    els.canvasStack.style.height = '100%';
     state.panX = 0;
     state.panY = 0;
     return;
@@ -2156,6 +2175,11 @@ function renderPreviewSpread(leftPageNo) {
   const src = `/api/drive/embed/${encodeURIComponent(state.fileId)}${roomParam}`;
 
   clearPreviewViews();
+  const gap = 12;
+  setContentBoxSize(
+    Math.max(1, state.spreadCount) * previewPageW + gap * Math.max(0, state.spreadCount - 1),
+    previewPageH
+  );
   for (let i = 0; i < state.spreadCount; i += 1) {
     const pageNo = leftPageNo + i;
 
@@ -2185,9 +2209,6 @@ function renderPreviewSpread(leftPageNo) {
     wrap.appendChild(clip);
     els.canvasStack.appendChild(wrap);
   }
-  // content box for pan calc (use actual layout metrics; safer than manual sum)
-  state._contentW = els.canvasStack.scrollWidth || 0;
-  state._contentH = els.canvasStack.scrollHeight || 0;
   applyPanScroll();
 }
 
@@ -2598,6 +2619,9 @@ async function renderSpread(leftPageNo) {
 
   const pages = getSpreadPages(leftPageNo);
   updatePageLabels();
+  const gap = 12;
+  let contentW = 0;
+  let contentH = 0;
 
   for (const p of pages) {
     if (seq !== renderSpread._seq) return; // cancelled by newer render
@@ -2627,11 +2651,12 @@ async function renderSpread(leftPageNo) {
     if (saved) applySnapshotToPage(p, saved);
     else applySnapshotToPage(p, { json: { objects: [] }, w: v.pdfCanvas.width, h: v.pdfCanvas.height });
 
-  }
+    contentW += v.pdfCanvas.width;
+    contentH = Math.max(contentH, v.pdfCanvas.height);
 
-  // store content size and apply pan transform (use actual layout metrics; safer)
-  state._contentW = els.canvasStack.scrollWidth || 0;
-  state._contentH = els.canvasStack.scrollHeight || 0;
+  }
+  contentW += gap * Math.max(0, pages.length - 1);
+  setContentBoxSize(contentW, contentH);
   applyPanScroll();
 }
 

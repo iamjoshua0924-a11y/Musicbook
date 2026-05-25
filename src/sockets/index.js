@@ -194,7 +194,8 @@ function attachSockets(io) {
       if (room.currentFileId) {
         socket.emit('session:follow:file', { fileId: room.currentFileId, originalLink: room.currentOriginalLink || '' });
         socket.emit('viewer:page_change', { fileId: room.currentFileId, pageNo: room.currentPageNo });
-        if (room.viewerSettings) socket.emit('viewer:settings', { fileId: room.currentFileId, settings: room.viewerSettings });
+        if (room.viewerSettings)
+          socket.emit('viewer:settings', { fileId: room.currentFileId, reason: 'init', settings: room.viewerSettings });
       }
 
       // Lazy-load snapshot for (room,file) when first participant arrives after restart
@@ -360,6 +361,7 @@ function attachSockets(io) {
       const roomCode = String(payload?.roomCode || '').trim().toUpperCase();
       const fileId = String(payload?.fileId || '').trim();
       const settings = payload?.settings;
+      const reason = String(payload?.reason || '').trim();
       const room = store.rooms.get(roomCode);
       if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
       if (room.pageTurnerSocketId !== socket.id) return ack?.({ ok: false, error: 'FORBIDDEN' });
@@ -372,10 +374,13 @@ function attachSockets(io) {
         fitMode: Boolean(settings.fitMode),
         zoom: Math.max(0.5, Math.min(3, Number(settings.zoom || 1))),
         perfMode: Boolean(settings.perfMode),
-        overlapPx: Math.max(0, Math.min(40, Number(settings.overlapPx || 0)))
+        overlapPx: Math.max(0, Math.min(40, Number(settings.overlapPx || 0))),
+        // normalized pan (0..1)
+        panX: Math.max(0, Math.min(1, Number(settings.panX ?? 0))),
+        panY: Math.max(0, Math.min(1, Number(settings.panY ?? 0)))
       };
 
-      io.to(toSessionRoomName(roomCode)).emit('viewer:settings', { fileId, settings: room.viewerSettings });
+      io.to(toSessionRoomName(roomCode)).emit('viewer:settings', { fileId, reason, settings: room.viewerSettings });
       ack?.({ ok: true });
     });
 

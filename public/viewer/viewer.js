@@ -2890,6 +2890,9 @@ setTurnUnit(state.turnUnit);
 document.getElementById('zoomInBtn').addEventListener('click', () => {
   state.fitMode = false;
   state.zoom = Math.min(3, state.zoom * 1.15);
+  // 줌 변경 시 기존 팬 값이 남아있으면 화면이 튈 수 있어 초기화
+  state.panX = 0;
+  state.panY = 0;
   renderSpread(state.pageNo).catch(() => {});
   emitViewerSettings('zoom');
   updateUrlState();
@@ -2897,6 +2900,8 @@ document.getElementById('zoomInBtn').addEventListener('click', () => {
 document.getElementById('zoomOutBtn').addEventListener('click', () => {
   state.fitMode = false;
   state.zoom = Math.max(0.5, state.zoom / 1.15);
+  state.panX = 0;
+  state.panY = 0;
   renderSpread(state.pageNo).catch(() => {});
   emitViewerSettings('zoom');
   updateUrlState();
@@ -2904,6 +2909,8 @@ document.getElementById('zoomOutBtn').addEventListener('click', () => {
 document.getElementById('fitBtn').addEventListener('click', () => {
   state.fitMode = true;
   state.zoom = 1;
+  state.panX = 0;
+  state.panY = 0;
   renderSpread(state.pageNo).catch(() => {});
   emitViewerSettings('fit');
   updateUrlState();
@@ -3011,6 +3018,9 @@ els.pdfContainer.addEventListener(
       touch.startDist = dist(e.touches[0], e.touches[1]);
       touch.startZoom = state.fitMode ? 1 : state.zoom;
       state.fitMode = false;
+      // 핀치 줌 시작 시 팬 초기화(모바일에서 화면 튐 방지)
+      state.panX = 0;
+      state.panY = 0;
     } else if (e.touches.length === 1 && state.tool === 'select') {
       touch.mode = 'swipe';
       touch.startX = e.touches[0].clientX;
@@ -3298,11 +3308,17 @@ socket.on('viewer:settings', (p) => {
   // 모바일 viewer는 1p 고정(터너 설정 무시)
   if (typeof s.spreadCount === 'number' && !isMobileViewer()) state.spreadCount = clamp(s.spreadCount, 1, 4);
   if (isMobileViewer()) state.spreadCount = 1;
+  const prevZoom = state.zoom;
+  const prevFit = state.fitMode;
   if (typeof s.fitMode === 'boolean') state.fitMode = s.fitMode;
   if (typeof s.zoom === 'number') state.zoom = clamp(s.zoom, 0.5, 3);
   if (typeof s.overlapPx === 'number') setSpreadOverlapPx(s.overlapPx);
+  // 줌/fit 변경인데 pan이 없거나 이상하면 튐 방지용으로 0으로 리셋
+  const zoomChanged = prevZoom !== state.zoom || prevFit !== state.fitMode;
   if (typeof s.panX === 'number') state.panX = clamp01(s.panX);
+  else if (zoomChanged) state.panX = 0;
   if (typeof s.panY === 'number') state.panY = clamp01(s.panY);
+  else if (zoomChanged) state.panY = 0;
   [1, 2, 3, 4].forEach((x) => document.getElementById(`spread${x}Btn`)?.classList.toggle('active', x === state.spreadCount));
   renderSpread(state.pageNo).catch(() => {});
 });

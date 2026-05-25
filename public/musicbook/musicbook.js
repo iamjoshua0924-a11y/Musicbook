@@ -83,6 +83,11 @@ function normLower(s) {
   }
 }
 
+// 검색용 정규화: 소문자 + 공백 제거(띄어쓰기 유무 무시)
+function normSearch(s) {
+  return normLower(s).replace(/\s+/g, '');
+}
+
 function showLoading(on) {
   $('loadingScreen').classList.toggle('active', Boolean(on));
 }
@@ -236,9 +241,9 @@ async function loadSongs(force = false) {
   state.songCardsAll = (data.items || []).map((c) => ({
     ...c,
     keyLabel: (c.keys || []).filter(Boolean).join('/') || '-',
-    _searchNorm: normLower(c.searchText || ''),
-    _titleNorm: normLower(c.title || ''),
-    _artistNorm: normLower(c.artist || '')
+    _searchNorm: normSearch(c.searchText || ''),
+    _titleNorm: normSearch(c.title || ''),
+    _artistNorm: normSearch(c.artist || '')
   }));
   if (!state.songCardsAll.length) {
     $('resultCount').textContent = '곡 데이터가 없습니다. /admin에서 Drive 동기화를 실행해 주세요.';
@@ -251,10 +256,10 @@ async function loadSongFiles(force = false) {
   if (!data.ok) throw new Error('songs load failed');
   state.songFilesAll = (data.items || []).map((s) => ({
     ...s,
-    _searchNorm: normLower(s.searchText || ''),
-    _titleNorm: normLower(s.title || ''),
-    _displayTitleNorm: normLower(s.displayTitle || ''),
-    _artistNorm: normLower(s.artist || '')
+    _searchNorm: normSearch(s.searchText || ''),
+    _titleNorm: normSearch(s.title || ''),
+    _displayTitleNorm: normSearch(s.displayTitle || ''),
+    _artistNorm: normSearch(s.artist || '')
   }));
 }
 
@@ -335,7 +340,7 @@ function closeAvailableVocalModal() {
 }
 
 function renderAvailableVocalModalList(query) {
-  const q = normLower(String(query || '').trim());
+  const q = normSearch(String(query || '').trim());
   const list = Array.isArray(state.availableVocalUsers) ? state.availableVocalUsers : [];
   const wrap = $('availableVocalModalList');
   if (!wrap) return;
@@ -344,7 +349,7 @@ function renderAvailableVocalModalList(query) {
   list
     .filter((u) => {
       if (!q) return true;
-      return normLower(u.displayName || u.userId || '').includes(q);
+      return normSearch(u.displayName || u.userId || '').includes(q);
     })
     .slice(0, 200)
     .forEach((u) => {
@@ -386,7 +391,7 @@ async function loadMyAvailabilitySet() {
 }
 
 function applySongFilters() {
-  const q = normLower($('searchInput').value.trim());
+  const q = normSearch($('searchInput').value.trim());
   const genre = $('genreFilter').value;
   const mood = $('moodFilter').value;
   const vocal = $('vocalFilter').value;
@@ -402,10 +407,10 @@ function applySongFilters() {
   if (q)
     list = list.filter(
       (s) =>
-          (s._searchNorm || normLower(s.searchText || '')).includes(q) ||
-          (s._titleNorm || normLower(s.title || '')).includes(q) ||
-          (s._displayTitleNorm || normLower(s.displayTitle || '')).includes(q) ||
-          (s._artistNorm || normLower(s.artist || '')).includes(q)
+          (s._searchNorm || normSearch(s.searchText || '')).includes(q) ||
+          (s._titleNorm || normSearch(s.title || '')).includes(q) ||
+          (s._displayTitleNorm || normSearch(s.displayTitle || '')).includes(q) ||
+          (s._artistNorm || normSearch(s.artist || '')).includes(q)
     );
 
     // 가능보컬(AND) 필터도 편집모드(파일 단위)에 동일 적용
@@ -444,9 +449,9 @@ function applySongFilters() {
   if (q)
     list = list.filter(
       (c) =>
-        (c._searchNorm || normLower(c.searchText || '')).includes(q) ||
-        (c._titleNorm || normLower(c.title || '')).includes(q) ||
-        (c._artistNorm || normLower(c.artist || '')).includes(q)
+        (c._searchNorm || normSearch(c.searchText || '')).includes(q) ||
+        (c._titleNorm || normSearch(c.title || '')).includes(q) ||
+        (c._artistNorm || normSearch(c.artist || '')).includes(q)
     );
 
   // 가능보컬 필터(AND): 선택된 유저 "모두"가 가능한 곡만 노출

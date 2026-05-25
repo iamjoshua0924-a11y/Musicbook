@@ -850,6 +850,11 @@ function normLower(s) {
   }
 }
 
+// 검색용 정규화: 소문자 + 공백 제거(띄어쓰기 유무 무시)
+function normSearch(s) {
+  return normLower(s).replace(/\s+/g, '');
+}
+
 function openSongPickModal() {
   setHidden('songPickModal', false);
   const input = document.getElementById('songPickSearch');
@@ -877,15 +882,15 @@ async function loadSongCardsIfNeeded() {
   if (!r?.ok) throw new Error('LOAD_FAILED');
   songCardsCache = (r.items || []).map((c) => ({
     ...c,
-    _searchNorm: normLower(c.searchText || ''),
-    _titleNorm: normLower(c.title || ''),
-    _artistNorm: normLower(c.artist || '')
+    _searchNorm: normSearch(c.searchText || ''),
+    _titleNorm: normSearch(c.title || ''),
+    _artistNorm: normSearch(c.artist || '')
   }));
   document.getElementById('songPickHint').textContent = `총 ${songCardsCache.length}곡 · 검색해서 선택`;
 }
 
 function pickCardMatches(q) {
-  const qq = normLower(String(q || '').trim());
+  const qq = normSearch(String(q || '').trim());
   if (!songCardsCache) return [];
   if (!qq) return songCardsCache.slice(0, 30);
   return songCardsCache

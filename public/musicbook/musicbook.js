@@ -156,8 +156,10 @@ async function loadMainPage() {
   state.main = data.data;
 
   // banner/title
-  $('bannerImage').src = state.main.bannerImage || 'https://placehold.co/1200x400?text=NO+IMAGE';
-  $('songsTitleLogo').src = state.main.titleImage || '';
+  const bannerUrl = normalizeProfilePhotoUrl(state.main.bannerImage || '', 1600);
+  const titleUrl = normalizeProfilePhotoUrl(state.main.titleImage || '', 800);
+  $('bannerImage').src = bannerUrl || 'https://placehold.co/1200x400?text=NO+IMAGE';
+  $('songsTitleLogo').src = titleUrl || '';
   $('songsTitleLogo').style.display = state.main.titleImage ? 'block' : 'none';
 
   // notice

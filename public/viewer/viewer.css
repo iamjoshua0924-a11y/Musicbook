@@ -19,6 +19,17 @@ body{
   height:100vh;
   overflow:hidden;
 }
+
+/* 극단 모바일(아주 좁은 폭) 레이아웃 보정 */
+@media (max-width: 520px){
+  #topbar{ flex-wrap: wrap; gap: 6px; padding: 6px 8px; }
+  #topbar .left{ min-width: 0; flex-wrap: wrap; gap: 6px; }
+  #topbar .right{ width: 100%; justify-content: flex-start; }
+  #linkInput{ width: min(240px, 72vw); min-width: 160px; }
+  .toolbarShell{ padding: 8px 10px; }
+  .toolbarRow{ gap: 6px; }
+  #canvas-stack{ padding: 8px; gap: 8px; }
+}
 body.light{
   --bg:#f6f7fb;
   --panel:#ffffff;
@@ -326,7 +337,7 @@ button.danger{ background:rgba(255,107,107,0.14); border-color:rgba(255,107,107,
   height: 80px;
   border-radius: 10px;
   background: rgba(255, 80, 80, 0.22);
-  border: 1px solid rgba(255, 80, 80, 0.55);
+  border: 0;
   box-shadow: 0 10px 30px rgba(0,0,0,0.20);
   transform: translate(-50%, -50%);
   pointer-events: none;
@@ -337,7 +348,7 @@ button.danger{ background:rgba(255,107,107,0.14); border-color:rgba(255,107,107,
   height: 46px;
   border-radius: 18px;
   background: rgba(255, 80, 80, 0.16);
-  border: 1px solid rgba(255, 80, 80, 0.38);
+  border: 0;
   box-shadow: 0 12px 32px rgba(0,0,0,0.18);
 }
 body.light .cursor-marker{

@@ -662,6 +662,13 @@ const state = {
   spreadCount: 2, // 1~4 (기본 2p)
   fitMode: true,
   zoom: 1,
+  // pan in zoomed view (normalized 0..1, applied after renderSpread)
+  panX: 0,
+  panY: 0,
+  _panMaxX: 0,
+  _panMaxY: 0,
+  _contentW: 0,
+  _contentH: 0,
   locked: false,
   activeDrawPageNo: 1
 };
@@ -1818,6 +1825,8 @@ document.getElementById('bindResetBtn')?.addEventListener('click', () => {
 
 // Pedal/keyboard mapping (requirement). Only page turner broadcasts.
 window.addEventListener('keydown', (e) => {
+  // 텍스트 편집 중에는 page-turn 단축키를 먹지 않는다(특히 Space).
+  if (isAnyTextEditing()) return;
   if (captureKeyMode) {
     if (e.key === 'Escape') {
       captureKeyMode = null;
@@ -1941,6 +1950,9 @@ function changePage(next, source) {
   const pageNo = Math.max(1, Math.min(state.totalPages, next));
   state.pageNo = pageNo;
   state.activeDrawPageNo = pageNo;
+  // 새 페이지로 갈 때 팬은 초기화
+  state.panX = 0;
+  state.panY = 0;
   updatePageLabels();
   renderSpread(pageNo).catch(() => {});
   updateUrlState();
@@ -2007,6 +2019,40 @@ function updatePageLabels() {
   const hud = `${range} / ${state.totalPages}${state.isPageTurner ? ' · 터너' : ''}`;
   els.pageHud.textContent = hud;
   setText('touchPageInfo', `${range}/${state.totalPages}`);
+}
+
+function clamp01(x) {
+  const v = Number(x);
+  if (!Number.isFinite(v)) return 0;
+  return Math.max(0, Math.min(1, v));
+}
+
+function applyPanTransform() {
+  const contW = Math.max(1, els.pdfContainer.clientWidth || 1);
+  const contH = Math.max(1, els.pdfContainer.clientHeight || 1);
+  const maxX = Math.max(0, Number(state._contentW || 0) - contW);
+  const maxY = Math.max(0, Number(state._contentH || 0) - contH);
+  state._panMaxX = maxX;
+  state._panMaxY = maxY;
+
+  state.panX = clamp01(state.panX);
+  state.panY = clamp01(state.panY);
+
+  // fit 모드에서는 항상 가운데로(팬 없음)
+  if (state.fitMode || (!maxX && !maxY)) {
+    els.canvasStack.style.transform = '';
+    els.canvasStack.style.justifyContent = 'center';
+    els.canvasStack.style.alignItems = 'center';
+    state.panX = 0;
+    state.panY = 0;
+    return;
+  }
+
+  const tx = -Math.round(maxX * state.panX);
+  const ty = -Math.round(maxY * state.panY);
+  els.canvasStack.style.transform = `translate3d(${tx}px, ${ty}px, 0)`;
+  els.canvasStack.style.justifyContent = 'flex-start';
+  els.canvasStack.style.alignItems = 'flex-start';
 }
 
 function clearViews() {
@@ -2082,6 +2128,10 @@ function renderPreviewSpread(leftPageNo) {
   const src = `/api/drive/embed/${encodeURIComponent(state.fileId)}${roomParam}`;
 
   clearPreviewViews();
+  // content box for pan calc
+  const gap = 12;
+  state._contentW = Math.max(1, state.spreadCount) * previewPageW + gap * Math.max(0, state.spreadCount - 1);
+  state._contentH = previewPageH;
 
   for (let i = 0; i < state.spreadCount; i += 1) {
     const pageNo = leftPageNo + i;
@@ -2112,6 +2162,7 @@ function renderPreviewSpread(leftPageNo) {
     wrap.appendChild(clip);
     els.canvasStack.appendChild(wrap);
   }
+  applyPanTransform();
 }
 
 function makeView(pageNo) {
@@ -2451,6 +2502,16 @@ function applyToolToAll() {
   syncDrawingActiveClass();
 }
 
+function isAnyTextEditing() {
+  try {
+    for (const v of viewMap.values()) {
+      const a = v?.fabric?.getActiveObject?.();
+      if (a && a.type === 'i-text' && a.isEditing) return true;
+    }
+  } catch {}
+  return false;
+}
+
 function snapshotPage(pageNo) {
   const v = viewMap.get(pageNo);
   if (!v?.fabric) return null;
@@ -2512,6 +2573,11 @@ async function renderSpread(leftPageNo) {
   const pages = getSpreadPages(leftPageNo);
   updatePageLabels();
 
+  // content size for pan
+  let sumW = 0;
+  let maxH = 0;
+  const gap = 12;
+
   for (const p of pages) {
     if (seq !== renderSpread._seq) return; // cancelled by newer render
     const page = await state.pdfDoc.getPage(p);
@@ -2539,7 +2605,15 @@ async function renderSpread(leftPageNo) {
     const saved = state.annoStore[p];
     if (saved) applySnapshotToPage(p, saved);
     else applySnapshotToPage(p, { json: { objects: [] }, w: v.pdfCanvas.width, h: v.pdfCanvas.height });
+
+    sumW += v.pdfCanvas.width;
+    maxH = Math.max(maxH, v.pdfCanvas.height);
   }
+
+  // store content size and apply pan transform
+  state._contentW = sumW + gap * Math.max(0, pages.length - 1);
+  state._contentH = maxH;
+  applyPanTransform();
 }
 
 async function loadPdf(fileId) {
@@ -2763,9 +2837,21 @@ function emitViewerSettings(reason = '') {
       spreadCount: state.spreadCount,
       fitMode: state.fitMode,
       zoom: state.zoom,
-      overlapPx: state.overlapPx
+      overlapPx: state.overlapPx,
+      panX: state.panX,
+      panY: state.panY
     }
   });
+}
+
+let _emitSettingsTimer = null;
+function emitViewerSettingsDebounced(reason = '') {
+  if (!_emitSettingsTimer) {
+    _emitSettingsTimer = setTimeout(() => {
+      _emitSettingsTimer = null;
+      emitViewerSettings(reason);
+    }, 120);
+  }
 }
 
 function setSpread(n) {
@@ -2871,12 +2957,36 @@ document.getElementById('toggleLinkBtn')?.addEventListener('click', () => {
 els.pdfContainer.addEventListener(
   'wheel',
   (e) => {
-    if (!e.ctrlKey) return;
+    // 1) Ctrl+Wheel: zoom
+    if (e.ctrlKey) {
+      e.preventDefault();
+      state.fitMode = false;
+      const dir = e.deltaY < 0 ? 1.08 : 0.92;
+      state.zoom = clamp(state.zoom * dir, 0.5, 3);
+      // zoom을 건드리면 팬은 초기화(예측 가능)
+      state.panX = 0;
+      state.panY = 0;
+      renderSpread(state.pageNo).catch(() => {});
+      emitViewerSettings('zoom');
+      updateUrlState();
+      return;
+    }
+
+    // 2) Normal wheel: pan (when zoomed / overflow exists)
+    if (state.fitMode) return;
+    if (!(state._panMaxX > 0 || state._panMaxY > 0)) return;
+    // 텍스트 편집 중에는 스크롤/페이지턴 금지
+    if (isAnyTextEditing()) return;
     e.preventDefault();
-    state.fitMode = false;
-    const dir = e.deltaY < 0 ? 1.08 : 0.92;
-    state.zoom = clamp(state.zoom * dir, 0.5, 3);
-    renderSpread(state.pageNo).catch(() => {});
+    const dx = Number(e.deltaX || 0);
+    const dy = Number(e.deltaY || 0);
+    if (e.shiftKey && state._panMaxX > 0) {
+      state.panX = clamp01(state.panX + dx / (state._panMaxX || 1));
+    } else if (state._panMaxY > 0) {
+      state.panY = clamp01(state.panY + dy / (state._panMaxY || 1));
+    }
+    applyPanTransform();
+    emitViewerSettingsDebounced('pan');
   },
   { passive: false }
 );
@@ -3186,6 +3296,8 @@ socket.on('viewer:settings', (p) => {
   if (typeof s.fitMode === 'boolean') state.fitMode = s.fitMode;
   if (typeof s.zoom === 'number') state.zoom = clamp(s.zoom, 0.5, 3);
   if (typeof s.overlapPx === 'number') setSpreadOverlapPx(s.overlapPx);
+  if (typeof s.panX === 'number') state.panX = clamp01(s.panX);
+  if (typeof s.panY === 'number') state.panY = clamp01(s.panY);
   [1, 2, 3, 4].forEach((x) => document.getElementById(`spread${x}Btn`)?.classList.toggle('active', x === state.spreadCount));
   renderSpread(state.pageNo).catch(() => {});
 });

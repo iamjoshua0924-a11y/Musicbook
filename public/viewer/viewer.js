@@ -371,22 +371,36 @@ function setCursorMarker(el, { xNorm, yNorm, visible, mode = 'line', pageNo = 0,
   const container = document.getElementById('pdf-container');
   if (!container) return;
   const r = container.getBoundingClientRect();
+  const sx = Number(container.scrollLeft || 0);
+  const sy = Number(container.scrollTop || 0);
 
-  // "한줄전체" 모드는 컨테이너 전체가 아니라, 특정 페이지 안쪽에서만 가로줄이 그어져야 한다.
-  if (m === 'row' && pageNo && Number.isFinite(Number(yPageNorm))) {
+  // 가능한 경우(현재 스프레드에 페이지가 존재): 항상 "페이지 기준 좌표"로 마커를 배치한다.
+  // (스크롤/줌 시에도 안정적으로 따라오게 하기 위함)
+  if (pageNo && (Number.isFinite(Number(xNorm)) || Number.isFinite(Number(yPageNorm)))) {
     const v = viewMap.get(Number(pageNo));
     if (v?.root) {
       const pr = v.root.getBoundingClientRect();
       const pad = 12;
-      const width = Math.max(40, pr.width - pad * 2);
-      // 페이지 내부에서만 꽉 채우기: 가운데 정렬
-      el.style.width = `${Math.round(width)}px`;
-      const leftPx = (pr.left - r.left) + pr.width / 2;
-      const yLocal = (pr.top - r.top) + clamp(Number(yPageNorm), 0, 1) * pr.height;
-      const h = clamp(r.height * 0.065, 34, 70);
-      el.style.height = `${Math.round(h)}px`;
-      el.style.left = `${Math.round(clamp(leftPx, 0, r.width))}px`;
-      el.style.top = `${Math.round(clamp(yLocal, h / 2, Math.max(h / 2, r.height - h / 2)))}px`;
+      const xPage = Number.isFinite(Number(xNorm)) ? clamp(Number(xNorm), 0, 1) : 0.5;
+      const yPage = Number.isFinite(Number(yPageNorm)) ? clamp(Number(yPageNorm), 0, 1) : 0.5;
+
+      const leftPx = sx + (pr.left - r.left) + xPage * pr.width;
+      const topPx = sy + (pr.top - r.top) + yPage * pr.height;
+
+      if (m === 'row') {
+        const width = Math.max(40, pr.width - pad * 2);
+        el.style.width = `${Math.round(width)}px`;
+        const h = clamp(pr.height * 0.065, 34, 70);
+        el.style.height = `${Math.round(h)}px`;
+      } else {
+        // line
+        el.style.width = '';
+        const h = clamp(pr.height * 0.11, 40, 110);
+        el.style.height = `${Math.round(h)}px`;
+      }
+
+      el.style.left = `${Math.round(leftPx)}px`;
+      el.style.top = `${Math.round(topPx)}px`;
       el.style.display = 'block';
       return;
     }
@@ -397,16 +411,14 @@ function setCursorMarker(el, { xNorm, yNorm, visible, mode = 'line', pageNo = 0,
   // allow both normalized coords and absolute px (relative to container)
   const xPx = Number.isFinite(Number(xNorm)) ? r.width * clamp(Number(xNorm || 0), 0, 1) : null;
   const yPx = Number.isFinite(Number(yNorm)) ? r.height * clamp(Number(yNorm || 0), 0, 1) : null;
-  const x = r.left + (xPx ?? 0);
-  const y = r.top + (yPx ?? 0);
 
   // 높이: 화면에 비례(너무 작/크지 않게)
   const h = m === 'row' ? clamp(r.height * 0.065, 34, 70) : clamp(r.height * 0.11, 40, 110);
   el.style.height = `${Math.round(h)}px`;
   // CSS에서 transform: translate(-50%, -50%)로 "중심 기준" 정렬을 하므로,
   // 여기서는 left/top에 중심 좌표를 그대로 넣는다.
-  const left = clamp(x - r.left, 0, r.width);
-  const top = clamp(y - r.top, h / 2, Math.max(h / 2, r.height - h / 2));
+  const left = sx + (xPx ?? 0);
+  const top = sy + (yPx ?? 0);
   el.style.left = `${Math.round(left)}px`;
   el.style.top = `${Math.round(top)}px`;
   el.style.display = 'block';
@@ -505,14 +517,9 @@ function startCursorShare() {
     const xPageNorm = rect.width ? (clientX - rect.left) / rect.width : 0;
     const yPageNorm = rect.height ? (clientY - rect.top) / rect.height : 0;
 
-    // local marker placement uses container-local px
-    const xLocal = (rect.left - r.left) + clamp(xPageNorm, 0, 1) * rect.width;
-    const yLocal = (rect.top - r.top) + clamp(yPageNorm, 0, 1) * rect.height;
-    const xNorm = r.width ? xLocal / r.width : 0;
-    const yNorm = r.height ? yLocal / r.height : 0;
-
     const mode = state.cursorShareMode || 'line';
-    setCursorMarker(localCursorEl, { xNorm, yNorm, visible: true, mode, pageNo, yPageNorm });
+    // NOTE: 스크롤/줌 안정성을 위해 "페이지 기준 좌표"로만 마커를 배치한다.
+    setCursorMarker(localCursorEl, { xNorm: xPageNorm, yNorm: yPageNorm, visible: true, mode, pageNo, yPageNorm });
     socket.emit('viewer:cursor', { roomCode: state.roomCode, fileId: state.fileId, pageNo, xPageNorm, yPageNorm, mode });
   };
 
@@ -985,7 +992,11 @@ const updateUrlState = debounce(() => {
   const u = new URL(window.location.href);
   // keep room
   const room = safeRoomCode(state.roomCode);
+  const existingRoom = safeRoomCode(u.searchParams.get('room'));
+  // 세션 중에는 room 파라미터가 빠지면 공유 링크가 다른 방으로 인식될 수 있어, 기존 값을 유지한다.
   if (room) u.searchParams.set('room', room);
+  else if (state.isInSession && existingRoom) u.searchParams.set('room', existingRoom);
+  else if (existingRoom) u.searchParams.set('room', existingRoom);
   else u.searchParams.delete('room');
 
   u.searchParams.set('p', String(state.pageNo || 1));
@@ -2037,8 +2048,9 @@ let suppressScrollSync = false;
 function applyPanScroll() {
   const contW = Math.max(1, els.pdfContainer.clientWidth || 1);
   const contH = Math.max(1, els.pdfContainer.clientHeight || 1);
-  const maxX = Math.max(0, Number(state._contentW || 0) - contW);
-  const maxY = Math.max(0, Number(state._contentH || 0) - contH);
+  // Use scroll metrics of the actual scroll container (more robust than manual content size).
+  const maxX = Math.max(0, Number(els.pdfContainer.scrollWidth || 0) - contW);
+  const maxY = Math.max(0, Number(els.pdfContainer.scrollHeight || 0) - contH);
   state._panMaxX = maxX;
   state._panMaxY = maxY;
 
@@ -3244,17 +3256,8 @@ socket.on('viewer:cursor', (p) => {
       // followToPage가 async라 이후 렌더 타이밍은 다음 메시지에서 자연히 맞춰짐
       // (즉시 표시 필요하면 await로 바꿀 수 있지만, 이벤트 빈도가 높아 비권장)
     }
-    const v = viewMap.get(pageNo);
-    if (!v?.root) return;
-    const container = document.getElementById('pdf-container');
-    if (!container) return;
-    const cr = container.getBoundingClientRect();
-    const pr = v.root.getBoundingClientRect();
-    const xLocal = (pr.left - cr.left) + clamp(xPageNorm, 0, 1) * pr.width;
-    const yLocal = (pr.top - cr.top) + clamp(yPageNorm, 0, 1) * pr.height;
-    const xNorm = cr.width ? xLocal / cr.width : 0;
-    const yNorm = cr.height ? yLocal / cr.height : 0;
-    return setCursorMarker(remoteCursorEl, { xNorm, yNorm, visible: true, mode, pageNo, yPageNorm: yPageNorm });
+    // setCursorMarker가 페이지 기준 좌표로 처리한다.
+    return setCursorMarker(remoteCursorEl, { xNorm: xPageNorm, yNorm: yPageNorm, visible: true, mode, pageNo, yPageNorm: yPageNorm });
   }
 
   // Legacy fallback: container-based normalized cursor
@@ -3310,21 +3313,37 @@ socket.on('viewer:settings', (p) => {
   if (!p?.settings) return;
   if (p?.fileId && p.fileId !== state.fileId) return;
   const s = p.settings;
+  const reason = String(p?.reason || '');
   // 모바일 viewer는 1p 고정(터너 설정 무시)
+  const prev = {
+    spreadCount: state.spreadCount,
+    fitMode: state.fitMode,
+    zoom: state.zoom,
+    overlapPx: state.overlapPx
+  };
+
   if (typeof s.spreadCount === 'number' && !isMobileViewer()) state.spreadCount = clamp(s.spreadCount, 1, 4);
   if (isMobileViewer()) state.spreadCount = 1;
-  const prevZoom = state.zoom;
-  const prevFit = state.fitMode;
   if (typeof s.fitMode === 'boolean') state.fitMode = s.fitMode;
   if (typeof s.zoom === 'number') state.zoom = clamp(s.zoom, 0.5, 3);
   if (typeof s.overlapPx === 'number') setSpreadOverlapPx(s.overlapPx);
-  // 줌/fit 변경인데 pan이 없거나 이상하면 튐 방지용으로 0으로 리셋
-  const zoomChanged = prevZoom !== state.zoom || prevFit !== state.fitMode;
   if (typeof s.panX === 'number') state.panX = clamp01(s.panX);
-  else if (zoomChanged) state.panX = 0;
   if (typeof s.panY === 'number') state.panY = clamp01(s.panY);
-  else if (zoomChanged) state.panY = 0;
+
+  const layoutChanged =
+    prev.spreadCount !== state.spreadCount ||
+    prev.fitMode !== state.fitMode ||
+    prev.zoom !== state.zoom ||
+    prev.overlapPx !== state.overlapPx;
+
   [1, 2, 3, 4].forEach((x) => document.getElementById(`spread${x}Btn`)?.classList.toggle('active', x === state.spreadCount));
+
+  // pan-only는 DOM을 재구성하면 튐이 심해지므로, 스크롤만 맞춘다.
+  if (!layoutChanged && reason === 'pan') {
+    applyPanScroll();
+    return;
+  }
+
   renderSpread(state.pageNo).catch(() => {});
 });
 

@@ -269,12 +269,17 @@ body {
 }
 
 .songs-title-logo {
-  height: 92px;
+  height: 168px;
   width: auto;
   border-radius: 0;
   border: none;
   background: transparent;
   box-shadow: none;
+}
+
+/* 모바일에서는 너무 커지지 않게 */
+@media (max-width: 520px){
+  .songs-title-logo { height: 120px; }
 }
 
 /* GAS 원본: 검색 영역은 flex-wrap */

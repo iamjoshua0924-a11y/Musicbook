@@ -2032,7 +2032,9 @@ function clamp01(x) {
   return Math.max(0, Math.min(1, v));
 }
 
-function applyPanTransform() {
+let suppressScrollSync = false;
+
+function applyPanScroll() {
   const contW = Math.max(1, els.pdfContainer.clientWidth || 1);
   const contH = Math.max(1, els.pdfContainer.clientHeight || 1);
   const maxX = Math.max(0, Number(state._contentW || 0) - contW);
@@ -2043,9 +2045,13 @@ function applyPanTransform() {
   state.panX = clamp01(state.panX);
   state.panY = clamp01(state.panY);
 
-  // fit 모드에서는 항상 가운데로(팬 없음)
+  // fit 모드(또는 오버플로우 없음)에서는 스크롤/팬 비활성
   if (state.fitMode || (!maxX && !maxY)) {
-    els.canvasStack.style.transform = '';
+    suppressScrollSync = true;
+    els.pdfContainer.style.overflow = 'hidden';
+    els.pdfContainer.scrollLeft = 0;
+    els.pdfContainer.scrollTop = 0;
+    setTimeout(() => (suppressScrollSync = false), 0);
     els.canvasStack.style.justifyContent = 'center';
     els.canvasStack.style.alignItems = 'center';
     state.panX = 0;
@@ -2053,20 +2059,16 @@ function applyPanTransform() {
     return;
   }
 
-  const tx = -Math.round(maxX * state.panX);
-  const ty = -Math.round(maxY * state.panY);
-  // Guard against NaN/Infinity which can "blank out" the whole stage.
-  if (!Number.isFinite(tx) || !Number.isFinite(ty)) {
-    els.canvasStack.style.transform = '';
-    els.canvasStack.style.justifyContent = 'center';
-    els.canvasStack.style.alignItems = 'center';
-    state.panX = 0;
-    state.panY = 0;
-    return;
-  }
-  els.canvasStack.style.transform = `translate3d(${tx}px, ${ty}px, 0)`;
+  // zoom 모드: native scroll로 패닝(더 안정적, "날아감" 방지)
+  els.pdfContainer.style.overflow = 'auto';
   els.canvasStack.style.justifyContent = 'flex-start';
   els.canvasStack.style.alignItems = 'flex-start';
+  const left = Math.round(maxX * state.panX);
+  const top = Math.round(maxY * state.panY);
+  suppressScrollSync = true;
+  if (Number.isFinite(left)) els.pdfContainer.scrollLeft = left;
+  if (Number.isFinite(top)) els.pdfContainer.scrollTop = top;
+  setTimeout(() => (suppressScrollSync = false), 0);
 }
 
 function clearViews() {
@@ -2174,7 +2176,7 @@ function renderPreviewSpread(leftPageNo) {
   // content box for pan calc (use actual layout metrics; safer than manual sum)
   state._contentW = els.canvasStack.scrollWidth || 0;
   state._contentH = els.canvasStack.scrollHeight || 0;
-  applyPanTransform();
+  applyPanScroll();
 }
 
 function makeView(pageNo) {
@@ -2618,7 +2620,7 @@ async function renderSpread(leftPageNo) {
   // store content size and apply pan transform (use actual layout metrics; safer)
   state._contentW = els.canvasStack.scrollWidth || 0;
   state._contentH = els.canvasStack.scrollHeight || 0;
-  applyPanTransform();
+  applyPanScroll();
 }
 
 async function loadPdf(fileId) {
@@ -2983,24 +2985,27 @@ els.pdfContainer.addEventListener(
       updateUrlState();
       return;
     }
-
-    // 2) Normal wheel: pan (when zoomed / overflow exists)
-    if (state.fitMode) return;
-    if (!(state._panMaxX > 0 || state._panMaxY > 0)) return;
-    // 텍스트 편집 중에는 스크롤/페이지턴 금지
-    if (isAnyTextEditing()) return;
-    e.preventDefault();
-    const dx = Number(e.deltaX || 0);
-    const dy = Number(e.deltaY || 0);
-    if (e.shiftKey && state._panMaxX > 0) {
-      state.panX = clamp01(state.panX + dx / (state._panMaxX || 1));
-    } else if (state._panMaxY > 0) {
-      state.panY = clamp01(state.panY + dy / (state._panMaxY || 1));
-    }
-    applyPanTransform();
-    emitViewerSettingsDebounced('pan');
   },
   { passive: false }
+);
+
+// Native scroll sync (zoomed pan) - pageTurner only
+els.pdfContainer.addEventListener(
+  'scroll',
+  () => {
+    if (suppressScrollSync) return;
+    if (state.fitMode) return;
+    if (!(state._panMaxX > 0 || state._panMaxY > 0)) return;
+    if (!state.isInSession || !state.roomCode || !state.fileId) return;
+    if (!state.isPageTurner) return;
+    if (isAnyTextEditing()) return;
+    const maxX = Math.max(0, state._panMaxX || 0);
+    const maxY = Math.max(0, state._panMaxY || 0);
+    state.panX = maxX ? clamp01(els.pdfContainer.scrollLeft / maxX) : 0;
+    state.panY = maxY ? clamp01(els.pdfContainer.scrollTop / maxY) : 0;
+    emitViewerSettingsDebounced('pan');
+  },
+  { passive: true }
 );
 
 // Touch: pinch zoom + swipe page (only when not drawing tools)

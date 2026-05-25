@@ -2073,6 +2073,10 @@ function applyPanScroll() {
   state.panX = clamp01(state.panX);
   state.panY = clamp01(state.panY);
 
+  // followers: 줌 상태에서는 스크롤이 우선(캔버스가 터치를 먹지 않게)
+  const isFollower = state.isInSession && !state.isPageTurner;
+  els.canvasStack.classList.toggle('scroll-pan', Boolean(isFollower) && !state.fitMode);
+
   // fit 모드(또는 오버플로우 없음)에서는 스크롤/팬 비활성
   if (state.fitMode || (!maxX && !maxY)) {
     suppressScrollSync = true;
@@ -3063,7 +3067,8 @@ els.pdfContainer.addEventListener(
       // 핀치 줌 시작 시 팬 초기화(모바일에서 화면 튐 방지)
       state.panX = 0;
       state.panY = 0;
-    } else if (e.touches.length === 1 && state.tool === 'select') {
+    } else if (e.touches.length === 1 && state.tool === 'select' && state.fitMode) {
+      // 줌(스크롤) 상태에서는 swipe page-turn을 막고, 네이티브 스크롤이 우선되게 한다.
       touch.mode = 'swipe';
       touch.startX = e.touches[0].clientX;
       touch.startY = e.touches[0].clientY;

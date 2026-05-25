@@ -258,6 +258,15 @@ button.danger{ background:rgba(255,107,107,0.14); border-color:rgba(255,107,107,
   position: absolute;
   inset: 0;
   background: var(--bg);
+  /* iOS/iPadOS에서 overflow 스크롤이 "안 먹는" 이슈 방지 */
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+}
+
+/* 줌(스크롤) 모드에서 팔로워는 스크롤이 우선이므로, 캔버스/오버레이가 터치를 가로채지 않게 한다 */
+#canvas-stack.scroll-pan,
+#canvas-stack.scroll-pan *{
+  pointer-events: none !important;
 }
 
 #chordwikiPane{

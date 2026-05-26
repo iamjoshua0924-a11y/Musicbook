@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChordWiki → ScoreViewer Exporter (docId)
 // @namespace    musicbook
-// @version      0.2.3
+// @version      0.2.4
 // @description  ChordWiki 페이지에서 악보 텍스트를 DOM에서 추출해 ScoreViewer로 전송하고 docId로 엽니다.
 // @match        *://*.chordwiki.org/wiki/*
 // @match        *://*.chordwiki.jp/wiki/*
@@ -47,12 +47,37 @@
     if (ta) out.push({ src: 'textarea', text: pickText(ta.value || ta.textContent) });
     // chordwiki 구조 변경 대비(가능한 경우 특정 컨테이너도 후보로)
     const wikiBody = document.querySelector('#wikibody, #wiki-body, #body, #content');
-    if (wikiBody) out.push({ src: 'wikibody', text: pickText(wikiBody.textContent) });
+    if (wikiBody) out.push({ src: 'wikibody', text: extractTextPreserveBr(wikiBody) });
     const mains = document.querySelectorAll('main, article, #content, #main');
-    mains.forEach((el) => out.push({ src: 'main', text: pickText(el.innerText || el.textContent) }));
+    mains.forEach((el) => out.push({ src: 'main', text: extractTextPreserveBr(el) || pickText(el.textContent) }));
     // body는 최후 후보(대부분 노이즈가 많아서 점수를 강하게 깎는다)
     out.push({ src: 'body', text: pickText(document.body && (document.body.innerText || document.body.textContent)) });
     return out.filter((x) => x && x.text && x.text.length > 0);
+  }
+
+  function extractTextPreserveBr(root) {
+    const out = [];
+    const walk = (node) => {
+      if (!node) return;
+      const nt = node.nodeType;
+      if (nt === Node.TEXT_NODE) {
+        out.push(pickText(node.nodeValue || ''));
+        return;
+      }
+      if (nt !== Node.ELEMENT_NODE) return;
+      const el = /** @type {HTMLElement} */ (node);
+      const tag = (el.tagName || '').toUpperCase();
+      if (tag === 'BR') {
+        out.push('\n');
+        return;
+      }
+      const isBlock = ['DIV', 'P', 'TR', 'TABLE', 'SECTION', 'ARTICLE', 'UL', 'OL', 'LI', 'HR'].includes(tag);
+      if (isBlock) out.push('\n');
+      for (const ch of Array.from(el.childNodes || [])) walk(ch);
+      if (isBlock) out.push('\n');
+    };
+    walk(root);
+    return pickText(out.join('').replace(/\n{3,}/g, '\n\n'));
   }
 
   function trimToChordArea(text) {
@@ -60,26 +85,10 @@
     const lines = t.split('\n');
     const isChordLine = (line) => chordHitCount(line) >= 3 && !/[\u3040-\u30ff\u3400-\u9fff]/.test(line);
 
-    // 1) BPM 라인이 있으면 그 위는 모두 버린다(사용자 규칙)
-    //    예: "BPM: 120", "BPM 120"
-    let start = 0;
-    for (let i = 0; i < lines.length; i++) {
-      const s = String(lines[i] || '');
-      if (/\bBPM\b\s*(?::|=)?\s*\d+/i.test(s)) {
-        start = i;
-        break;
-      }
-    }
-    // 1-2) BPM이 없으면 기존 규칙(key: 또는 코드라인)으로 시작점을 잡는다.
-    if (start === 0) {
-      for (let i = 0; i < lines.length; i++) {
-        const s = lines[i] || '';
-        if (/^\s*key\s*:/i.test(s) || isChordLine(s)) {
-          start = i;
-          break;
-        }
-      }
-    }
+    // 사용자 지시 변경:
+    // - Key: 위쪽은 곡 정보이므로 유지(일반 텍스트로 출력)
+    // - BPM 위를 잘라내지 않는다.
+    const start = 0;
 
     let end = lines.length;
     // 2) copyright 라인부터 아래는 모두 버린다(사용자 규칙)

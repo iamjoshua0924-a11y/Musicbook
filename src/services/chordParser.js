@@ -252,10 +252,18 @@ function distributeText(text, width) {
   const w = Math.max(1, Number(width || 1));
   if (chars.length === 0) return Array.from({ length: w }, () => '');
   if (w === 1) return [chars.join('')];
+  // 폭(w)이 글자수보다 큰 경우, "반복"으로 채우면 화면이 뭉개져 보인다.
+  // 남는 칸은 비워서(폭은 유지) 뒤쪽 정렬만 지킨다.
+  if (w > chars.length) {
+    const out = Array.from({ length: w }, () => '');
+    for (let i = 0; i < chars.length; i += 1) out[i] = chars[i];
+    return out;
+  }
   const out = Array.from({ length: w }, () => '');
   for (let i = 0; i < w; i += 1) {
     const a = Math.floor((i * chars.length) / w);
     const b = Math.floor(((i + 1) * chars.length) / w);
+    // w <= chars.length 인 경우에는 칸마다 최소 1글자를 보장한다.
     out[i] = chars.slice(a, Math.max(a + 1, b)).join('');
   }
   return out;

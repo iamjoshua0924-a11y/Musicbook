@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChordWiki → ScoreViewer Exporter (docId)
 // @namespace    musicbook
-// @version      0.2.6
+// @version      0.3.0
 // @description  ChordWiki 페이지에서 악보 텍스트를 DOM에서 추출해 ScoreViewer로 전송하고 docId로 엽니다.
 // @match        *://*.chordwiki.org/wiki/*
 // @match        *://*.chordwiki.jp/wiki/*
@@ -27,6 +27,166 @@
   function normalizeFragment(s) {
     // DOM 텍스트 노드 조각을 합칠 때는 trim을 하면 공백 인덱스가 깨진다.
     return String(s || '').replace(/\u00A0/g, ' ').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  }
+
+  function median(nums) {
+    const a = (nums || []).filter((x) => Number.isFinite(Number(x))).map((x) => Number(x)).sort((x, y) => x - y);
+    if (!a.length) return 0;
+    const mid = Math.floor(a.length / 2);
+    return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
+  }
+
+  function isVisibleEl(el) {
+    if (!el) return false;
+    const style = window.getComputedStyle(el);
+    if (!style) return true;
+    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+    return true;
+  }
+
+  function isNoiseText(t) {
+    const s = String(t || '').trim();
+    if (!s) return true;
+    if (s === 'ja.chordwiki.org' || s === 'chordwiki.org') return true;
+    if (s.includes('Performing security verification')) return true;
+    if (s.includes('security verification')) return true;
+    return false;
+  }
+
+  function getScoreRoot() {
+    const candidates = [
+      document.querySelector('#wikibody'),
+      document.querySelector('#wiki-body'),
+      document.querySelector('#content'),
+      document.querySelector('main'),
+      document.querySelector('article'),
+      document.body
+    ].filter(Boolean);
+
+    let best = document.body;
+    let bestScore = -Infinity;
+    for (const el of candidates) {
+      const t = pickText(el.textContent || '');
+      const hits = chordHitCount(t);
+      const score = hits * 10 + Math.min(15000, t.length) / 80;
+      if (score > bestScore) {
+        bestScore = score;
+        best = el;
+      }
+    }
+    return best || document.body;
+  }
+
+  /**
+   * (핵심) 화면 배치(좌표) 기반으로 줄을 복원한다.
+   * ChordWiki는 복사하면 1줄로 뭉개지는 케이스가 있어, DOM 텍스트가 아니라 "렌더링 위치"로 라인을 재구성한다.
+   */
+  function extractTextByLayout(root) {
+    const r0 = root?.getBoundingClientRect ? root.getBoundingClientRect() : null;
+    const rootLeft = r0 ? r0.left : 0;
+    const rootTop = r0 ? r0.top : 0;
+    const rootRight = r0 ? r0.right : window.innerWidth;
+    const rootBottom = r0 ? r0.bottom : window.innerHeight * 5;
+
+    /** @type {Array<{text:string,x:number,y:number,w:number,h:number,fs:number}>} */
+    const segs = [];
+
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null);
+    let node = walker.currentNode;
+    while (node) {
+      const el = /** @type {HTMLElement} */ (node);
+      // leaf-ish element: has no element children (text-only)
+      if (
+        el &&
+        isVisibleEl(el) &&
+        !el.querySelector?.('*') &&
+        typeof el.textContent === 'string' &&
+        el.textContent.trim().length
+      ) {
+        const text = normalizeFragment(el.textContent).replace(/\s+\n/g, '\n').replace(/\n\s+/g, '\n').replace(/\n+/g, '\n');
+        if (!isNoiseText(text)) {
+          const rect = el.getBoundingClientRect();
+          if (
+            rect &&
+            rect.width > 0 &&
+            rect.height > 0 &&
+            rect.left >= rootLeft - 10 &&
+            rect.right <= rootRight + 10 &&
+            rect.top >= rootTop - 80 &&
+            rect.top <= rootBottom + 80
+          ) {
+            const fs = parseFloat(window.getComputedStyle(el).fontSize || '16') || 16;
+            // 아주 긴 텍스트 덩어리는 leaf가 아니거나 노이즈일 가능성이 높음
+            if (text.length <= 200) segs.push({ text: pickText(text).replace(/\n/g, ' '), x: rect.left, y: rect.top, w: rect.width, h: rect.height, fs });
+          }
+        }
+      }
+      node = walker.nextNode();
+    }
+
+    // 일부 페이지는 leaf 조건이 너무 빡세서 비어버릴 수 있다. 그때는 span/div 등의 "짧은 텍스트"를 2차 수집
+    if (segs.length < 10) {
+      const els = root.querySelectorAll('span, a, b, i, em, strong, div, p');
+      els.forEach((el) => {
+        if (!isVisibleEl(el)) return;
+        const text = normalizeFragment(el.textContent || '');
+        const t = pickText(text);
+        if (!t || t.length > 80 || isNoiseText(t)) return;
+        const rect = el.getBoundingClientRect();
+        if (!rect || rect.width <= 0 || rect.height <= 0) return;
+        if (rect.left < rootLeft - 10 || rect.right > rootRight + 10) return;
+        const fs = parseFloat(window.getComputedStyle(el).fontSize || '16') || 16;
+        segs.push({ text: t, x: rect.left, y: rect.top, w: rect.width, h: rect.height, fs });
+      });
+    }
+
+    if (!segs.length) return '';
+
+    // 글자 폭 추정(전역 중앙값)
+    const charWs = segs
+      .filter((s) => s.text && s.text.length >= 1 && s.w > 0)
+      .map((s) => s.w / Math.max(1, s.text.length))
+      .filter((x) => x > 2 && x < 40);
+    const charW = Math.max(6, Math.min(24, median(charWs) || 12));
+    const lineH = Math.max(10, Math.min(40, median(segs.map((s) => s.fs)) * 1.15 || 18));
+    const yThresh = Math.max(6, lineH * 0.65);
+
+    segs.sort((a, b) => (a.y === b.y ? a.x - b.x : a.y - b.y));
+
+    /** @type {Array<{y:number, segs: Array<typeof segs[number]>}>} */
+    const lines = [];
+    for (const s of segs) {
+      const y = s.y;
+      const last = lines.length ? lines[lines.length - 1] : null;
+      if (!last || Math.abs(y - last.y) > yThresh) {
+        // 큰 gap이면 빈줄로 문단 분리
+        if (last && y - last.y > lineH * 1.9) lines.push({ y: last.y + lineH * 1.2, segs: [] });
+        lines.push({ y, segs: [s] });
+      } else {
+        last.segs.push(s);
+      }
+    }
+
+    const minX = Math.min(...segs.map((s) => s.x));
+    const outLines = [];
+    for (const ln of lines) {
+      if (!ln.segs.length) {
+        outLines.push('');
+        continue;
+      }
+      ln.segs.sort((a, b) => a.x - b.x);
+      let line = '';
+      for (const s of ln.segs) {
+        const col = Math.max(0, Math.round((s.x - minX) / charW));
+        if (line.length < col) line += ' '.repeat(col - line.length);
+        // 이미 같은 위치에 뭔가 있으면 1칸 띄우고 붙이기(겹침 방지)
+        if (line.length === col && line.length > 0 && line[line.length - 1] !== ' ') line += ' ';
+        line += s.text;
+      }
+      outLines.push(line.replace(/[ \t]+$/g, ''));
+    }
+
+    return outLines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
   }
 
   function chordHitCount(text) {
@@ -213,12 +373,11 @@
       btn.disabled = true;
       btn.textContent = '전송 중...';
       try {
-        const candidates = collectCandidates();
-        let rawText = selectBestCandidate(candidates);
+        const root = getScoreRoot();
+        // 1) 모든 페이지에 적용: "좌표 기반 라인 복원"을 1순위로 시도한다.
+        let rawText = extractTextByLayout(root);
 
-        // chordwiki는 페이지마다 DOM 텍스트가 줄바꿈/공백을 망가뜨리는 케이스가 있어,
-        // 가능한 경우 항상 "원문(source/edit)"을 우선 시도한다.
-        // (원문이 유효하면 그쪽이 1순위)
+        // 2) source/edit 원문(가능한 경우)로 보정
         const src = await fetchWikiSourceText();
         if (src && src.length > 20) {
           const srcLines = src.split('\n').length;
@@ -228,6 +387,12 @@
             (srcLines >= rawLines + 4) ||
             (src.length > 800 && srcLines >= 6 && chordHitCount(src) >= Math.max(6, chordHitCount(rawText)));
           if (srcSeemsBetter) rawText = trimToChordArea(src);
+        }
+
+        // 3) 최후: 기존 후보 선택
+        if (!rawText || rawText.split('\n').length < 4 || chordHitCount(rawText) < 6) {
+          const candidates = collectCandidates();
+          rawText = rawText && rawText.length > 20 ? rawText : selectBestCandidate(candidates);
         }
 
         // 최종 방어: 그래도 너무 약하면 실패 처리

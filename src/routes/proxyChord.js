@@ -5,6 +5,7 @@ const { nanoid } = require('nanoid');
 const { parseRawTextToBlocks } = require('../services/chordParser');
 const { fetchRenderedHtml } = require('../services/puppeteerFetch');
 const ChordDoc = require('../models/ChordDoc');
+const { setTempDoc } = require('../services/chordDocTempStore');
 
 const router = express.Router();
 
@@ -240,26 +241,44 @@ async function createChordDoc({ blocks, meta }) {
   if (shouldCompactBlocks(toStore)) toStore = compactBlocksV2(toStore);
 
   try {
-    await ChordDoc.create({
+    // DB write timeout: 너무 오래 걸리면 Render가 502를 띄울 수 있으므로 빠르게 fallback 한다.
+    const writePromise = ChordDoc.create({
       _id: docId,
       meta: meta || {},
       blocks: toStore
     });
+    await Promise.race([
+      writePromise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('MONGO_WRITE_TIMEOUT')), 2500))
+    ]);
   } catch (e) {
     // Mongo 16MB 제한 등으로 실패하면 compact로 한 번 더 시도
     try {
       if (Array.isArray(toStore)) {
-        await ChordDoc.create({
+        const writePromise = ChordDoc.create({
           _id: docId,
           meta: meta || {},
           blocks: compactBlocksV2(toStore)
         });
+        await Promise.race([
+          writePromise,
+          new Promise((_, reject) => setTimeout(() => reject(new Error('MONGO_WRITE_TIMEOUT')), 2500))
+        ]);
       } else {
         throw e;
       }
     } catch (e2) {
-      e2._mb_original = e;
-      throw e2;
+      // 최후 fallback: 메모리 저장으로라도 docId를 발급한다.
+      const tempId = `chordtmp:${nanoid(12)}`;
+      setTempDoc(tempId, { meta: meta || {}, blocks: toStore }, 2 * 60 * 60 * 1000); // 2h
+      // eslint-disable-next-line no-console
+      console.error('[proxy-chord] fallback to temp store', {
+        tempId,
+        name: e2?.name,
+        message: e2?.message,
+        code: e2?.code
+      });
+      return tempId;
     }
   }
   return docId;

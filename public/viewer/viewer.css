@@ -284,6 +284,26 @@ button.danger{ background:rgba(255,107,107,0.14); border-color:rgba(255,107,107,
   font-size:12px;
   white-space:pre-wrap;
 }
+.cwTopActions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  align-items:center;
+  margin-bottom:10px;
+}
+.cwTopActions button{
+  height:30px;
+  padding:6px 10px;
+  border-radius:10px;
+  font-size:12px;
+  font-weight:900;
+}
+/* Tampermonkey 설치/디버그 UI는 기본 숨김(플래그로만 노출) */
+body:not(.show-chord-ui) #cwInstallTmBtn,
+body:not(.show-chord-ui) #cwBookmarkletBtn,
+body:not(.show-chord-ui) #cwPasteToggleBtn{
+  display:none !important;
+}
 .cwScroll{
   position:relative;
   flex:1;

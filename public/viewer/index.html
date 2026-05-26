@@ -216,6 +216,14 @@
 
         <!-- CodeWiki mode (패널 UI 최소화: 결과 영역만 유지) -->
         <section id="chordwikiPane" class="hidden">
+          <div class="cwTopActions">
+            <button id="cwInstallTmBtn" type="button">Tampermonkey 스크립트 설치</button>
+            <button id="cwBookmarkletBtn" type="button">북마클릿</button>
+            <button id="cwPasteToggleBtn" type="button">원문 붙여넣기</button>
+            <button id="cwAuthOpenBtn" type="button" class="hidden">인증창 열기</button>
+            <button id="cwAuthDoneBtn" type="button" class="hidden">인증 완료(재시도)</button>
+            <button id="cwParseRawBtn" type="button" class="hidden">원문 파싱</button>
+          </div>
           <textarea id="cwRawInput" class="hidden" rows="8"></textarea>
           <div id="cwError" class="muted hidden"></div>
           <div id="cwMeta" class="muted hidden"></div>

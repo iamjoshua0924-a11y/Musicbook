@@ -1230,11 +1230,7 @@ function needsUserAuthForError(err) {
   return false;
 }
 
-// 코드위키 모드(ChordWiki view)는 당분간 비활성화한다(서버 크롤링 안정화 전까지 숨김).
-const ENABLE_CHORDWIKI_MODE = false;
-
 function setMode(mode) {
-  if (!ENABLE_CHORDWIKI_MODE) mode = 'pdf';
   state.mode = mode;
   document.getElementById('pdfModeBtn')?.classList.toggle('active', mode === 'pdf');
   document.getElementById('chordModeBtn')?.classList.toggle('active', mode === 'chord');
@@ -1293,6 +1289,21 @@ document.getElementById('cwBookmarkletBtn')?.addEventListener('click', () => {
       '(참고: 서버가 403(Cloudflare)로 막히는 경우를 위한 “유저 참여형” 방식입니다.)',
     code
   );
+});
+
+document.getElementById('cwInstallTmBtn')?.addEventListener('click', () => {
+  // 플래그 기반 노출이므로, 여기서는 최대한 단순한 안내 UX로 처리한다.
+  const tmStore =
+    'https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo';
+  const userScriptUrl = `${window.location.origin}/public/userscripts/chordwiki-to-scoreviewer.user.js`;
+  const ok = confirm(
+    'Tampermonkey 유저스크립트 설치 안내:\n\n' +
+      '1) Tampermonkey가 이미 설치되어 있으면 [확인]을 눌러 스크립트 설치 페이지를 엽니다.\n' +
+      '2) Tampermonkey가 없다면 [취소]를 눌러 Tampermonkey 설치 페이지로 이동하세요.'
+  );
+  try {
+    window.open(ok ? userScriptUrl : tmStore, '_blank');
+  } catch {}
 });
 
 document.getElementById('cwAuthOpenBtn')?.addEventListener('click', () => {
@@ -3673,8 +3684,10 @@ async function init() {
   const qsDocId = String(qs('docId') || '').trim();
   if (qsMode === 'chord' && qsDocId) {
     state.fileId = qsDocId;
+    // NOTE: 여기서 return 하지 않는다.
+    // room 파라미터가 있으면 아래의 auto-join 로직이 동작해야 하고,
+    // 마지막에 PDF 로드로 떨어지지 않도록 아래 "direct chord doc" 분기에서 처리한다.
     await openChordByDocId(qsDocId, { broadcast: false });
-    return;
   }
 
   // Personal entry without fileId: show prompt to open from link

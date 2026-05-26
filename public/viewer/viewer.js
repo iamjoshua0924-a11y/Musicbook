@@ -1287,6 +1287,15 @@ function isAllowedChordWikiOrigin(origin) {
 }
 
 function setupChordPostMessageReceiver() {
+  // NOTE:
+  // postMessage로 받은 "임시 chord payload"는 일반 PDF/기타 뷰어 동작을 방해하면 안 된다.
+  // 따라서 sessionStorage 복원은 `?from=postmessage`로 열린 탭에서만 수행한다.
+  let allowRestore = false;
+  try {
+    const u = new URL(window.location.href);
+    allowRestore = String(u.searchParams.get('from') || '') === 'postmessage';
+  } catch {}
+
   window.addEventListener('message', (ev) => {
     try {
       if (!isAllowedChordWikiOrigin(ev.origin)) return;
@@ -1310,19 +1319,21 @@ function setupChordPostMessageReceiver() {
   });
 
   // 새로고침 시 마지막 메시지를 복원
-  try {
-    const s = sessionStorage.getItem('mb_lastChordMsg');
-    if (s) {
-      const d = JSON.parse(s);
-      if (d?.blocks) {
-        setMode('chord');
-        state.chordSourceUrl = String(d.sourceUrl || '');
-        state.chordBlocks = expandCompactChordBlocks(d.blocks);
-        state.fileId = state.chordSourceUrl ? `chordmsg:${hashString(state.chordSourceUrl)}` : `chordmsg:${Date.now()}`;
-        renderChordBlocks(state.chordBlocks);
+  if (allowRestore) {
+    try {
+      const s = sessionStorage.getItem('mb_lastChordMsg');
+      if (s) {
+        const d = JSON.parse(s);
+        if (d?.blocks) {
+          setMode('chord');
+          state.chordSourceUrl = String(d.sourceUrl || '');
+          state.chordBlocks = expandCompactChordBlocks(d.blocks);
+          state.fileId = state.chordSourceUrl ? `chordmsg:${hashString(state.chordSourceUrl)}` : `chordmsg:${Date.now()}`;
+          renderChordBlocks(state.chordBlocks);
+        }
       }
-    }
-  } catch {}
+    } catch {}
+  }
 }
 
   // Phase2-4: chord mode annotation layer (Fabric) - 1 page canvas matching scrollHeight

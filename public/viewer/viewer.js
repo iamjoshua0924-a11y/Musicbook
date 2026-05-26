@@ -1233,6 +1233,37 @@ function renderChordBlocks(blocks) {
     line.appendChild(cell);
   }
 
+function expandCompactChordBlocks(blocks) {
+  const b = blocks;
+  if (!b || typeof b !== 'object') return blocks;
+  if (Array.isArray(b)) return b;
+  if (String(b.format || '') !== 'mb_chord_compact_v1') return blocks;
+  const lines = Array.isArray(b.lines) ? b.lines : [];
+  /** @type {Array<any>} */
+  const out = [];
+  for (const ln of lines) {
+    const raw = String(ln?.raw || '');
+    const kr = String(ln?.kr || '');
+    const chordArr = Array.isArray(ln?.chords) ? ln.chords : [];
+    const chordMap = new Map();
+    for (const c of chordArr) {
+      const col = Number(c?.col);
+      const tok = String(c?.token || '');
+      if (Number.isFinite(col) && tok) chordMap.set(col, tok);
+    }
+    const maxLen = Math.max(raw.length, kr.length);
+    for (let i = 0; i < maxLen; i += 1) {
+      out.push({
+        chord: chordMap.get(i) || '',
+        lyric_raw: raw[i] ?? ' ',
+        lyric_kr: kr[i] ?? raw[i] ?? ' '
+      });
+    }
+    out.push({ chord: '', lyric_raw: '\n', lyric_kr: '\n' });
+  }
+  return out;
+}
+
   // Phase2-4: chord mode annotation layer (Fabric) - 1 page canvas matching scrollHeight
   setupChordAnnoAfterRender();
 }
@@ -1324,7 +1355,7 @@ async function openChordByDocId(docId, { broadcast } = { broadcast: true }) {
 
   state.chordDocId = id;
   state.chordSourceUrl = String(r?.meta?.sourceUrl || '');
-  state.chordBlocks = r.blocks || [];
+  state.chordBlocks = expandCompactChordBlocks(r.blocks || []);
   state.fileId = id;
   state.annoStore = {};
   state.undoStack = {};

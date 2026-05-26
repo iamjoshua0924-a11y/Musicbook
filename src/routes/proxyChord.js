@@ -169,13 +169,75 @@ function cacheSet(key, value, ttlMs) {
   cache.set(key, { value, expireAt: Date.now() + ttlMs });
 }
 
+function shouldCompactBlocks(blocks) {
+  // Object-per-cell blocks는 Mongo 16MB 제한을 쉽게 초과한다.
+  // 대략 5만 셀 이상이면 compact 저장을 우선 시도한다.
+  return Array.isArray(blocks) && blocks.length > 50_000;
+}
+
+function compactBlocksV1(blocks) {
+  /** @type {Array<{raw:string, kr:string, chords:Array<{col:number, token:string}>}>} */
+  const lines = [];
+  let raw = '';
+  let kr = '';
+  /** @type {Array<{col:number, token:string}>} */
+  let chords = [];
+  let col = 0;
+
+  const flush = () => {
+    if (raw.length || kr.length || chords.length) lines.push({ raw, kr, chords });
+    raw = '';
+    kr = '';
+    chords = [];
+    col = 0;
+  };
+
+  for (const b of blocks || []) {
+    if (b?.lyric_raw === '\n') {
+      flush();
+      continue;
+    }
+    const r = String(b?.lyric_raw ?? ' ');
+    const k = String(b?.lyric_kr ?? b?.lyric_raw ?? ' ');
+    raw += r.length ? r[0] : ' ';
+    kr += k.length ? k[0] : ' ';
+    const c = String(b?.chord || '');
+    if (c) chords.push({ col, token: c });
+    col += 1;
+  }
+  flush();
+
+  return { format: 'mb_chord_compact_v1', lines };
+}
+
 async function createChordDoc({ blocks, meta }) {
   const docId = `chord:${nanoid(12)}`;
-  await ChordDoc.create({
-    _id: docId,
-    meta: meta || {},
-    blocks: blocks || []
-  });
+  let toStore = blocks || [];
+  if (shouldCompactBlocks(toStore)) toStore = compactBlocksV1(toStore);
+
+  try {
+    await ChordDoc.create({
+      _id: docId,
+      meta: meta || {},
+      blocks: toStore
+    });
+  } catch (e) {
+    // Mongo 16MB 제한 등으로 실패하면 compact로 한 번 더 시도
+    try {
+      if (Array.isArray(toStore)) {
+        await ChordDoc.create({
+          _id: docId,
+          meta: meta || {},
+          blocks: compactBlocksV1(toStore)
+        });
+      } else {
+        throw e;
+      }
+    } catch (e2) {
+      e2._mb_original = e;
+      throw e2;
+    }
+  }
   return docId;
 }
 
@@ -336,14 +398,14 @@ router.post('/proxy-chord', async (req, res) => {
   try {
     docId = await createChordDoc({ blocks, meta });
   } catch (e) {
-    return res.status(502).json({ ok: false, error: 'DOC_STORE_FAILED' });
+    return res.status(502).json({
+      ok: false,
+      error: 'DOC_STORE_FAILED',
+      detail: String(e?.message || e)
+    });
   }
-  return res.json({
-    ok: true,
-    docId,
-    meta,
-    blocks
-  });
+  // blocks는 크기가 매우 커질 수 있으므로, 뷰어는 docId로 /api/chord-doc 를 다시 호출한다.
+  return res.json({ ok: true, docId, meta, blocksCount: Array.isArray(blocks) ? blocks.length : 0 });
 });
 
 module.exports = router;

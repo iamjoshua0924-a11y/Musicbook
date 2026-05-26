@@ -23,34 +23,92 @@
     return String(s || '').replace(/\r\n/g, '\n').trimEnd();
   }
 
+  function chordHitCount(text) {
+    const t = String(text || '');
+    const chordRe = /\b(?:N\.C\.|NC|N\.C|[A-G](?:#|b)?(?:maj|min|m|dim|aug|sus|add)?\d*(?:\/[A-G](?:#|b)?)?)\b/g;
+    return (t.match(chordRe) || []).length;
+  }
+
   function looksLikeChordSheet(text) {
     const t = String(text || '');
     if (t.length < 80) return false;
-    const chordRe = /\b(?:N\.C\.|NC|N\.C|[A-G](?:#|b)?(?:maj|min|m|dim|aug|sus|add)?\d*(?:\/[A-G](?:#|b)?)?)\b/g;
-    const hits = t.match(chordRe) || [];
-    return hits.length >= 8 && t.includes('\n');
+    const hits = chordHitCount(t);
+    return hits >= 8 && t.includes('\n');
   }
 
   function collectCandidates() {
+    /** @type {Array<{src:string,text:string}>} */
     const out = [];
     const pre = document.querySelector('pre');
-    if (pre) out.push(pickText(pre.innerText || pre.textContent));
+    if (pre) out.push({ src: 'pre', text: pickText(pre.innerText || pre.textContent) });
     const ta = document.querySelector('textarea');
-    if (ta) out.push(pickText(ta.value || ta.textContent));
+    if (ta) out.push({ src: 'textarea', text: pickText(ta.value || ta.textContent) });
     const mains = document.querySelectorAll('main, article, #content, #main');
-    mains.forEach((el) => out.push(pickText(el.innerText || el.textContent)));
-    out.push(pickText(document.body && (document.body.innerText || document.body.textContent)));
-    return out.filter((x) => x && x.length > 0);
+    mains.forEach((el) => out.push({ src: 'main', text: pickText(el.innerText || el.textContent) }));
+    // body는 최후 후보(대부분 노이즈가 많아서 점수를 강하게 깎는다)
+    out.push({ src: 'body', text: pickText(document.body && (document.body.innerText || document.body.textContent)) });
+    return out.filter((x) => x && x.text && x.text.length > 0);
+  }
+
+  function trimToChordArea(text) {
+    const t = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const lines = t.split('\n');
+    const isChordLine = (line) => chordHitCount(line) >= 3 && !/[\u3040-\u30ff\u3400-\u9fff]/.test(line);
+
+    let start = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const s = lines[i] || '';
+      if (/^\s*key\s*:/i.test(s) || isChordLine(s)) {
+        start = i;
+        break;
+      }
+    }
+    let end = lines.length;
+    // 너무 뒤쪽의 링크/푸터 노이즈는 잘라낸다(원문 라인 정렬은 유지)
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const s = String(lines[i] || '').trim();
+      if (!s) continue;
+      if (s.includes('ChordWiki') || s.includes('http://') || s.includes('https://') || s.includes('利用規約')) {
+        end = i;
+        continue;
+      }
+      break;
+    }
+    return lines.slice(start, Math.max(start + 1, end + 1)).join('\n').trimEnd();
+  }
+
+  function scoreCandidate(c) {
+    const text = String(c.text || '');
+    const hits = chordHitCount(text);
+    const lines = text.split('\n').length;
+    let score = hits * 20 + lines + Math.min(8000, text.length) / 40;
+    // 후보 소스 가중치
+    if (c.src === 'pre') score += 250;
+    if (c.src === 'textarea') score += 200;
+    if (c.src === 'main') score += 20;
+    if (c.src === 'body') score -= 300;
+    // 노이즈 패널티
+    if (text.includes('ChordWiki')) score -= 80;
+    if (text.includes('利用規約')) score -= 120;
+    return score;
   }
 
   function selectBestCandidate(list) {
-    let best = '';
-    for (const x of list) {
-      if (!looksLikeChordSheet(x)) continue;
-      if (x.length > best.length) best = x;
+    // pre/textarea가 있고 그 중 하나라도 chord-sheet로 보이면, main/body는 아예 배제한다.
+    const preferred = list.filter((c) => c.src === 'pre' || c.src === 'textarea');
+    const preferredChordy = preferred.filter((c) => looksLikeChordSheet(c.text));
+    const pool = preferredChordy.length ? preferredChordy : preferred.length ? preferred : list;
+
+    let best = null;
+    let bestScore = -Infinity;
+    for (const c of pool) {
+      const s = scoreCandidate(c);
+      if (s > bestScore) {
+        bestScore = s;
+        best = c;
+      }
     }
-    if (!best && list.length) best = list.sort((a, b) => b.length - a.length)[0];
-    return best;
+    return best ? trimToChordArea(best.text) : '';
   }
 
   function ensureButton() {
@@ -103,7 +161,8 @@
               qs.set('docId', String(data.docId));
               if (String(room || '').trim()) qs.set('room', String(room || '').trim().toUpperCase());
               // 디버그 UI는 기본 숨김이지만, 렌더 자체는 mode/docId로 동작한다.
-              window.open(`${SCORE_VIEWER_ORIGIN}/viewer?${qs.toString()}`, '_blank');
+              const wn = String(room || '').trim() ? `mb_viewer_room_${String(room || '').trim().toUpperCase()}` : '_blank';
+              window.open(`${SCORE_VIEWER_ORIGIN}/viewer?${qs.toString()}`, wn);
             } catch (e) {
               alert('응답 처리 실패: ' + (e && e.message ? e.message : e));
             }

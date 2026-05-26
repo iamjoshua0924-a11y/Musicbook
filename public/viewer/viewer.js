@@ -347,8 +347,21 @@ let cursorDragLock = null; // { pageNo, yPageNorm }
 let lastCursorEmitAt = 0;
 
 function ensureCursorEls() {
-  const container = document.getElementById('pdf-container');
+  const container = state.mode === 'chord' ? document.getElementById('cwInner') : document.getElementById('pdf-container');
   if (!container) return;
+  // 모드가 바뀌면 기존 마커를 새 컨테이너로 옮긴다.
+  if (localCursorEl && localCursorEl.parentElement !== container) {
+    try {
+      localCursorEl.remove();
+    } catch {}
+    localCursorEl = null;
+  }
+  if (remoteCursorEl && remoteCursorEl.parentElement !== container) {
+    try {
+      remoteCursorEl.remove();
+    } catch {}
+    remoteCursorEl = null;
+  }
   if (!localCursorEl) {
     localCursorEl = document.createElement('div');
     localCursorEl.className = 'cursor-marker';
@@ -371,6 +384,33 @@ function setCursorMarker(el, { xNorm, yNorm, visible, mode = 'line', pageNo = 0,
   }
   const m = mode === 'row' ? 'row' : 'line';
   el.classList.toggle('row', m === 'row');
+  // chord 모드: cwInner(content)에 마커를 올려서 scroll과 함께 자연스럽게 움직이게 한다.
+  if (state.mode === 'chord') {
+    const inner = document.getElementById('cwInner');
+    if (!inner) return;
+    const ir = inner.getBoundingClientRect();
+    const xPx = Number.isFinite(Number(xNorm)) ? ir.width * clamp(Number(xNorm || 0.5), 0, 1) : ir.width * 0.5;
+    const yPx = Number.isFinite(Number(yNorm)) ? ir.height * clamp(Number(yNorm || 0.5), 0, 1) : ir.height * 0.5;
+    if (m === 'row') {
+      // 가로 전체: 화면(스크롤뷰) 기준 폭으로 잡되, inner에 위치시키기 위해 cwScroll 폭을 사용
+      const scroll = document.getElementById('cwScroll');
+      const sr = scroll ? scroll.getBoundingClientRect() : ir;
+      const pad = 14;
+      const width = Math.max(40, sr.width - pad * 2);
+      el.style.width = `${Math.round(width)}px`;
+      el.style.height = `46px`;
+      el.style.left = `${Math.round(pad + width / 2)}px`;
+      el.style.top = `${Math.round(yPx)}px`;
+    } else {
+      el.style.width = '';
+      el.style.height = `80px`;
+      el.style.left = `${Math.round(xPx)}px`;
+      el.style.top = `${Math.round(yPx)}px`;
+    }
+    el.style.display = 'block';
+    return;
+  }
+
   const container = document.getElementById('pdf-container');
   if (!container) return;
   const r = container.getBoundingClientRect();
@@ -479,19 +519,19 @@ function stopCursorShare(sendHide = false) {
   ensureCursorEls();
   if (localCursorEl) localCursorEl.style.display = 'none';
   if (cursorMoveHandler) {
-    const c = document.getElementById('pdf-container');
+    const c = state.mode === 'chord' ? document.getElementById('cwScroll') : document.getElementById('pdf-container');
     c?.removeEventListener('pointermove', cursorMoveHandler);
     c?.removeEventListener('mousemove', cursorMoveHandler);
     c?.removeEventListener('touchmove', cursorMoveHandler);
   }
   if (cursorDownHandler) {
-    const c = document.getElementById('pdf-container');
+    const c = state.mode === 'chord' ? document.getElementById('cwScroll') : document.getElementById('pdf-container');
     c?.removeEventListener('pointerdown', cursorDownHandler);
     c?.removeEventListener('mousedown', cursorDownHandler);
     c?.removeEventListener('touchstart', cursorDownHandler);
   }
   if (cursorUpHandler) {
-    const c = document.getElementById('pdf-container');
+    const c = state.mode === 'chord' ? document.getElementById('cwScroll') : document.getElementById('pdf-container');
     c?.removeEventListener('pointerup', cursorUpHandler);
     c?.removeEventListener('pointercancel', cursorUpHandler);
     c?.removeEventListener('mouseup', cursorUpHandler);
@@ -520,7 +560,7 @@ function startCursorShare() {
   updateCursorShareUI();
   updateToolActiveUI();
 
-  const container = document.getElementById('pdf-container');
+  const container = state.mode === 'chord' ? document.getElementById('cwScroll') : document.getElementById('pdf-container');
   if (!container) return;
 
   cursorDownHandler = (e) => {
@@ -530,12 +570,19 @@ function startCursorShare() {
     const t = e.touches && e.touches[0] ? e.touches[0] : null;
     const clientX = t ? t.clientX : e.clientX;
     const clientY = t ? t.clientY : e.clientY;
+    if (state.mode === 'chord') {
+      const inner = document.getElementById('cwInner');
+      if (!inner) return;
+      const ir = inner.getBoundingClientRect();
+      const yNorm = ir.height ? (clientY - ir.top) / ir.height : 0.5;
+      cursorDragLock = { pageNo: 1, yPageNorm: clamp(yNorm, 0, 1) };
+      return;
+    }
     const hit = findPageAtPoint(clientX, clientY);
     if (!hit?.rect) return;
     const rect = hit.rect;
     const pageNo = hit.pageNo;
     const yPageNorm = rect.height ? (clientY - rect.top) / rect.height : 0.5;
-    // 드래그 시작 시점의 "줄(세로)" 위치를 고정한다.
     cursorDragLock = { pageNo, yPageNorm: clamp(yPageNorm, 0, 1) };
   };
 
@@ -557,27 +604,31 @@ function startCursorShare() {
     clientX = t ? t.clientX : e.clientX;
     clientY = t ? t.clientY : e.clientY;
 
-    const hit = findPageAtPoint(clientX, clientY);
-    if (!hit?.rect) return;
-    let rect = hit.rect;
-    let pageNo = hit.pageNo;
-    let xPageNorm = rect.width ? (clientX - rect.left) / rect.width : 0;
-    let yPageNorm = rect.height ? (clientY - rect.top) / rect.height : 0;
+    let pageNo = 0;
+    let xPageNorm = 0;
+    let yPageNorm = 0;
+    if (state.mode === 'chord') {
+      const inner = document.getElementById('cwInner');
+      if (!inner) return;
+      const ir = inner.getBoundingClientRect();
+      pageNo = 1;
+      xPageNorm = ir.width ? (clientX - ir.left) / ir.width : 0.5;
+      yPageNorm = ir.height ? (clientY - ir.top) / ir.height : 0.5;
+    } else {
+      const hit = findPageAtPoint(clientX, clientY);
+      if (!hit?.rect) return;
+      const rect = hit.rect;
+      pageNo = hit.pageNo;
+      xPageNorm = rect.width ? (clientX - rect.left) / rect.width : 0;
+      yPageNorm = rect.height ? (clientY - rect.top) / rect.height : 0;
+    }
 
     const mode = state.cursorShareMode || 'line';
     // row 모드에서 "드래그 중"이면 세로 위치(y)를 고정한다.
     if (mode === 'row' && cursorDragLock?.pageNo) {
-      const lockedPageNo = Number(cursorDragLock.pageNo);
-      const lockedView = viewMap.get(lockedPageNo);
-      if (lockedView?.root) {
-        const lockedRect = lockedView.root.getBoundingClientRect();
-        rect = lockedRect;
-        pageNo = lockedPageNo;
-      }
       xPageNorm = 0.5;
       yPageNorm = Number.isFinite(Number(cursorDragLock.yPageNorm)) ? cursorDragLock.yPageNorm : yPageNorm;
     }
-    // NOTE: 스크롤/줌 안정성을 위해 "페이지 기준 좌표"로만 마커를 배치한다.
     setCursorMarker(localCursorEl, { xNorm: xPageNorm, yNorm: yPageNorm, visible: true, mode, pageNo, yPageNorm });
     socket.emit('viewer:cursor', { roomCode: state.roomCode, fileId: state.fileId, pageNo, xPageNorm, yPageNorm, mode });
   };
@@ -3081,13 +3132,14 @@ socket.on('viewer:cursor', (p) => {
   const xPageNorm = Number(p?.xPageNorm);
   const yPageNorm = Number(p?.yPageNorm);
   if (pageNo && Number.isFinite(xPageNorm) && Number.isFinite(yPageNorm)) {
+    // chord 모드에서는 pageNo=1을 cwInner 기준으로 렌더한다(페이지 follow 불필요)
+    if (state.mode === 'chord' && pageNo === 1) {
+      return setCursorMarker(remoteCursorEl, { xNorm: xPageNorm, yNorm: yPageNorm, visible: true, mode, pageNo: 1, yPageNorm: yPageNorm });
+    }
     // 모바일 viewer는 커서가 있는 페이지로 따라간다.
     if (isMobileViewer() && pageNo !== state.pageNo) {
       followToPage(pageNo, 'cursor').catch(() => {});
-      // followToPage가 async라 이후 렌더 타이밍은 다음 메시지에서 자연히 맞춰짐
-      // (즉시 표시 필요하면 await로 바꿀 수 있지만, 이벤트 빈도가 높아 비권장)
     }
-    // setCursorMarker가 페이지 기준 좌표로 처리한다.
     return setCursorMarker(remoteCursorEl, { xNorm: xPageNorm, yNorm: yPageNorm, visible: true, mode, pageNo, yPageNorm: yPageNorm });
   }
 
@@ -3322,6 +3374,13 @@ async function init() {
     socket.auth = { ...(socket.auth || {}), nickname: nick };
     joinSession(desiredRoom);
   }
+
+  // 같은 room에서는 window.open이 같은 탭을 재사용할 수 있게 name을 고정한다.
+  // (ChordWiki → ScoreViewer 버튼을 여러 번 눌러도 새 탭이 계속 생기지 않게)
+  try {
+    const rn = safeRoomCode(qs('room')) || safeRoomCode(state.roomCode);
+    if (rn) window.name = `mb_viewer_room_${rn}`;
+  } catch {}
 
   // participants panel collapse state restore
   try {

@@ -190,6 +190,10 @@ function isFuriganaChar(ch) {
 
 let _tokenizerPromise = null;
 function getTokenizer() {
+  // 성능 최우선: 기본은 kuromoji(사전 로딩)가 매우 무거워서 비활성화한다.
+  // (Render cold start에서 수 초~수십 초까지 걸릴 수 있음)
+  // 필요 시 환경변수로 켠다: ENABLE_KUROMOJI=1
+  if (String(process.env.ENABLE_KUROMOJI || '') !== '1') return Promise.resolve(null);
   if (_tokenizerPromise) return _tokenizerPromise;
   _tokenizerPromise = (async () => {
     try {

@@ -317,10 +317,11 @@ button.danger{ background:rgba(255,107,107,0.14); border-color:rgba(255,107,107,
 .chord-lyric-cell{
   display:flex;
   flex-direction:column;
-  flex:0 0 1ch;
-  width:1ch;
-  min-width:1ch;
-  max-width:1ch;
+  /* 1ch(=숫자 '0' 폭)는 CJK(전각) 문자 폭과 달라 정렬이 깨질 수 있어 1em 기반으로 고정 */
+  flex:0 0 1em;
+  width:1em;
+  min-width:1em;
+  max-width:1em;
 }
 .cwChord{
   font-weight:900;

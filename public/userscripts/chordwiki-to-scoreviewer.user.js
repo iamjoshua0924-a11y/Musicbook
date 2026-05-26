@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChordWiki → ScoreViewer Exporter (docId)
 // @namespace    musicbook
-// @version      0.3.0
+// @version      0.3.1
 // @description  ChordWiki 페이지에서 악보 텍스트를 DOM에서 추출해 ScoreViewer로 전송하고 docId로 엽니다.
 // @match        *://*.chordwiki.org/wiki/*
 // @match        *://*.chordwiki.jp/wiki/*
@@ -51,6 +51,51 @@
     if (s.includes('Performing security verification')) return true;
     if (s.includes('security verification')) return true;
     return false;
+  }
+
+  function isMetaText(t) {
+    const s = String(t || '').trim();
+    if (!s) return false;
+    if (/^\s*(?:BPM|Key)\s*[:=]/i.test(s)) return true;
+    if (s.includes('拍子')) return true;
+    if (s.includes('アクセント')) return true;
+    return false;
+  }
+
+  function isScoreMonoText(t) {
+    const s = String(t || '').trim();
+    if (!s) return false;
+    if (isMetaText(s)) return false;
+    // 코드/리듬 영역에서 쓰이는 문자셋(가사/설명 제외)
+    if (!/^[A-Za-z0-9#b/|().+\-_=><:\s]+$/.test(s)) return false;
+    // 의미 있는 토큰이 하나는 있어야 한다.
+    return /[A-G]|N\.C|NC|\||\-|=|>/.test(s);
+  }
+
+  function pickBestGrid(colW, xs) {
+    const candidates = [];
+    for (let i = 0; i < Math.min(40, xs.length); i += 1) {
+      const x = xs[i];
+      const ph = ((x % colW) + colW) % colW;
+      candidates.push(Math.round(ph * 10) / 10);
+    }
+    const uniq = Array.from(new Set(candidates)).slice(0, 16);
+    if (!uniq.length) return 0;
+    let best = uniq[0];
+    let bestErr = Infinity;
+    for (const off of uniq) {
+      let err = 0;
+      for (let i = 0; i < Math.min(200, xs.length); i += 1) {
+        const x = xs[i];
+        const k = Math.round((x - off) / colW);
+        err += Math.abs((x - off) - k * colW);
+      }
+      if (err < bestErr) {
+        bestErr = err;
+        best = off;
+      }
+    }
+    return best;
   }
 
   function getScoreRoot() {
@@ -142,12 +187,22 @@
 
     if (!segs.length) return '';
 
-    // 글자 폭 추정(전역 중앙값)
-    const charWs = segs
+    // ===== 그리드(배열) 추정 개선 =====
+    // 1) 스코어/리듬 문자셋에 해당하는 조각만으로 "컬럼 폭"을 추정한다(가사/설명 제외).
+    const monoSegs = segs.filter((s) => isScoreMonoText(s.text) && s.w > 0);
+    const baseForGrid = monoSegs.length >= 12 ? monoSegs : segs;
+
+    const charWs = baseForGrid
       .filter((s) => s.text && s.text.length >= 1 && s.w > 0)
       .map((s) => s.w / Math.max(1, s.text.length))
-      .filter((x) => x > 2 && x < 40);
-    const charW = Math.max(6, Math.min(24, median(charWs) || 12));
+      .filter((x) => x > 4 && x < 40);
+    const colW = Math.max(6, Math.min(26, median(charWs) || 12));
+
+    // 2) x 좌표를 colW 격자에 맞추기 위한 offset(phase)을 추정한다.
+    const xs = baseForGrid.map((s) => s.x).filter((x) => Number.isFinite(x)).sort((a, b) => a - b);
+    const gridX0 = pickBestGrid(colW, xs);
+
+    // 3) y 클러스터 임계는 폰트 크기 기반으로 유지
     const lineH = Math.max(10, Math.min(40, median(segs.map((s) => s.fs)) * 1.15 || 18));
     const yThresh = Math.max(6, lineH * 0.65);
 
@@ -167,7 +222,6 @@
       }
     }
 
-    const minX = Math.min(...segs.map((s) => s.x));
     const outLines = [];
     for (const ln of lines) {
       if (!ln.segs.length) {
@@ -177,7 +231,7 @@
       ln.segs.sort((a, b) => a.x - b.x);
       let line = '';
       for (const s of ln.segs) {
-        const col = Math.max(0, Math.round((s.x - minX) / charW));
+        const col = Math.max(0, Math.round((s.x - gridX0) / colW));
         if (line.length < col) line += ' '.repeat(col - line.length);
         // 이미 같은 위치에 뭔가 있으면 1칸 띄우고 붙이기(겹침 방지)
         if (line.length === col && line.length > 0 && line[line.length - 1] !== ' ') line += ' ';

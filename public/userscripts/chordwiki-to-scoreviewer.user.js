@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChordWiki → ScoreViewer Exporter (docId)
 // @namespace    musicbook
-// @version      0.2.2
+// @version      0.2.3
 // @description  ChordWiki 페이지에서 악보 텍스트를 DOM에서 추출해 ScoreViewer로 전송하고 docId로 엽니다.
 // @match        *://*.chordwiki.org/wiki/*
 // @match        *://*.chordwiki.jp/wiki/*
@@ -20,7 +20,8 @@
   const API_ENDPOINT = `${SCORE_VIEWER_ORIGIN}/api/proxy-chord`;
 
   function pickText(s) {
-    return String(s || '').replace(/\r\n/g, '\n').trimEnd();
+    // NBSP(웹에서 흔함) -> 일반 스페이스로 정규화해서 "공백 인덱스"가 보존되게 한다.
+    return String(s || '').replace(/\u00A0/g, ' ').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trimEnd();
   }
 
   function chordHitCount(text) {
@@ -40,9 +41,13 @@
     /** @type {Array<{src:string,text:string}>} */
     const out = [];
     const pre = document.querySelector('pre');
-    if (pre) out.push({ src: 'pre', text: pickText(pre.innerText || pre.textContent) });
+    // innerText는 화면 줄바꿈/레이아웃에 의해 줄이 합쳐지거나 공백이 변형될 수 있어 textContent 우선
+    if (pre) out.push({ src: 'pre', text: pickText(pre.textContent) });
     const ta = document.querySelector('textarea');
     if (ta) out.push({ src: 'textarea', text: pickText(ta.value || ta.textContent) });
+    // chordwiki 구조 변경 대비(가능한 경우 특정 컨테이너도 후보로)
+    const wikiBody = document.querySelector('#wikibody, #wiki-body, #body, #content');
+    if (wikiBody) out.push({ src: 'wikibody', text: pickText(wikiBody.textContent) });
     const mains = document.querySelectorAll('main, article, #content, #main');
     mains.forEach((el) => out.push({ src: 'main', text: pickText(el.innerText || el.textContent) }));
     // body는 최후 후보(대부분 노이즈가 많아서 점수를 강하게 깎는다)

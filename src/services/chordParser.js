@@ -171,8 +171,9 @@ function toKoreanReadingMvp(input) {
       continue;
     }
     const ch = hira[i];
+    // 장음/촉음은 한글 표기에서 그대로 두면 어색해서 기본은 제거한다.
+    // (정밀 로마자-한글 변환은 차후 필요 시 별도 엔진으로 교체)
     if (ch === 'ー' || ch === 'っ') {
-      out += ch;
       continue;
     }
     out += KANA_TO_KR.get(ch) || ch;
@@ -190,10 +191,6 @@ function isFuriganaChar(ch) {
 
 let _tokenizerPromise = null;
 function getTokenizer() {
-  // 성능 최우선: 기본은 kuromoji(사전 로딩)가 매우 무거워서 비활성화한다.
-  // (Render cold start에서 수 초~수십 초까지 걸릴 수 있음)
-  // 필요 시 환경변수로 켠다: ENABLE_KUROMOJI=1
-  if (String(process.env.ENABLE_KUROMOJI || '') !== '1') return Promise.resolve(null);
   if (_tokenizerPromise) return _tokenizerPromise;
   _tokenizerPromise = (async () => {
     try {
@@ -212,174 +209,141 @@ function getTokenizer() {
   return _tokenizerPromise;
 }
 
-async function buildLyricCellsWithFurigana(line) {
-  const s = String(line || '');
+function normalizeTabs(line) {
+  // 탭은 코드/가사 정렬을 깨뜨리므로, 고정 폭 스페이스로 치환한다.
+  return String(line || '').replace(/\t/g, '  ');
+}
+
+function splitGraphemes(str) {
+  // Hangul syllable/ASCII 중심이라 기본 Array split로 충분(emoji 등은 여기서 중요하지 않음)
+  return Array.from(String(str || ''));
+}
+
+function distributeText(text, width) {
+  const chars = splitGraphemes(text);
+  const w = Math.max(1, Number(width || 1));
+  if (chars.length === 0) return Array.from({ length: w }, () => '');
+  if (w === 1) return [chars.join('')];
+  const out = Array.from({ length: w }, () => '');
+  for (let i = 0; i < w; i += 1) {
+    const a = Math.floor((i * chars.length) / w);
+    const b = Math.floor(((i + 1) * chars.length) / w);
+    out[i] = chars.slice(a, Math.max(a + 1, b)).join('');
+  }
+  return out;
+}
+
+function isKana(ch) {
+  return /[\u3040-\u30ffー]/.test(String(ch || ''));
+}
+
+function tryParseFuriganaToken(s, i) {
+  // 패턴: <base>(<kana>)  where base has at least one Kanji and kana has only kana/ー
+  // 예: 濁(にご) , 寝言(ねごと)
+  const str = String(s || '');
+  if (i < 0 || i >= str.length) return null;
+  // base는 공백/탭/개행/괄호 이전까지
+  let j = i;
+  while (j < str.length) {
+    const ch = str[j];
+    if (ch === '(' || ch === ' ' || ch === '\t') break;
+    j += 1;
+  }
+  if (j <= i) return null;
+  if (str[j] !== '(') return null;
+  const base = str.slice(i, j);
+  const hasKanjiInBase = /[\u3400-\u9fff]/.test(base);
+  if (!hasKanjiInBase) return null;
+
+  let k = j + 1;
+  while (k < str.length && isKana(str[k])) k += 1;
+  if (str[k] !== ')' || k <= j + 1) return null;
+  const readingKana = str.slice(j + 1, k);
+  const end = k + 1;
+  return { base, readingKana, start: i, end };
+}
+
+async function buildLyricCellsStrict(line) {
+  const src = normalizeTabs(line);
   /** @type {Array<{raw:string, kr:string}>} */
-  const cells = Array.from({ length: s.length }, () => ({ raw: '', kr: '' }));
-
+  const cells = [];
   let i = 0;
-  while (i < s.length) {
-    const ch = s[i];
-
-    if (isKanji(ch)) {
-      let j = i;
-      while (j < s.length && isKanji(s[j])) j += 1;
-      const kanjiRun = s.slice(i, j);
-      if (s[j] === '(') {
-        let k = j + 1;
-        while (k < s.length && isFuriganaChar(s[k])) k += 1;
-        if (s[k] === ')' && k > j + 1) {
-          const readingKana = s.slice(j + 1, k);
-          const readingKr = toKoreanReadingMvp(readingKana);
-          // 가독성/정렬: 한자 런을 한 칸에 몰아넣지 않고 "한자 1글자=1칸"으로 유지한다.
-          // 독음(후리가나)은 첫 글자 칸의 kr에 주입(런 전체 독음을 대표).
-          cells[i] = { raw: kanjiRun[0], kr: readingKr };
-          for (let x = i + 1; x < j; x += 1) cells[x] = { raw: kanjiRun[x - i], kr: '' };
-          for (let x = j; x <= k; x += 1) cells[x] = { raw: '', kr: '' };
-          i = k + 1;
-          continue;
-        }
+  while (i < src.length) {
+    const tok = tryParseFuriganaToken(src, i);
+    if (tok) {
+      const readingKr = toKoreanReadingMvp(tok.readingKana);
+      const segs = distributeText(readingKr, tok.base.length);
+      for (let bi = 0; bi < tok.base.length; bi += 1) {
+        const rawCh = tok.base[bi];
+        cells.push({ raw: rawCh, kr: segs[bi] || '' });
       }
-    }
-
-    cells[i] = { raw: ch, kr: toKoreanReadingMvp(ch) };
-    i += 1;
-  }
-
-  const tokenizer = await getTokenizer();
-  if (tokenizer) {
-    try {
-      const tokens = tokenizer.tokenize(s);
-      let pos = 0;
-      for (const t of tokens) {
-        const surf = String(t.surface_form || '');
-        if (!surf) continue;
-        if (!s.startsWith(surf, pos)) {
-          const found = s.indexOf(surf, pos);
-          if (found === -1) continue;
-          pos = found;
-        }
-        const spanStart = pos;
-        const spanEnd = pos + surf.length;
-        pos = spanEnd;
-
-        const hasKanji = /[\u3400-\u9fff]/.test(surf);
-        const reading = String(t.reading || '');
-        if (!hasKanji || !reading) continue;
-
-        const alreadyMapped = cells[spanStart]?.kr && cells[spanStart].kr !== cells[spanStart].raw;
-        if (alreadyMapped) continue;
-
-        const kr = toKoreanReadingMvp(reading); // katakana -> hangul
-        cells[spanStart] = { raw: surf, kr };
-        for (let x = spanStart + 1; x < spanEnd && x < cells.length; x += 1) cells[x] = { raw: '', kr: '' };
-      }
-    } catch {}
-  } else {
-    for (let x = 0; x < cells.length; x += 1) {
-      if (isKanji(cells[x].raw) && cells[x].kr === cells[x].raw) cells[x] = { raw: cells[x].raw, kr: '' };
-    }
-  }
-
-  return cells;
-}
-
-async function emitAlignedPair(lyricLine, chordMap, chordLineLen, out) {
-  const lyricCells = await buildLyricCellsWithFurigana(String(lyricLine || ''));
-  const maxLen = Math.max(chordLineLen, lyricCells.length);
-  for (let col = 0; col < maxLen; col += 1) {
-    const chord = chordMap.get(col) || '';
-    const cell = col < lyricCells.length ? lyricCells[col] : { raw: ' ', kr: ' ' };
-    out.push({ chord, lyric_raw: cell.raw, lyric_kr: cell.kr });
-  }
-}
-
-// 가사 라인에 코드가 inline으로 섞여있는 형태(예: "D夢がC#7覚めた F#m酔いどれ") 처리
-async function emitLyricOnly(line, out) {
-  const s = String(line || '');
-  const spans = buildChordTokenSpans(s);
-  const spanByStart = new Map(spans.map((x) => [x.start, x]));
-
-  let i = 0;
-  while (i < s.length) {
-    const sp = spanByStart.get(i);
-    if (sp) {
-      // inline chord도 폭 유지: 토큰 길이만큼 셀을 소비한다.
-      out.push({ chord: sp.token, lyric_raw: '', lyric_kr: '' });
-      for (let x = sp.start + 1; x < sp.end; x += 1) out.push({ chord: '', lyric_raw: '', lyric_kr: '' });
-      i = sp.end;
+      i = tok.end;
       continue;
     }
 
-    // kanji(かな) 패턴은 기존 후리가나 결합 로직을 재사용하기 위해 "현재 위치부터" 1회만 적용
-    const ch = s[i];
-    if (isKanji(ch)) {
-      let j = i;
-      while (j < s.length && isKanji(s[j])) j += 1;
-      const kanjiRun = s.slice(i, j);
-      if (s[j] === '(') {
-        let k = j + 1;
-        while (k < s.length && isFuriganaChar(s[k])) k += 1;
-        if (s[k] === ')' && k > j + 1) {
-          const readingKana = s.slice(j + 1, k);
-          const readingKr = toKoreanReadingMvp(readingKana);
-          // 한자 런은 1글자=1칸 유지
-          out.push({ chord: '', lyric_raw: kanjiRun[0], lyric_kr: readingKr });
-          for (let x = i + 1; x < j; x += 1) out.push({ chord: '', lyric_raw: kanjiRun[x - i], lyric_kr: '' });
-          i = k + 1;
-          continue;
-        }
-      }
+    const ch = src[i];
+    if (ch === '\r') {
+      i += 1;
+      continue;
     }
-
-    out.push({ chord: '', lyric_raw: ch, lyric_kr: toKoreanReadingMvp(ch) });
+    if (ch === '\n') break;
+    if (isKana(ch)) {
+      cells.push({ raw: ch, kr: toKoreanReadingMvp(ch) });
+    } else if (isKanji(ch)) {
+      // 후리가나/kuromoji에서 채우기 전까지는 raw를 그대로 보여주고, kr는 빈 값으로 둔다.
+      // (렌더링은 lyric_kr 우선이므로, 최종 단계에서 kr가 비면 raw로 채운다)
+      cells.push({ raw: ch, kr: '' });
+    } else {
+      // 영문/기호/공백은 그대로 유지(원칙 3)
+      cells.push({ raw: ch, kr: ch });
+    }
     i += 1;
   }
 
-  // NOTE: 괄호 없는 한자 fallback(kuromoji)은 "cells 배열" 기반으로만 구현되어 있었으므로,
-  //       inline 코드 섞인 라인에서는 2차 패스(kuromoji)로 토큰 치환을 적용한다.
-  //       (간단 구현: out을 문자열로 재구성하여 tokenizer로 reading을 얻고, 해당 토큰 시작 블록에 주입)
+  // kuromoji: 괄호 후리가나로 해소되지 않은 한자만 보완한다.
+  const needsKuro = cells.some((c) => isKanji(c.raw) && !String(c.kr || '').trim());
+  if (!needsKuro) return cells;
+
   const tokenizer = await getTokenizer();
-  if (!tokenizer) return;
+  if (!tokenizer) return cells;
+
+  const cleanLine = cells.map((c) => c.raw).join('');
   try {
-    const rawLine = out.map((b) => b.lyric_raw).join('');
-    const tokens = tokenizer.tokenize(rawLine);
+    const tokens = tokenizer.tokenize(cleanLine);
     let pos = 0;
     for (const t of tokens) {
       const surf = String(t.surface_form || '');
       if (!surf) continue;
-      if (!rawLine.startsWith(surf, pos)) {
-        const found = rawLine.indexOf(surf, pos);
+      if (!cleanLine.startsWith(surf, pos)) {
+        const found = cleanLine.indexOf(surf, pos);
         if (found === -1) continue;
         pos = found;
       }
-      const spanStart = pos;
-      pos += surf.length;
+      const start = pos;
+      const end = pos + surf.length;
+      pos = end;
 
       const hasKanji = /[\u3400-\u9fff]/.test(surf);
       const reading = String(t.reading || '');
       if (!hasKanji || !reading) continue;
+      const readingKr = toKoreanReadingMvp(reading);
+      const segs = distributeText(readingKr, surf.length);
 
-      // out의 인덱스는 "셀" 기반이므로, spanStart를 셀 인덱스로 그대로 쓰지 못한다.
-      // 여기서는 가장 단순하게: raw 누적 길이를 따라 시작 셀을 찾는다.
-      let acc = 0;
-      let startIdx = -1;
-      for (let bi = 0; bi < out.length; bi += 1) {
-        const seg = String(out[bi].lyric_raw || '');
-        if (acc === spanStart) {
-          // chord placeholder(빈 raw)은 건너뛰고 실제 가사 셀로 매핑
-          let bj = bi;
-          while (bj < out.length && String(out[bj].lyric_raw || '').length === 0) bj += 1;
-          startIdx = bj < out.length ? bj : bi;
-          break;
-        }
-        acc += seg.length;
+      for (let x = start; x < end && x < cells.length; x += 1) {
+        // 이미 후리가나로 채워진 경우는 유지
+        if (String(cells[x].kr || '').trim()) continue;
+        // 한자 위치에만 주입
+        if (!isKanji(cells[x].raw)) continue;
+        cells[x].kr = segs[x - start] || '';
       }
-      if (startIdx === -1) continue;
-      if (out[startIdx].lyric_kr && out[startIdx].lyric_kr !== out[startIdx].lyric_raw) continue;
-      out[startIdx].lyric_kr = toKoreanReadingMvp(reading);
     }
   } catch {}
+
+  // 마지막 보정: kr가 비어있으면 raw로 채워서 글자 누락/밀림 방지
+  for (let x = 0; x < cells.length; x += 1) {
+    if (!String(cells[x].kr || '').trim()) cells[x].kr = cells[x].raw;
+  }
+  return cells;
 }
 
 /**
@@ -395,13 +359,19 @@ async function parseRawTextToBlocks(rawText) {
   const out = [];
 
   for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i] ?? '';
-    const next = lines[i + 1] ?? '';
+    const line = normalizeTabs(lines[i] ?? '');
+    const next = normalizeTabs(lines[i + 1] ?? '');
 
     if (isChordLine(line)) {
       if (next && !isChordLine(next) && next.trim() !== '') {
         const chordMap = buildChordStartMap(line);
-        await emitAlignedPair(next, chordMap, String(line).length, out);
+        const lyricCells = await buildLyricCellsStrict(next);
+        const maxLen = Math.max(String(line).length, lyricCells.length);
+        for (let col = 0; col < maxLen; col += 1) {
+          const chord = chordMap.get(col) || '';
+          const cell = lyricCells[col] || { raw: ' ', kr: ' ' };
+          out.push({ chord, lyric_raw: cell.raw, lyric_kr: cell.kr });
+        }
         i += 1;
         out.push({ chord: '', lyric_raw: '\n', lyric_kr: '\n' });
         continue;
@@ -412,7 +382,12 @@ async function parseRawTextToBlocks(rawText) {
       continue;
     }
 
-    await emitLyricOnly(line, out);
+    // 가사만 있는 줄도 공백/기호 포함 "셀"로 엄격히 출력
+    const lyricCells = await buildLyricCellsStrict(line);
+    for (let col = 0; col < lyricCells.length; col += 1) {
+      const cell = lyricCells[col];
+      out.push({ chord: '', lyric_raw: cell.raw, lyric_kr: cell.kr });
+    }
     out.push({ chord: '', lyric_raw: '\n', lyric_kr: '\n' });
   }
 

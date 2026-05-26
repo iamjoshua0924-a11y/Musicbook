@@ -87,8 +87,8 @@ body.link-collapsed .inputRow{ display:none; }
   background:rgba(122,162,255,0.22);
 }
 
-/* 코드위키 모드: 기본은 숨김. (플래그 기반으로만 노출) */
-body:not(.show-chord-ui) #chordModeBtn{ display:none !important; }
+/* 코드위키 탭 버튼은 사용하지 않음(문서 결과는 docId로 자동 진입) */
+#chordModeBtn{ display:none !important; }
 #linkInput{
   padding:7px 10px;
   border-radius:10px;
@@ -284,26 +284,7 @@ button.danger{ background:rgba(255,107,107,0.14); border-color:rgba(255,107,107,
   font-size:12px;
   white-space:pre-wrap;
 }
-.cwTopActions{
-  display:flex;
-  flex-wrap:wrap;
-  gap:8px;
-  align-items:center;
-  margin-bottom:10px;
-}
-.cwTopActions button{
-  height:30px;
-  padding:6px 10px;
-  border-radius:10px;
-  font-size:12px;
-  font-weight:900;
-}
-/* Tampermonkey 설치/디버그 UI는 기본 숨김(플래그로만 노출) */
-body:not(.show-chord-ui) #cwInstallTmBtn,
-body:not(.show-chord-ui) #cwBookmarkletBtn,
-body:not(.show-chord-ui) #cwPasteToggleBtn{
-  display:none !important;
-}
+/* (코드위키 입력/설치/파싱 UI는 제거됨) */
 .cwScroll{
   position:relative;
   flex:1;

@@ -1101,167 +1101,42 @@ function hashString(s) {
 
 function setCwError(msg) {
   const el = document.getElementById('cwError');
-  if (el) el.textContent = String(msg || '');
+  if (!el) return;
+  const m = String(msg || '').trim();
+  el.classList.toggle('hidden', !m);
+  el.textContent = m;
 }
 
 function setCwMeta(msg) {
   const el = document.getElementById('cwMeta');
-  if (el) el.textContent = String(msg || '');
-}
-
-function handleIncomingRawChord(rawText, sourceUrl, via = '') {
-  const text = String(rawText || '');
-  const su = String(sourceUrl || '');
-  if (!text.trim()) return;
-
-  setMode('chord');
-  document.getElementById('cwRawInput')?.classList.remove('hidden');
-  document.getElementById('cwParseRawBtn')?.classList.remove('hidden');
-  const ta = document.getElementById('cwRawInput');
-  if (ta) ta.value = text;
-  state.chordSourceUrl = su;
-  setCwMeta(`소스: ${via || 'external'}\n원문 URL: ${su}\n(원문이 입력창에 채워졌습니다)`);
-
-  // 사용자가 원하면 자동 파싱
-  if (confirm('코드위키 원문을 받았습니다. 지금 바로 파싱할까요?')) {
-    openChordByRawText(text, su).catch(() => {});
-  }
-}
-
-function decodeB64Unicode(b64) {
-  const s = String(b64 || '');
-  // eslint-disable-next-line no-undef
-  const bin = atob(s);
-  // eslint-disable-next-line no-undef
-  return decodeURIComponent(
-    Array.prototype.map
-      .call(bin, (c) => `%${(`00${c.charCodeAt(0).toString(16)}`).slice(-2)}`)
-      .join('')
-  );
-}
-
-function consumeWindowNamePayload() {
-  try {
-    const n = String(window.name || '');
-    const prefix = 'MB_RAW_CHORD_V1|';
-    if (!n.startsWith(prefix)) return;
-    const payload = JSON.parse(decodeB64Unicode(n.slice(prefix.length)));
-    window.name = '';
-    handleIncomingRawChord(payload?.rawText, payload?.sourceUrl, 'bookmarklet(window.name)');
-  } catch (e) {
-    // 수신 자체가 실패하면 디버그 메시지를 남긴다.
-    try {
-      setMode('chord');
-      setCwError(`북마클릿 수신 실패: ${String(e?.message || e)}`);
-      setCwMeta('북마클릿 URL이 오래되었거나(window.name이 너무 큼), 브라우저가 북마클릿 실행을 차단했을 수 있습니다.');
-    } catch {}
-  }
-}
-
-function buildCodewikiBookmarklet() {
-  // NOTE: bookmarklet는 사용자의 브라우저(코드위키 탭)에서 실행되어,
-  //       본문 텍스트를 추출한 뒤 우리 뷰어 창으로 postMessage로 전달한다.
-  const target = `${window.location.origin}/viewer?mode=chord`;
-  const targetOrigin = window.location.origin;
-  const js = `(()=>{try{
-const pick=(s)=>String(s||'').trimEnd();
-let t='';
-const pre=document.querySelector('pre'); if(pre) t=pick(pre.innerText||pre.textContent);
-if(!t){ const ta=document.querySelector('textarea'); if(ta) t=pick(ta.value||ta.textContent); }
-if(!t){ const mains=[...document.querySelectorAll('main,article,#content,#main')]; for(const m of mains){ const x=pick(m.innerText||m.textContent); if(x&&x.length>t.length) t=x; } }
-if(!t){ t=pick(document.body&& (document.body.innerText||document.body.textContent)); }
-if(!t){ alert('본문 텍스트를 찾지 못했습니다.'); return; }
-const url='${target}';
-const w=window.open(url,'_blank');
-if(!w){ alert('팝업이 차단되었습니다. 팝업 허용 후 다시 시도하세요.'); return; }
-const msg={type:'MB_RAW_CHORD_V1', rawText:t, sourceUrl:location.href};
-// window.name fallback (postMessage 수신 타이밍/차단 이슈 대비)
-const b64=(str)=>btoa(unescape(encodeURIComponent(str)));
-try{ w.name='MB_RAW_CHORD_V1|'+b64(JSON.stringify(msg)); }catch(e){}
-const send=()=>{ try{ w.postMessage(msg,'${targetOrigin}'); }catch(e){} };
-const it=setInterval(()=>{ if(!w||w.closed){ clearInterval(it); return; } send(); }, 350);
-setTimeout(()=>clearInterval(it), 20000);
-alert('뷰어로 전송했습니다. 뷰어 창에서 파싱을 진행하세요.');
-}catch(e){ alert('실패: '+(e&&e.message?e.message:e)); }})();`;
-  // eslint-disable-next-line no-useless-escape
-  return `javascript:${js.replace(/\n/g, '').replace(/\s+/g, ' ')}`;
-}
-
-// cross-origin postMessage로 원문 전달 받기(북마클릿/유저 참여형)
-window.addEventListener('message', (ev) => {
-  const d = ev?.data;
-  if (!d || typeof d !== 'object') return;
-  if (d.type !== 'MB_RAW_CHORD_V1') return;
-  const rawText = String(d.rawText || '');
-  const sourceUrl = String(d.sourceUrl || '');
-  handleIncomingRawChord(rawText, sourceUrl, 'bookmarklet(postMessage)');
-});
-
-function showChordAuthActions(show) {
-  const on = Boolean(show) && state.mode === 'chord';
-  document.getElementById('cwAuthOpenBtn')?.classList.toggle('hidden', !on);
-  document.getElementById('cwAuthDoneBtn')?.classList.toggle('hidden', !on);
-}
-
-function openAuthPopup(url) {
-  const u = String(url || '').trim();
-  if (!/^https?:\/\//i.test(u)) return null;
-  // 팝업 차단 최소화를 위해 feature를 단순화한다(사용자 클릭에서만 호출됨)
-  const w = window.open(u, '_blank');
-  if (!w) {
-    setCwError('팝업이 차단되었습니다. 브라우저 팝업 허용 후 다시 “인증창 열기”를 눌러주세요.');
-    return null;
-  }
-  try {
-    w.focus();
-  } catch {}
-  return w;
-}
-
-function needsUserAuthForError(err) {
-  const e = String(err || '');
-  // 서버가 bot 페이지를 탐지했거나,
-  // upstream이 403을 반환한 경우(대부분 bot/verification)도 유저 인증 흐름으로 보낸다.
-  if (e.includes('BOT_PROTECTION')) return true;
-  if (e === 'FETCH_FAILED_403' || e.endsWith('_403')) return true;
-  // extractor가 실패한 경우도 "수동 인증/원문 붙여넣기" 유도
-  if (e === 'EXTRACT_FAILED') return true;
-  if (e === 'PUPPETEER_FAILED') return true;
-  return false;
+  if (!el) return;
+  const m = String(msg || '').trim();
+  el.classList.toggle('hidden', !m);
+  el.textContent = m;
 }
 
 function setMode(mode) {
   state.mode = mode;
   document.getElementById('pdfModeBtn')?.classList.toggle('active', mode === 'pdf');
-  document.getElementById('chordModeBtn')?.classList.toggle('active', mode === 'chord');
 
   setHidden('pdf-container', mode !== 'pdf');
   setHidden('chordwikiPane', mode !== 'chord');
 
   if (mode === 'pdf') {
     document.getElementById('linkInput')?.setAttribute('placeholder', '구글드라이브 PDF 링크 또는 fileId');
-    // chord 전용 UI 숨김
-    showChordAuthActions(false);
-    state.chordPendingAuthUrl = '';
+    setCwError('');
     setCwMeta('');
-    // 인증 팝업이 남아있으면 정리
-    try {
-      if (state._authPopup && !state._authPopup.closed) state._authPopup.close();
-    } catch {}
-    state._authPopup = null;
     // restore pdf fileId for viewer internals
     if (state.pdfFileId) {
       state.fileId = state.pdfFileId;
       loadPdf(state.fileId).catch(() => {});
     }
   } else {
-    document.getElementById('linkInput')?.setAttribute('placeholder', '코드위키 URL(또는 아래에 원문 붙여넣기)');
+    document.getElementById('linkInput')?.setAttribute('placeholder', '코드위키 링크를 넣으면 새 탭으로 엽니다');
     // if previously opened chord doc, keep it
     if (state.chordDocId) state.fileId = state.chordDocId;
     // chord 모드 진입 시 스크롤 우선(선택 도구)
     if (state.tool !== 'select') setTool('select');
-    // 디버그: 어떤 빌드의 viewer.js가 로드되었는지 항상 표시
-    setCwMeta(`뷰어 빌드: ${VIEWER_BUILD}`);
   }
 
   const cwHost = document.getElementById('cwAnnoHost');
@@ -1269,60 +1144,6 @@ function setMode(mode) {
 }
 
 document.getElementById('pdfModeBtn')?.addEventListener('click', () => setMode('pdf'));
-document.getElementById('chordModeBtn')?.addEventListener('click', () => setMode('chord'));
-
-document.getElementById('cwPasteToggleBtn')?.addEventListener('click', () => {
-  const raw = document.getElementById('cwRawInput');
-  const btn = document.getElementById('cwParseRawBtn');
-  const nowHidden = raw?.classList.toggle('hidden');
-  btn?.classList.toggle('hidden', Boolean(nowHidden));
-});
-
-document.getElementById('cwBookmarkletBtn')?.addEventListener('click', () => {
-  setMode('chord');
-  const code = buildCodewikiBookmarklet();
-  prompt(
-    '코드위키 자동 가져오기(북마클릿)입니다.\n' +
-      '1) 아래 전체를 복사\n' +
-      '2) 브라우저 북마크바에 새 북마크를 만들고 URL에 붙여넣기\n' +
-      '3) 코드위키 페이지에서 그 북마크를 클릭하면, 원문이 이 뷰어로 전송됩니다.\n\n' +
-      '(참고: 서버가 403(Cloudflare)로 막히는 경우를 위한 “유저 참여형” 방식입니다.)',
-    code
-  );
-});
-
-document.getElementById('cwInstallTmBtn')?.addEventListener('click', () => {
-  // 플래그 기반 노출이므로, 여기서는 최대한 단순한 안내 UX로 처리한다.
-  const tmStore =
-    'https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo';
-  const userScriptUrl = `${window.location.origin}/public/userscripts/chordwiki-to-scoreviewer.user.js`;
-  const ok = confirm(
-    'Tampermonkey 유저스크립트 설치 안내:\n\n' +
-      '1) Tampermonkey가 이미 설치되어 있으면 [확인]을 눌러 스크립트 설치 페이지를 엽니다.\n' +
-      '2) Tampermonkey가 없다면 [취소]를 눌러 Tampermonkey 설치 페이지로 이동하세요.'
-  );
-  try {
-    window.open(ok ? userScriptUrl : tmStore, '_blank');
-  } catch {}
-});
-
-document.getElementById('cwAuthOpenBtn')?.addEventListener('click', () => {
-  if (!state.chordPendingAuthUrl) return;
-  // 기존에 열어둔 창이 있으면 그 창을 사용
-  try {
-    if (state._authPopup && !state._authPopup.closed) {
-      state._authPopup.location.replace(state.chordPendingAuthUrl);
-      state._authPopup.focus();
-      return;
-    }
-  } catch {}
-  state._authPopup = openAuthPopup(state.chordPendingAuthUrl);
-});
-document.getElementById('cwAuthDoneBtn')?.addEventListener('click', () => {
-  if (!state.chordPendingAuthUrl) return;
-  // 사용자가 새창에서 인증을 완료했다고 가정하고 동일 URL 재시도
-  openChordByUrl(state.chordPendingAuthUrl, { preopenAuth: true, broadcast: true }).catch(() => {});
-});
 
 function renderChordBlocks(blocks) {
   const wrap = document.getElementById('cwContent');
@@ -1432,136 +1253,12 @@ const resizeChordAnnoDebounced = debounce(() => {
 }, 200);
 window.addEventListener('resize', () => resizeChordAnnoDebounced());
 
-async function openChordByUrl(url, { broadcast, preopenAuth } = { broadcast: true, preopenAuth: false }) {
-  const u = String(url || '').trim();
-  if (!/^https?:\/\//i.test(u)) return alert('코드위키 모드는 URL이 필요합니다.');
-
-  setMode('chord');
-  setCwError('불러오는 중...');
-  setCwMeta('');
-  showChordAuthActions(false);
-  state.chordPendingAuthUrl = '';
-
-  // 팝업은 사용자 제스처(클릭) 호출 스택에서만 허용되는 경우가 많아서,
-  // 필요할지도 모르는 상황(403) 대비로 "빈 새창"을 먼저 열어둔 뒤,
-  // 실패 시 그 창을 URL로 이동시키는 방식으로 자동화한다.
-  let preWin = null;
-  if (preopenAuth) {
-    try {
-      // user gesture stack에서 about:blank를 먼저 열어두면, 이후 403에서도 URL 이동이 가능해진다.
-      preWin = window.open('about:blank', '_blank');
-      if (preWin) state._authPopup = preWin;
-    } catch {
-      preWin = null;
-    }
-  }
-
-  let r;
-  try {
-    r = await fetch(`/api/proxy-chord?url=${encodeURIComponent(u)}`).then((x) => x.json());
-  } catch (e) {
-    r = { ok: false, error: `NETWORK_ERROR: ${String(e?.message || e)}` };
-  }
-  if (!r.ok) {
-    setCwError(`불러오기 실패: ${r.error || ''}`);
-    if (needsUserAuthForError(r.error)) {
-      state.chordPendingAuthUrl = u;
-      showChordAuthActions(true);
-      if (String(r.error || '') === 'EXTRACT_FAILED') {
-        setCwError('본문 추출에 실패했습니다. 새창에서 확인 후(필요 시 인증), 원문 붙여넣기로 진행하세요.');
-        try {
-          if (r.detail) setCwMeta(`추출 실패 상세: ${JSON.stringify(r.detail)}`);
-        } catch {}
-      } else if (String(r.error || '') === 'PUPPETEER_FAILED') {
-        setCwError('서버의 브라우저 엔진(Puppeteer) 수집이 실패했습니다. 원문 붙여넣기로 진행하거나, 아래 상세 에러를 확인하세요.');
-        try {
-          if (r.detail) setCwMeta(`Puppeteer 실패 상세: ${JSON.stringify(r.detail)}`);
-        } catch {}
-      } else {
-        // NOTE: 서버에서 뜬 403은 "사용자 브라우저 인증"과 별개로,
-        //       서버 IP/데이터센터 차단 등으로 계속 403이 날 수 있다.
-        setCwError('보안 검증(403)이 감지되었습니다. 새창에서 확인 후 “인증 완료(재시도)”를 눌러보세요. 계속 실패하면 서버 IP 차단일 수 있어 원문 붙여넣기를 사용하세요.');
-        try {
-          if (r.detail) setCwMeta(`실패 상세: ${JSON.stringify(r.detail)}`);
-        } catch {}
-      }
-      document.getElementById('cwRawInput')?.classList.remove('hidden');
-      document.getElementById('cwParseRawBtn')?.classList.remove('hidden');
-
-      // 자동 새창 활성화(가능한 경우)
-      if (preWin && !preWin.closed) {
-        try {
-          preWin.focus();
-        } catch {}
-        try {
-          preWin.location.replace(u);
-        } catch (e) {
-          // 일부 브라우저는 비동기 콜백에서의 리다이렉트를 차단할 수 있음.
-          // 이 경우, 팝업 내에 사용자가 직접 누를 수 있는 링크를 그려준다.
-          try {
-            preWin.document.open();
-            preWin.document.write(
-              `<meta charset="utf-8" />` +
-                `<title>인증 필요</title>` +
-                `<div style="font-family:system-ui; padding:18px; line-height:1.5">` +
-                `<h3 style="margin:0 0 10px 0">인증이 필요합니다</h3>` +
-                `<p style="margin:0 0 12px 0">아래 버튼을 눌러 인증 페이지를 열어주세요.</p>` +
-                `<a href="${u.replace(/\"/g, '&quot;')}" style="display:inline-block; padding:10px 12px; border:1px solid #999; border-radius:10px; text-decoration:none;">인증 페이지 열기</a>` +
-                `</div>`
-            );
-            preWin.document.close();
-          } catch {}
-        }
-      }
-    } else if (preWin && !preWin.closed) {
-      try {
-        preWin.close();
-      } catch {}
-    }
-    return;
-  }
-  if (preWin && !preWin.closed) {
-    try {
-      preWin.close();
-    } catch {}
-  }
-
-  const docId = String(r?.docId || `chord:${hashString(u)}`);
-  state.chordDocId = docId;
-  state.chordSourceUrl = u;
-  state.chordBlocks = r.blocks || [];
-
-  // Debug meta (fetch vs puppeteer)
-  try {
-    const src = String(r?.meta?.source || '');
-    const fu = String(r?.meta?.finalUrl || '');
-    const cached = r?.cached ? ' (cached)' : '';
-    setCwMeta(src ? `소스: ${src}${cached}\n최종 URL: ${fu}` : '');
-  } catch {}
-
-  // session/snapshot layer uses state.fileId. chord 모드에서는 docId를 fileId로 사용.
-  state.fileId = docId;
-  // reset per-doc state
-  state.annoStore = {};
-  state.undoStack = {};
-  state.redoStack = {};
-  if (state.isInSession && state.roomCode) socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId: state.fileId });
-
-  if (broadcast && state.isInSession && state.isPageTurner && state.roomCode) {
-    socket.emit('session:follow:file', { roomCode: state.roomCode, fileId: docId, originalLink: u }, () => {});
-  }
-
-  renderChordBlocks(state.chordBlocks);
-}
-
 async function openChordByDocId(docId, { broadcast } = { broadcast: true }) {
   const id = String(docId || '').trim();
   if (!id) return;
   setMode('chord');
   setCwError('불러오는 중...');
   setCwMeta('');
-  showChordAuthActions(false);
-  state.chordPendingAuthUrl = '';
 
   let r;
   try {
@@ -1590,53 +1287,6 @@ async function openChordByDocId(docId, { broadcast } = { broadcast: true }) {
   setCwError('');
   renderChordBlocks(state.chordBlocks);
 }
-
-async function openChordByRawText(rawText, sourceUrl = '', { broadcast } = { broadcast: true }) {
-  setMode('chord');
-  const text = String(rawText || '');
-  if (!text.trim()) return alert('원문이 비었습니다.');
-  setCwError('파싱 중...');
-  setCwMeta('');
-  showChordAuthActions(false);
-  state.chordPendingAuthUrl = '';
-
-  const payload = { rawText: text };
-  const su = String(sourceUrl || '').trim();
-  if (/^https?:\/\//i.test(su)) payload.sourceUrl = su;
-
-  const r = await fetch('/api/proxy-chord', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  }).then((x) => x.json());
-  if (!r.ok) return setCwError(`파싱 실패: ${r.error || ''}`);
-
-  try {
-    const src = String(r?.meta?.source || 'clientRawText');
-    setCwMeta(`소스: ${src}`);
-  } catch {}
-
-  const docId = String(r?.docId || `chord:${hashString(sourceUrl || text.slice(0, 5000))}`);
-  state.chordDocId = docId;
-  state.chordSourceUrl = sourceUrl;
-  state.chordBlocks = r.blocks || [];
-  state.fileId = docId;
-  state.annoStore = {};
-  state.undoStack = {};
-  state.redoStack = {};
-  if (state.isInSession && state.roomCode) socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId: state.fileId });
-
-  if (broadcast && state.isInSession && state.isPageTurner && state.roomCode) {
-    socket.emit('session:follow:file', { roomCode: state.roomCode, fileId: docId, originalLink: sourceUrl }, () => {});
-  }
-  setCwError('');
-  renderChordBlocks(state.chordBlocks);
-}
-
-document.getElementById('cwParseRawBtn')?.addEventListener('click', () => {
-  const t = document.getElementById('cwRawInput')?.value || '';
-  openChordByRawText(t, state.chordSourceUrl).catch(() => {});
-});
 
 // ---- CodeWiki scroll sync (Phase2-3) ---------------------------------------------
 const cwScrollEl = document.getElementById('cwScroll');
@@ -1831,9 +1481,20 @@ function extractDriveFileId(input) {
 
 function openByInput(input) {
   const trimmed = String(input || '').trim();
-  // chordwiki mode: URL은 proxy로 처리
+  // 코드위키는 뷰어에서 직접 크롤/파싱하지 않는다.
+  // 링크를 입력하면 해당 페이지를 새 탭으로 열어주고, 거기서 Tampermonkey 버튼으로 docId를 생성해 들어오게 한다.
   if (!extractDriveFileId(trimmed) && /^https?:\/\//i.test(trimmed)) {
-    return openChordByUrl(trimmed).catch(() => {});
+    try {
+      const u = new URL(trimmed);
+      if (state.isInSession && state.roomCode) u.searchParams.set('mb_room', String(state.roomCode));
+      window.open(u.toString(), '_blank');
+    } catch {
+      try {
+        window.open(trimmed, '_blank');
+      } catch {}
+    }
+    flashHud('ChordWiki 탭에서 “🎵 ScoreViewer로 열기” 버튼을 누르세요', 1600);
+    return;
   }
 
   const fileId = extractDriveFileId(trimmed);
@@ -1907,7 +1568,6 @@ function openByInput(input) {
 // New: inline open input (GAS style)
 document.getElementById('openBtn')?.addEventListener('click', () => {
   const input = document.getElementById('linkInput')?.value || '';
-  if (state.mode === 'chord') return openChordByUrl(input, { preopenAuth: true }).catch(() => {});
   openByInput(input);
 });
 document.getElementById('linkInput')?.addEventListener('keydown', (e) => {
@@ -3371,7 +3031,11 @@ socket.on('session:state', (p) => {
     if (fileId.startsWith('chord:')) {
       openChordByDocId(fileId, { broadcast: false }).catch(() => {});
     } else if (originalLink && /^https?:\/\//i.test(originalLink) && !extractDriveFileId(originalLink)) {
-      openChordByUrl(originalLink, { broadcast: false }).catch(() => {});
+      // legacy: docId 없이 URL만 공유된 경우(현재 정책에서는 지원하지 않음)
+      setMode('chord');
+      state.fileId = fileId;
+      setCwError('이 세션은 코드위키 URL만 공유되어 docId가 없습니다. 페이지터너가 Tampermonkey로 다시 열어주세요.');
+      setCwMeta(`원문 URL: ${originalLink}`);
     } else {
       setMode('pdf');
       state.fileId = fileId;
@@ -3554,20 +3218,17 @@ socket.on('session:follow:file', (p) => {
     openChordByDocId(String(fileId), { broadcast: false }).catch(() => {});
     return;
   }
-  // codewiki URL follow (legacy)
+  // codewiki URL follow (legacy) - docId 없이 URL만 공유된 케이스는 지원하지 않음
   if (originalLink && /^https?:\/\//i.test(originalLink) && !extractDriveFileId(originalLink)) {
-    openChordByUrl(originalLink, { broadcast: false }).catch(() => {});
+    setMode('chord');
+    state.fileId = String(fileId);
+    setCwError('이 세션은 코드위키 URL만 공유되어 docId가 없습니다. 페이지터너가 Tampermonkey로 다시 열어주세요.');
+    setCwMeta(`원문 URL: ${originalLink}`);
+    socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId: state.fileId });
     return;
   }
 
   const targetId = originalLink ? extractDriveFileId(originalLink) || fileId : fileId;
-  if (String(targetId).startsWith('chord:')) {
-    setMode('chord');
-    state.fileId = String(targetId);
-    setCwError('코드위키 문서 follow: 원문 텍스트가 필요하면 “원문 붙여넣기”로 입력하세요.');
-    socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId: state.fileId });
-    return;
-  }
 
   // 세션 내에서는 페이지 리로드를 하지 않고 PDF만 교체한다(중복 접속/터너 깜빡임 방지)
   state.fileId = String(targetId);
@@ -3617,9 +3278,6 @@ socket.on('wb:page:update', async (p) => {
 
 // ---- Init -------------------------------------------------------------------------
 async function init() {
-  // bookmarklet window.name fallback 수신은 가능한 빨리 처리(로딩/닉네임 모달 전에)
-  consumeWindowNamePayload();
-
   const metaToken = await getSocketMetaToken();
   if (metaToken) {
     try {
@@ -3631,13 +3289,6 @@ async function init() {
   }
 
   await loadMe();
-
-  // 코드위키 UI는 기본 숨김. 플래그로만 노출한다.
-  const showChordUi = String(qs('chord') || '') === '1' || String(qs('debug') || '') === '1';
-  document.body.classList.toggle('show-chord-ui', showChordUi);
-
-  // 늦게 로드되는 경우를 대비해 한 번 더 시도
-  consumeWindowNamePayload();
 
   // 방문자(익명)로 /viewer 접속 시: 무조건 닉네임을 설정하도록 강제
   if (authState.role === 'viewer') {

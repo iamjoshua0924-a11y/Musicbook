@@ -72,7 +72,15 @@
           return;
         }
 
-        const room = prompt('세션 코드(선택): 세션에서 바로 따라오게 하려면 입력', '') || '';
+        // viewer에서 링크로 열었을 때 ?mb_room=ROOM 을 붙여줄 수 있다.
+        let room = '';
+        try {
+          const ru = new URL(window.location.href);
+          room = String(ru.searchParams.get('mb_room') || '').trim().toUpperCase();
+        } catch {}
+        if (!room) {
+          room = (prompt('세션 코드(선택): 세션에서 바로 따라오게 하려면 입력', '') || '').trim().toUpperCase();
+        }
         const payload = JSON.stringify({ rawText, sourceUrl: location.href });
 
         GM_xmlhttpRequest({
@@ -112,4 +120,3 @@
 
   setTimeout(ensureButton, 1000);
 })();
-

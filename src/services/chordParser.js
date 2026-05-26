@@ -554,14 +554,28 @@ async function emitMixedChordLyricLine(line, out) {
   const lyricRow = Array.from({ length: maxLen }, (_, idx) => lyricCells[idx] || { raw: ' ', kr: ' ' });
 
   for (const sp of spans) {
-    const startCol = rawToCol[sp.start];
-    if (startCol === null || startCol === undefined) continue;
     const token = sp.token;
 
+    // ChordWiki 렌더링 로직(사용자 제보):
+    // 코드 토큰을 "뒤에 붙은 가사/리듬 기호 시작점"에 우측 정렬시켜 올린다.
+    // => 토큰의 "끝"을 anchorCol에 맞추고, token.length-1 만큼 왼쪽 공간을 비워 가사가 anchorCol에서 시작하도록 한다.
+    let anchorRaw = sp.end;
+    while (anchorRaw < s.length && (s[anchorRaw] === ' ' || s[anchorRaw] === '\t')) anchorRaw += 1;
+    const anchorCol = rawToCol[anchorRaw] ?? rawToCol[sp.end] ?? null;
+    if (anchorCol === null || anchorCol === undefined) continue;
+    const startCol = Math.max(0, Number(anchorCol) - (token.length - 1));
+
     chordRow[startCol] = token;
-    for (let x = 0; x < token.length; x += 1) {
-      const col = startCol + x;
-      if (col >= 0 && col < lyricRow.length) lyricRow[col] = { raw: ' ', kr: ' ' };
+
+    // (A) 코드표기 공간만큼 lyric를 비워 "가사 시작점"을 유지
+    for (let col = startCol; col < Math.min(lyricRow.length, Number(anchorCol)); col += 1) {
+      lyricRow[col] = { raw: ' ', kr: ' ' };
+    }
+    // (B) 원문 속 코드 토큰 문자(ASCII)도 가사에서 제거
+    for (let r = sp.start; r < sp.end; r += 1) {
+      const c = rawToCol[r];
+      if (c === null || c === undefined) continue;
+      if (c >= 0 && c < lyricRow.length) lyricRow[c] = { raw: ' ', kr: ' ' };
     }
 
     // 코드 뒤에 붙는 리듬 기호(-,>,=)는 "코드 마지막 글자 아래"로 당겨서 정렬
@@ -571,7 +585,7 @@ async function emitMixedChordLyricLine(line, out) {
       let r = endRaw;
       while (r < s.length && (s[r] === '-' || s[r] === '>' || s[r] === '=')) r += 1;
       const run = s.slice(endRaw, r);
-      const baseCol = Math.max(0, startCol + token.length - 1);
+      const baseCol = Math.max(0, startCol + token.length - 1); // == anchorCol (의도)
       for (let k = 0; k < run.length; k += 1) {
         const col = baseCol + k;
         if (col >= 0 && col < lyricRow.length) lyricRow[col] = { raw: run[k], kr: run[k] };

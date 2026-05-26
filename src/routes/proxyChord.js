@@ -175,8 +175,30 @@ function shouldCompactBlocks(blocks) {
   return Array.isArray(blocks) && blocks.length > 50_000;
 }
 
-function compactBlocksV1(blocks) {
-  /** @type {Array<{raw:string, kr:string, chords:Array<{col:number, token:string}>}>} */
+function rleEncodeSpaces(str) {
+  const s = String(str || '');
+  /** @type {Array<[0,number] | [1,string]>} */
+  const out = [];
+  let i = 0;
+  while (i < s.length) {
+    const ch = s[i];
+    if (ch === ' ') {
+      let j = i + 1;
+      while (j < s.length && s[j] === ' ') j += 1;
+      out.push([0, j - i]);
+      i = j;
+      continue;
+    }
+    let j = i + 1;
+    while (j < s.length && s[j] !== ' ') j += 1;
+    out.push([1, s.slice(i, j)]);
+    i = j;
+  }
+  return out;
+}
+
+function compactBlocksV2(blocks) {
+  /** @type {Array<{rawRle:any[], krRle:any[], chords:Array<{col:number, token:string}>}>} */
   const lines = [];
   let raw = '';
   let kr = '';
@@ -185,7 +207,9 @@ function compactBlocksV1(blocks) {
   let col = 0;
 
   const flush = () => {
-    if (raw.length || kr.length || chords.length) lines.push({ raw, kr, chords });
+    if (raw.length || kr.length || chords.length) {
+      lines.push({ rawRle: rleEncodeSpaces(raw), krRle: rleEncodeSpaces(kr), chords });
+    }
     raw = '';
     kr = '';
     chords = [];
@@ -207,13 +231,13 @@ function compactBlocksV1(blocks) {
   }
   flush();
 
-  return { format: 'mb_chord_compact_v1', lines };
+  return { format: 'mb_chord_compact_v2', lines };
 }
 
 async function createChordDoc({ blocks, meta }) {
   const docId = `chord:${nanoid(12)}`;
   let toStore = blocks || [];
-  if (shouldCompactBlocks(toStore)) toStore = compactBlocksV1(toStore);
+  if (shouldCompactBlocks(toStore)) toStore = compactBlocksV2(toStore);
 
   try {
     await ChordDoc.create({
@@ -228,7 +252,7 @@ async function createChordDoc({ blocks, meta }) {
         await ChordDoc.create({
           _id: docId,
           meta: meta || {},
-          blocks: compactBlocksV1(toStore)
+          blocks: compactBlocksV2(toStore)
         });
       } else {
         throw e;
@@ -398,10 +422,26 @@ router.post('/proxy-chord', async (req, res) => {
   try {
     docId = await createChordDoc({ blocks, meta });
   } catch (e) {
+    // Render 로그에 원인 남기기
+    // eslint-disable-next-line no-console
+    console.error('[proxy-chord] DOC_STORE_FAILED', {
+      name: e?.name,
+      message: e?.message,
+      code: e?.code,
+      stack: String(e?.stack || '').split('\n').slice(0, 4).join('\n'),
+      original: e?._mb_original ? { name: e._mb_original?.name, message: e._mb_original?.message } : null,
+      blocksCount: Array.isArray(blocks) ? blocks.length : -1
+    });
     return res.status(502).json({
       ok: false,
       error: 'DOC_STORE_FAILED',
-      detail: String(e?.message || e)
+      detail: {
+        name: String(e?.name || ''),
+        message: String(e?.message || ''),
+        code: String(e?.code || ''),
+        stack: String(e?.stack || '').split('\n')[0] || '',
+        blocksCount: Array.isArray(blocks) ? blocks.length : 0
+      }
     });
   }
   // blocks는 크기가 매우 커질 수 있으므로, 뷰어는 docId로 /api/chord-doc 를 다시 호출한다.

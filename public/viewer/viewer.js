@@ -1237,13 +1237,24 @@ function expandCompactChordBlocks(blocks) {
   const b = blocks;
   if (!b || typeof b !== 'object') return blocks;
   if (Array.isArray(b)) return b;
-  if (String(b.format || '') !== 'mb_chord_compact_v1') return blocks;
+  const fmt = String(b.format || '');
+  if (fmt !== 'mb_chord_compact_v1' && fmt !== 'mb_chord_compact_v2') return blocks;
   const lines = Array.isArray(b.lines) ? b.lines : [];
   /** @type {Array<any>} */
   const out = [];
+  const rleDecode = (arr) => {
+    if (!Array.isArray(arr)) return '';
+    let s = '';
+    for (const it of arr) {
+      if (!Array.isArray(it) || it.length < 2) continue;
+      if (it[0] === 0) s += ' '.repeat(Number(it[1] || 0));
+      else s += String(it[1] || '');
+    }
+    return s;
+  };
   for (const ln of lines) {
-    const raw = String(ln?.raw || '');
-    const kr = String(ln?.kr || '');
+    const raw = fmt === 'mb_chord_compact_v2' ? rleDecode(ln?.rawRle) : String(ln?.raw || '');
+    const kr = fmt === 'mb_chord_compact_v2' ? rleDecode(ln?.krRle) : String(ln?.kr || '');
     const chordArr = Array.isArray(ln?.chords) ? ln.chords : [];
     const chordMap = new Map();
     for (const c of chordArr) {

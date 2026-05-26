@@ -341,6 +341,9 @@ function flashHud(msg, ms = 1200) {
 let localCursorEl = null;
 let remoteCursorEl = null;
 let cursorMoveHandler = null;
+let cursorDownHandler = null;
+let cursorUpHandler = null;
+let cursorDragLock = null; // { pageNo, yPageNorm }
 let lastCursorEmitAt = 0;
 
 function ensureCursorEls() {
@@ -380,8 +383,9 @@ function setCursorMarker(el, { xNorm, yNorm, visible, mode = 'line', pageNo = 0,
     const v = viewMap.get(Number(pageNo));
     if (v?.root) {
       const pr = v.root.getBoundingClientRect();
-      const pad = 12;
-      const xPage = Number.isFinite(Number(xNorm)) ? clamp(Number(xNorm), 0, 1) : 0.5;
+      const pad = 10;
+      // row 모드에서는 "가로 전체"가 핵심이므로 x 좌표는 무시(페이지 중앙 고정)
+      const xPage = m === 'row' ? 0.5 : Number.isFinite(Number(xNorm)) ? clamp(Number(xNorm), 0, 1) : 0.5;
       const yPage = Number.isFinite(Number(yPageNorm)) ? clamp(Number(yPageNorm), 0, 1) : 0.5;
 
       const leftPx = sx + (pr.left - r.left) + xPage * pr.width;
@@ -399,7 +403,8 @@ function setCursorMarker(el, { xNorm, yNorm, visible, mode = 'line', pageNo = 0,
         el.style.height = `${Math.round(h)}px`;
       }
 
-      el.style.left = `${Math.round(leftPx)}px`;
+      // row 모드: 페이지 내부 가로 전체이므로 항상 페이지 중앙에 배치
+      el.style.left = `${Math.round(m === 'row' ? sx + (pr.left - r.left) + pr.width / 2 : leftPx)}px`;
       el.style.top = `${Math.round(topPx)}px`;
       el.style.display = 'block';
       return;
@@ -415,9 +420,13 @@ function setCursorMarker(el, { xNorm, yNorm, visible, mode = 'line', pageNo = 0,
   // 높이: 화면에 비례(너무 작/크지 않게)
   const h = m === 'row' ? clamp(r.height * 0.065, 34, 70) : clamp(r.height * 0.11, 40, 110);
   el.style.height = `${Math.round(h)}px`;
+  if (m === 'row') {
+    const pad = 10;
+    el.style.width = `${Math.round(Math.max(40, r.width - pad * 2))}px`;
+  }
   // CSS에서 transform: translate(-50%, -50%)로 "중심 기준" 정렬을 하므로,
   // 여기서는 left/top에 중심 좌표를 그대로 넣는다.
-  const left = sx + (xPx ?? 0);
+  const left = sx + (m === 'row' ? r.width / 2 : xPx ?? 0);
   const top = sy + (yPx ?? 0);
   el.style.left = `${Math.round(left)}px`;
   el.style.top = `${Math.round(top)}px`;
@@ -475,7 +484,25 @@ function stopCursorShare(sendHide = false) {
     c?.removeEventListener('mousemove', cursorMoveHandler);
     c?.removeEventListener('touchmove', cursorMoveHandler);
   }
+  if (cursorDownHandler) {
+    const c = document.getElementById('pdf-container');
+    c?.removeEventListener('pointerdown', cursorDownHandler);
+    c?.removeEventListener('mousedown', cursorDownHandler);
+    c?.removeEventListener('touchstart', cursorDownHandler);
+  }
+  if (cursorUpHandler) {
+    const c = document.getElementById('pdf-container');
+    c?.removeEventListener('pointerup', cursorUpHandler);
+    c?.removeEventListener('pointercancel', cursorUpHandler);
+    c?.removeEventListener('mouseup', cursorUpHandler);
+    c?.removeEventListener('mouseleave', cursorUpHandler);
+    c?.removeEventListener('touchend', cursorUpHandler);
+    c?.removeEventListener('touchcancel', cursorUpHandler);
+  }
   cursorMoveHandler = null;
+  cursorDownHandler = null;
+  cursorUpHandler = null;
+  cursorDragLock = null;
   updateCursorShareUI();
   updateToolActiveUI();
   if (sendHide && state.isInSession && state.isPageTurner && state.roomCode && state.fileId) {
@@ -496,6 +523,26 @@ function startCursorShare() {
   const container = document.getElementById('pdf-container');
   if (!container) return;
 
+  cursorDownHandler = (e) => {
+    if (!state.cursorShareOn) return;
+    if (!state.isInSession || !state.isPageTurner || !state.roomCode || !state.fileId) return;
+    if ((state.cursorShareMode || 'line') !== 'row') return;
+    const t = e.touches && e.touches[0] ? e.touches[0] : null;
+    const clientX = t ? t.clientX : e.clientX;
+    const clientY = t ? t.clientY : e.clientY;
+    const hit = findPageAtPoint(clientX, clientY);
+    if (!hit?.rect) return;
+    const rect = hit.rect;
+    const pageNo = hit.pageNo;
+    const yPageNorm = rect.height ? (clientY - rect.top) / rect.height : 0.5;
+    // 드래그 시작 시점의 "줄(세로)" 위치를 고정한다.
+    cursorDragLock = { pageNo, yPageNorm: clamp(yPageNorm, 0, 1) };
+  };
+
+  cursorUpHandler = () => {
+    cursorDragLock = null;
+  };
+
   cursorMoveHandler = (e) => {
     if (!state.cursorShareOn) return;
     if (!state.isInSession || !state.isPageTurner || !state.roomCode || !state.fileId) return;
@@ -512,16 +559,39 @@ function startCursorShare() {
 
     const hit = findPageAtPoint(clientX, clientY);
     if (!hit?.rect) return;
-    const rect = hit.rect;
-    const pageNo = hit.pageNo;
-    const xPageNorm = rect.width ? (clientX - rect.left) / rect.width : 0;
-    const yPageNorm = rect.height ? (clientY - rect.top) / rect.height : 0;
+    let rect = hit.rect;
+    let pageNo = hit.pageNo;
+    let xPageNorm = rect.width ? (clientX - rect.left) / rect.width : 0;
+    let yPageNorm = rect.height ? (clientY - rect.top) / rect.height : 0;
 
     const mode = state.cursorShareMode || 'line';
+    // row 모드에서 "드래그 중"이면 세로 위치(y)를 고정한다.
+    if (mode === 'row' && cursorDragLock?.pageNo) {
+      const lockedPageNo = Number(cursorDragLock.pageNo);
+      const lockedView = viewMap.get(lockedPageNo);
+      if (lockedView?.root) {
+        const lockedRect = lockedView.root.getBoundingClientRect();
+        rect = lockedRect;
+        pageNo = lockedPageNo;
+      }
+      xPageNorm = 0.5;
+      yPageNorm = Number.isFinite(Number(cursorDragLock.yPageNorm)) ? cursorDragLock.yPageNorm : yPageNorm;
+    }
     // NOTE: 스크롤/줌 안정성을 위해 "페이지 기준 좌표"로만 마커를 배치한다.
     setCursorMarker(localCursorEl, { xNorm: xPageNorm, yNorm: yPageNorm, visible: true, mode, pageNo, yPageNorm });
     socket.emit('viewer:cursor', { roomCode: state.roomCode, fileId: state.fileId, pageNo, xPageNorm, yPageNorm, mode });
   };
+
+  container.addEventListener('pointerdown', cursorDownHandler, { passive: true });
+  container.addEventListener('pointerup', cursorUpHandler, { passive: true });
+  container.addEventListener('pointercancel', cursorUpHandler, { passive: true });
+  // fallback
+  container.addEventListener('mousedown', cursorDownHandler, { passive: true });
+  container.addEventListener('mouseup', cursorUpHandler, { passive: true });
+  container.addEventListener('mouseleave', cursorUpHandler, { passive: true });
+  container.addEventListener('touchstart', cursorDownHandler, { passive: true });
+  container.addEventListener('touchend', cursorUpHandler, { passive: true });
+  container.addEventListener('touchcancel', cursorUpHandler, { passive: true });
 
   container.addEventListener('pointermove', cursorMoveHandler, { passive: true });
   // fallback

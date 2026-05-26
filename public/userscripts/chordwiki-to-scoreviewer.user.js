@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChordWiki → ScoreViewer Exporter (docId)
 // @namespace    musicbook
-// @version      0.4.0
+// @version      0.4.1
 // @description  ChordWiki 페이지에서 악보 텍스트를 DOM에서 추출해 ScoreViewer로 전송하고 docId로 엽니다.
 // @match        *://*.chordwiki.org/wiki/*
 // @match        *://*.chordwiki.jp/wiki/*
@@ -649,9 +649,22 @@
         if (!room) {
           room = (prompt('세션 코드(선택): 세션에서 바로 따라오게 하려면 입력', '') || '').trim().toUpperCase();
         }
-        // (전략 4) rawText 대신 blocks를 직접 생성해 서버에 전달(서버 재파싱 손실 최소화)
+        // (전략 4) 가능하면 blocks를 직접 생성해 서버에 전달(서버 재파싱 손실 최소화)
+        // 다만 blocks는 객체 배열이라 JSON 크기가 급격히 커질 수 있어, 너무 크면 rawText로 폴백한다.
         const blocks = buildBlocksFromRawText(rawText);
-        const payload = JSON.stringify({ blocks, sourceUrl: location.href });
+        let payloadObj = { blocks, sourceUrl: location.href, client: 'tm_layout_v2', clientVersion: '0.4.1' };
+        let payload = '';
+        try {
+          payload = JSON.stringify(payloadObj);
+        } catch {
+          payloadObj = { rawText, sourceUrl: location.href, client: 'tm_layout_v2', clientVersion: '0.4.1' };
+          payload = JSON.stringify(payloadObj);
+        }
+        // 12MB 이상이면 rawText로 전송(서버 20mb 제한 대비 + 네트워크 안정성)
+        if (payload.length > 12_000_000) {
+          payloadObj = { rawText, sourceUrl: location.href, client: 'tm_layout_v2', clientVersion: '0.4.1' };
+          payload = JSON.stringify(payloadObj);
+        }
 
         GM_xmlhttpRequest({
           method: 'POST',
@@ -660,9 +673,12 @@
           data: payload,
           onload: function (resp) {
             try {
-              const data = JSON.parse(resp.responseText || '{}');
+              const status = Number(resp.status || 0);
+              const txt = String(resp.responseText || '');
+              const data = txt ? JSON.parse(txt) : {};
               if (!data.ok || !data.docId) {
-                alert('전송 실패: ' + (data.error || 'UNKNOWN'));
+                const err = data && typeof data === 'object' ? JSON.stringify(data).slice(0, 500) : String(data);
+                alert(`전송 실패 (status=${status}): ${data?.error || 'UNKNOWN'}\n${err}`);
                 return;
               }
               const qs = new URLSearchParams();
@@ -673,11 +689,20 @@
               const wn = String(room || '').trim() ? `mb_viewer_room_${String(room || '').trim().toUpperCase()}` : '_blank';
               window.open(`${SCORE_VIEWER_ORIGIN}/viewer?${qs.toString()}`, wn);
             } catch (e) {
-              alert('응답 처리 실패: ' + (e && e.message ? e.message : e));
+              const status = Number(resp.status || 0);
+              const txt = String(resp.responseText || '');
+              alert(
+                '응답 처리 실패' +
+                  ` (status=${status})` +
+                  ': ' +
+                  (e && e.message ? e.message : e) +
+                  '\n' +
+                  txt.slice(0, 500)
+              );
             }
           },
           onerror: function (err) {
-            alert('전송 실패: ' + JSON.stringify(err));
+            alert('전송 실패(onerror): ' + JSON.stringify(err));
           }
         });
       } finally {

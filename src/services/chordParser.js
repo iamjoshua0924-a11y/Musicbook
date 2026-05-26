@@ -449,6 +449,143 @@ async function buildLyricCellsStrict(line) {
 }
 
 /**
+ * 가사 셀 생성 + raw index -> display col 매핑(후리가나 괄호 폭 0 처리용)
+ * @param {string} line
+ * @returns {Promise<{cells:Array<{raw:string,kr:string}>, rawToCol:Array<number|null>}>}
+ */
+async function buildLyricCellsStrictWithMap(line) {
+  const src = normalizeTabs(line);
+  /** @type {Array<{raw:string, kr:string}>} */
+  const cells = [];
+  /** @type {Array<number|null>} */
+  const rawToCol = Array.from({ length: src.length }, () => null);
+
+  let i = 0;
+  while (i < src.length) {
+    const tok = tryParseFuriganaToken(src, i);
+    if (tok) {
+      const readingKr = toKoreanReadingMvp(tok.readingKana);
+      const baseLen = Math.max(1, tok.base.length);
+      const segs = baseLen === 1 ? [readingKr] : distributeText(readingKr, baseLen);
+
+      for (let bi = 0; bi < baseLen; bi += 1) {
+        rawToCol[i + bi] = cells.length;
+        cells.push({ raw: tok.base[bi] || '', kr: segs[bi] || '' });
+      }
+      for (let x = i + baseLen; x < tok.end; x += 1) rawToCol[x] = cells.length ? cells.length - 1 : null;
+
+      i = tok.end;
+      continue;
+    }
+
+    const ch = src[i];
+    if (ch === '\r') {
+      rawToCol[i] = cells.length ? cells.length - 1 : null;
+      i += 1;
+      continue;
+    }
+    if (ch === '\n') break;
+
+    rawToCol[i] = cells.length;
+    if (isKana(ch)) cells.push({ raw: ch, kr: toKoreanReadingMvp(ch) });
+    else if (isKanji(ch)) cells.push({ raw: ch, kr: '' });
+    else cells.push({ raw: ch, kr: ch });
+    i += 1;
+  }
+
+  // kuromoji로 남은 한자만 보완(가능할 때)
+  const needsKuro = cells.some((c) => isKanji(c.raw) && !String(c.kr || '').trim());
+  if (!needsKuro) return { cells, rawToCol };
+  const tokenizer = await getTokenizer();
+  if (!tokenizer) return { cells, rawToCol };
+
+  const cleanLine = cells.map((c) => c.raw).join('');
+  try {
+    const tokens = tokenizer.tokenize(cleanLine);
+    let pos = 0;
+    for (const t of tokens) {
+      const surf = String(t.surface_form || '');
+      if (!surf) continue;
+      if (!cleanLine.startsWith(surf, pos)) {
+        const found = cleanLine.indexOf(surf, pos);
+        if (found === -1) continue;
+        pos = found;
+      }
+      const start = pos;
+      const end = pos + surf.length;
+      pos = end;
+
+      const hasKanji = /[\u3400-\u9fff]/.test(surf);
+      const reading = String(t.reading || '');
+      if (!hasKanji || !reading) continue;
+      const readingKr = toKoreanReadingMvp(reading);
+      const segs = distributeText(readingKr, surf.length);
+      for (let x = start; x < end && x < cells.length; x += 1) {
+        if (String(cells[x].kr || '').trim()) continue;
+        if (!isKanji(cells[x].raw)) continue;
+        cells[x].kr = segs[x - start] || '';
+      }
+    }
+  } catch {}
+
+  for (let x = 0; x < cells.length; x += 1) {
+    if (!String(cells[x].kr || '').trim()) cells[x].kr = cells[x].raw;
+  }
+  return { cells, rawToCol };
+}
+
+function isMixedChordLyricLine(line) {
+  const s = String(line || '');
+  if (!s.trim()) return false;
+  if (!hasKanaKanjiOrHangul(s)) return false;
+  const spans = buildChordTokenSpans(s);
+  return spans.length > 0;
+}
+
+async function emitMixedChordLyricLine(line, out) {
+  const s = normalizeTabs(String(line || ''));
+  const spans = buildChordTokenSpans(s);
+  const { cells: lyricCells, rawToCol } = await buildLyricCellsStrictWithMap(s);
+
+  const maxLen = Math.max(lyricCells.length, 1);
+  /** @type {string[]} */
+  const chordRow = Array.from({ length: maxLen }, () => '');
+  /** @type {Array<{raw:string,kr:string}>} */
+  const lyricRow = Array.from({ length: maxLen }, (_, idx) => lyricCells[idx] || { raw: ' ', kr: ' ' });
+
+  for (const sp of spans) {
+    const startCol = rawToCol[sp.start];
+    if (startCol === null || startCol === undefined) continue;
+    const token = sp.token;
+
+    chordRow[startCol] = token;
+    for (let x = 0; x < token.length; x += 1) {
+      const col = startCol + x;
+      if (col >= 0 && col < lyricRow.length) lyricRow[col] = { raw: ' ', kr: ' ' };
+    }
+
+    // 코드 뒤에 붙는 리듬 기호(-,>,=)는 "코드 마지막 글자 아래"로 당겨서 정렬
+    const endRaw = sp.end;
+    const next = s[endRaw] || '';
+    if (next === '-' || next === '>' || next === '=') {
+      let r = endRaw;
+      while (r < s.length && (s[r] === '-' || s[r] === '>' || s[r] === '=')) r += 1;
+      const run = s.slice(endRaw, r);
+      const baseCol = Math.max(0, startCol + token.length - 1);
+      for (let k = 0; k < run.length; k += 1) {
+        const col = baseCol + k;
+        if (col >= 0 && col < lyricRow.length) lyricRow[col] = { raw: run[k], kr: run[k] };
+      }
+    }
+  }
+
+  for (let col = 0; col < maxLen; col += 1) {
+    const cell = lyricRow[col] || { raw: ' ', kr: ' ' };
+    out.push({ chord: chordRow[col] || '', lyric_raw: cell.raw, lyric_kr: cell.kr });
+  }
+}
+
+/**
  * rawText -> LogBlock[] (개행 포함)
  * @param {string} rawText
  * @returns {Promise<LogBlock[]>}
@@ -482,6 +619,14 @@ async function parseRawTextToBlocks(rawText) {
     // 1단계: 줄 성격 판별(Chord vs Lyric)
     const isChord = isChordLine(line);
     const isNextChord = isChordLine(next);
+
+    // 1.5) 코드/가사가 한 줄로 섞인 경우: 한 줄 안에서 코드 토큰을 상단(Chord)으로 분리
+    // (DOM/복붙으로 줄바꿈이 망가졌을 때 최후 방어)
+    if (!isChord && isMixedChordLyricLine(line)) {
+      await emitMixedChordLyricLine(line, out);
+      out.push({ chord: '', lyric_raw: '\n', lyric_kr: '\n' });
+      continue;
+    }
 
     // 2단계: chord 라인 + 바로 다음 lyric 라인이면 수직 매핑
     if (isChord && next && !isNextChord && next.trim() !== '') {

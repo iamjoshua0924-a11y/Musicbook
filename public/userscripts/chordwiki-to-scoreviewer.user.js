@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChordWiki → ScoreViewer Exporter (docId)
 // @namespace    musicbook
-// @version      0.2.5
+// @version      0.2.6
 // @description  ChordWiki 페이지에서 악보 텍스트를 DOM에서 추출해 ScoreViewer로 전송하고 docId로 엽니다.
 // @match        *://*.chordwiki.org/wiki/*
 // @match        *://*.chordwiki.jp/wiki/*
@@ -216,17 +216,27 @@
         const candidates = collectCandidates();
         let rawText = selectBestCandidate(candidates);
 
-        // 구조가 특이한 페이지(줄바꿈이 깨지거나, 본문이 잘못 선택된 경우)에는 원문(source/edit)을 직접 가져온다.
+        // chordwiki는 페이지마다 DOM 텍스트가 줄바꿈/공백을 망가뜨리는 케이스가 있어,
+        // 가능한 경우 항상 "원문(source/edit)"을 우선 시도한다.
+        // (원문이 유효하면 그쪽이 1순위)
+        const src = await fetchWikiSourceText();
+        if (src && src.length > 20) {
+          const srcLines = src.split('\n').length;
+          const rawLines = String(rawText || '').split('\n').length;
+          const srcSeemsBetter =
+            srcLines >= 10 ||
+            (srcLines >= rawLines + 4) ||
+            (src.length > 800 && srcLines >= 6 && chordHitCount(src) >= Math.max(6, chordHitCount(rawText)));
+          if (srcSeemsBetter) rawText = trimToChordArea(src);
+        }
+
+        // 최종 방어: 그래도 너무 약하면 실패 처리
         const weak =
           !rawText ||
           rawText.length < 20 ||
-          rawText.split('\n').length < 6 ||
-          (rawText.length > 2000 && rawText.split('\n').length < 3) ||
-          chordHitCount(rawText) < 8;
-        if (weak) {
-          const src = await fetchWikiSourceText();
-          if (src) rawText = trimToChordArea(src);
-        }
+          rawText.split('\n').length < 4 ||
+          (rawText.length > 2000 && rawText.split('\n').length < 6) ||
+          chordHitCount(rawText) < 6;
         if (!rawText || rawText.length < 20) {
           alert('악보 본문 텍스트를 찾지 못했습니다. (source/edit에서도 원문을 찾지 못함)');
           return;

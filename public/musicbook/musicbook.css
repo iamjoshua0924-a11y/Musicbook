@@ -787,6 +787,32 @@ body.hide-tags .song-chips{ display:none; }
   font-weight: 1000;
   margin-bottom: 10px;
 }
+.modal-title-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.icon-btn{
+  width: 38px;
+  height: 38px;
+  border-radius: 14px;
+  border: 1px solid rgba(0,0,0,0.10);
+  background: rgba(0,0,0,0.04);
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+}
+.icon-btn svg{
+  width: 20px;
+  height: 20px;
+  fill: rgba(0,0,0,0.72);
+}
+.icon-btn:hover{
+  background: rgba(0,0,0,0.06);
+}
 .modal-actions {
   display: flex;
   gap: 10px;
@@ -799,6 +825,58 @@ body.hide-tags .song-chips{ display:none; }
   border-radius: 18px;
   background: rgba(0, 0, 0, 0.04);
   font-weight: 1000;
+}
+.random-candidates{
+  margin-top: 10px;
+  display:flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.random-candidate{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 12px;
+  padding: 12px 12px;
+  border-radius: 18px;
+  border: 1px solid rgba(0,0,0,0.06);
+  background: rgba(255,255,255,0.65);
+}
+.random-candidate .meta{
+  min-width: 0;
+}
+.random-candidate .title{
+  font-weight: 1000;
+}
+.random-candidate .sub{
+  opacity: .7;
+  font-size: 12px;
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+.random-candidate .actions{
+  display:flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.form-row{
+  display:flex;
+  gap: 12px;
+  align-items:flex-start;
+  padding: 10px 0;
+}
+.form-label{
+  width: 110px;
+  font-weight: 1000;
+  padding-top: 10px;
+}
+.form-control{
+  flex:1;
+  min-width: 0;
 }
 
 /* 랜덤 룰렛(슬롯머신 스타일) */

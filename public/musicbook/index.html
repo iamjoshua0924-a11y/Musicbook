@@ -334,18 +334,51 @@
 
     <div class="modal-overlay" id="randomModal">
       <div class="modal">
-        <div class="modal-title">랜덤 추천곡</div>
+        <div class="modal-title-row">
+          <div class="modal-title" style="margin-bottom:0;">랜덤 추천곡</div>
+          <button class="icon-btn" id="randomSettingsOpenBtn" type="button" title="설정">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.27 7.27 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 13.9 1h-3.8a.5.5 0 0 0-.49.42l-.36 2.54c-.58.23-1.12.54-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L1.71 7.48a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94L1.83 14.52a.5.5 0 0 0-.12.64l1.92 3.32c.13.23.39.32.6.22l2.39-.96c.5.39 1.05.71 1.63.94l.36 2.54c.04.24.25.42.49.42h3.8c.24 0 .45-.18.49-.42l.36-2.54c.58-.23 1.12-.54 1.63-.94l2.39.96c.22.09.47 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Z"
+              ></path>
+            </svg>
+          </button>
+        </div>
         <div class="roulette-list-wrap">
           <div class="roulette-fade top"></div>
           <div class="roulette-fade bottom"></div>
           <div class="roulette-center-line"></div>
           <div class="roulette-list" id="rouletteList"></div>
         </div>
-        <div class="random-result" id="randomResult">룰렛을 돌려 곡을 고릅니다...</div>
+        <div class="random-result" id="randomResult">룰렛을 돌려 후보를 뽑습니다...</div>
+        <div class="random-candidates" id="randomCandidates"></div>
         <div class="modal-actions">
-          <button class="floating-btn" id="randomOpenBtn" style="display: none" type="button">열기</button>
-          <button class="floating-btn" id="randomRerollBtn" style="display: none" type="button">한번 더 뽑기</button>
+          <button class="floating-btn" id="randomRerollBtn" style="display: none" type="button">후보 다시 뽑기</button>
           <button class="floating-btn black-btn" id="randomCloseBtn" type="button">닫기</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 랜덤 설정 -->
+    <div class="modal-overlay" id="randomSettingsModal">
+      <div class="modal">
+        <div class="modal-title">랜덤 설정</div>
+        <div class="form-row">
+          <div class="form-label">후보 개수</div>
+          <div class="form-control">
+            <input id="randomCandidateCountInput" class="input" type="number" min="1" max="5" step="1" />
+            <div class="muted" style="margin-top:6px;">기본값: 3 (범위: 1~5)</div>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-label">오늘 중복 방지</div>
+          <div class="form-control">
+            <div class="muted">오늘 한 번이라도 “후보로 나온 곡”은 다시 뽑히지 않습니다.</div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="floating-btn" id="randomHistoryResetBtn" type="button">오늘 기록 초기화</button>
+          <button class="floating-btn black-btn" id="randomSettingsCloseBtn" type="button">닫기</button>
         </div>
       </div>
     </div>

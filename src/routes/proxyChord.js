@@ -307,15 +307,31 @@ router.get('/proxy-chord', async (req, res) => {
 });
 
 router.post('/proxy-chord', async (req, res) => {
-  const schema = z.object({
-    rawText: z.string().min(1).max(500_000),
-    sourceUrl: z.union([z.string().url(), z.literal('')]).optional()
-  });
+  const schema = z
+    .union([
+      z.object({
+        rawText: z.string().min(1).max(500_000),
+        sourceUrl: z.union([z.string().url(), z.literal('')]).optional()
+      }),
+      z.object({
+        blocks: z.array(z.any()).min(1).max(800_000),
+        sourceUrl: z.union([z.string().url(), z.literal('')]).optional()
+      })
+    ])
+    .strict();
+
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
 
-  const blocks = await parseRawTextToBlocks(parsed.data.rawText);
-  const meta = { source: 'clientRawText', sourceUrl: parsed.data.sourceUrl || '' };
+  let blocks = [];
+  let meta = {};
+  if ('rawText' in parsed.data) {
+    blocks = await parseRawTextToBlocks(parsed.data.rawText);
+    meta = { source: 'clientRawText', sourceUrl: parsed.data.sourceUrl || '' };
+  } else {
+    blocks = parsed.data.blocks || [];
+    meta = { source: 'clientBlocks', sourceUrl: parsed.data.sourceUrl || '' };
+  }
   let docId = '';
   try {
     docId = await createChordDoc({ blocks, meta });

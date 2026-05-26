@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChordWiki → ScoreViewer Exporter (docId)
 // @namespace    musicbook
-// @version      0.3.1
+// @version      0.4.0
 // @description  ChordWiki 페이지에서 악보 텍스트를 DOM에서 추출해 ScoreViewer로 전송하고 docId로 엽니다.
 // @match        *://*.chordwiki.org/wiki/*
 // @match        *://*.chordwiki.jp/wiki/*
@@ -136,37 +136,55 @@
     /** @type {Array<{text:string,x:number,y:number,w:number,h:number,fs:number}>} */
     const segs = [];
 
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null);
-    let node = walker.currentNode;
-    while (node) {
-      const el = /** @type {HTMLElement} */ (node);
-      // leaf-ish element: has no element children (text-only)
-      if (
-        el &&
-        isVisibleEl(el) &&
-        !el.querySelector?.('*') &&
-        typeof el.textContent === 'string' &&
-        el.textContent.trim().length
-      ) {
-        const text = normalizeFragment(el.textContent).replace(/\s+\n/g, '\n').replace(/\n\s+/g, '\n').replace(/\n+/g, '\n');
-        if (!isNoiseText(text)) {
-          const rect = el.getBoundingClientRect();
+    // 1) 텍스트 노드 기반 수집(좌표 정밀도를 위해)
+    const tw = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+    let tn = tw.nextNode();
+    while (tn) {
+      const textRaw = normalizeFragment(tn.nodeValue || '');
+      const t = pickText(textRaw);
+      if (t && !isNoiseText(t) && t.length <= 260) {
+        const parent = tn.parentElement;
+        if (parent && isVisibleEl(parent)) {
+          const rectP = parent.getBoundingClientRect();
           if (
-            rect &&
-            rect.width > 0 &&
-            rect.height > 0 &&
-            rect.left >= rootLeft - 10 &&
-            rect.right <= rootRight + 10 &&
-            rect.top >= rootTop - 80 &&
-            rect.top <= rootBottom + 80
+            rectP &&
+            rectP.width > 0 &&
+            rectP.height > 0 &&
+            rectP.left >= rootLeft - 10 &&
+            rectP.right <= rootRight + 10 &&
+            rectP.top >= rootTop - 120 &&
+            rectP.top <= rootBottom + 120
           ) {
-            const fs = parseFloat(window.getComputedStyle(el).fontSize || '16') || 16;
-            // 아주 긴 텍스트 덩어리는 leaf가 아니거나 노이즈일 가능성이 높음
-            if (text.length <= 200) segs.push({ text: pickText(text).replace(/\n/g, ' '), x: rect.left, y: rect.top, w: rect.width, h: rect.height, fs });
+            const fs = parseFloat(window.getComputedStyle(parent).fontSize || '16') || 16;
+            // Score/리듬 라인은 "문자 단위 rect"를 써서 x를 더 정확히 잡는다 (전략 2)
+            if (isScoreMonoText(t) && t.length <= 220) {
+              try {
+                const range = document.createRange();
+                const str = String(tn.nodeValue || '');
+                // code unit index로 range를 잡되, ascii 위주(스코어)라 안전
+                for (let i = 0; i < str.length; i += 1) {
+                  const ch = str[i];
+                  if (ch === '\n' || ch === '\r') continue;
+                  if (!ch.trim()) continue; // 공백은 x로 간접 복원
+                  range.setStart(tn, i);
+                  range.setEnd(tn, i + 1);
+                  const rr = range.getBoundingClientRect();
+                  if (rr && rr.width > 0 && rr.height > 0) {
+                    segs.push({ text: pickText(ch), x: rr.left, y: rr.top, w: rr.width, h: rr.height, fs });
+                  }
+                }
+              } catch {
+                // fallback: parent rect
+                segs.push({ text: t.replace(/\n/g, ' '), x: rectP.left, y: rectP.top, w: rectP.width, h: rectP.height, fs });
+              }
+            } else {
+              // 일반 텍스트는 parent rect 기반(속도)
+              segs.push({ text: t.replace(/\n/g, ' '), x: rectP.left, y: rectP.top, w: rectP.width, h: rectP.height, fs });
+            }
           }
         }
       }
-      node = walker.nextNode();
+      tn = tw.nextNode();
     }
 
     // 일부 페이지는 leaf 조건이 너무 빡세서 비어버릴 수 있다. 그때는 span/div 등의 "짧은 텍스트"를 2차 수집
@@ -241,6 +259,167 @@
     }
 
     return outLines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
+  }
+
+  // ===== 간단 가나→한글(독음) 변환(클라이언트 블록 전송용) =====
+  function kataToHira(str) {
+    return String(str || '').replace(/[\u30A1-\u30F6]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60));
+  }
+  const KANA_TO_KR = new Map(
+    Object.entries({
+      あ: '아', い: '이', う: '우', え: '에', お: '오',
+      か: '카', き: '키', く: '쿠', け: '케', こ: '코',
+      さ: '사', し: '시', す: '스', せ: '세', そ: '소',
+      た: '타', ち: '치', つ: '츠', て: '테', と: '토',
+      な: '나', に: '니', ぬ: '누', ね: '네', の: '노',
+      は: '하', ひ: '히', ふ: '후', へ: '헤', ほ: '호',
+      ま: '마', み: '미', む: '무', め: '메', も: '모',
+      や: '야', ゆ: '유', よ: '요',
+      ら: '라', り: '리', る: '루', れ: '레', ろ: '로',
+      わ: '와', を: '오', ん: '응',
+      が: '가', ぎ: '기', ぐ: '구', げ: '게', ご: '고',
+      ざ: '자', じ: '지', ず: '즈', ぜ: '제', ぞ: '조',
+      だ: '다', ぢ: '지', づ: '즈', で: '데', ど: '도',
+      ば: '바', び: '비', ぶ: '부', べ: '베', ぼ: '보',
+      ぱ: '파', ぴ: '피', ぷ: '푸', ぺ: '페', ぽ: '포',
+      ぁ: '아', ぃ: '이', ぅ: '우', ぇ: '에', ぉ: '오',
+      ゃ: '야', ゅ: '유', ょ: '요'
+    })
+  );
+  const YOON = new Map(
+    Object.entries({
+      きゃ: '캬', きゅ: '큐', きょ: '쿄',
+      しゃ: '샤', しゅ: '슈', しょ: '쇼',
+      ちゃ: '챠', ちゅ: '츄', ちょ: '쵸',
+      にゃ: '냐', にゅ: '뉴', にょ: '뇨',
+      ひゃ: '햐', ひゅ: '휴', ひょ: '효',
+      みゃ: '먀', みゅ: '뮤', みょ: '묘',
+      りゃ: '랴', りゅ: '류', りょ: '료',
+      ぎゃ: '갸', ぎゅ: '규', ぎょ: '교',
+      じゃ: '쟈', じゅ: '쥬', じょ: '죠',
+      びゃ: '뱌', びゅ: '뷰', びょ: '뵤',
+      ぴゃ: '퍄', ぴゅ: '퓨', ぴょ: '표'
+    })
+  );
+  function toKoreanReadingMvp(input) {
+    const s = String(input ?? '');
+    if (!s) return '';
+    const hasKana = /[\u3040-\u30ff]/.test(s);
+    if (!hasKana) return s;
+    const hira = kataToHira(s);
+    let out = '';
+    for (let i = 0; i < hira.length; i += 1) {
+      const two = hira.slice(i, i + 2);
+      if (YOON.has(two)) {
+        out += YOON.get(two);
+        i += 1;
+        continue;
+      }
+      const ch = hira[i];
+      if (ch === 'ー' || ch === 'っ') continue;
+      out += KANA_TO_KR.get(ch) || ch;
+    }
+    return out;
+  }
+
+  function isEmoji(ch) {
+    try {
+      return /\p{Extended_Pictographic}/u.test(ch);
+    } catch {
+      // fallback: naive surrogate pair range
+      return /[\uD800-\uDBFF][\uDC00-\uDFFF]/.test(ch);
+    }
+  }
+
+  function splitCols(line) {
+    const out = [];
+    for (const ch of Array.from(String(line || ''))) {
+      out.push(ch);
+      if (isEmoji(ch)) out.push(' '); // emoji는 2칸으로 취급(전략 3)
+    }
+    return out;
+  }
+
+  function looksLikeChordToken(tok) {
+    const t = String(tok || '').trim();
+    if (!t) return false;
+    if (/^(?:N\.C\.|N\.C|NC)$/i.test(t)) return true;
+    return /^\/?[A-G](?:#|b)?(?:maj|min|m|dim|aug|sus|add)?\d*(?:\/[A-G](?:#|b)?)?$/i.test(t);
+  }
+  function buildChordStartMapFromLine(chordLine) {
+    const s = String(chordLine || '');
+    const map = new Map();
+    let i = 0;
+    while (i < s.length) {
+      if (s[i] === ' ' || s[i] === '\t') {
+        i += 1;
+        continue;
+      }
+      let j = i;
+      while (j < s.length && /[A-Za-z0-9#b/.()+]/.test(s[j])) j += 1;
+      const tok = s.slice(i, j).trim();
+      if (looksLikeChordToken(tok)) map.set(i, tok);
+      i = Math.max(j, i + 1);
+    }
+    return map;
+  }
+  function isChordLineSimple(line) {
+    const s = String(line || '');
+    const t = s.trim();
+    if (!t) return false;
+    if (isMetaText(t)) return false;
+    if (/[\u3040-\u30ff\u3400-\u9fff\uAC00-\uD7AF]/.test(s)) return false;
+    if (!/^[A-Za-z0-9#b/|().+\-_=><:\s]+$/.test(s)) return false;
+    // 코드 토큰이 실제로 존재하거나 리듬만 있는 라인
+    if (/^[\s|=:_\-–—~.*+\\/><]+$/.test(s)) return true;
+    return /\b(?:N\.C\.|NC|N\.C)\b|\b\/?[A-G][#b]?(?:maj|min|m|dim|aug|sus|add)?\d*(?:\/[A-G][#b]?)?\b/.test(s);
+  }
+
+  function buildBlocksFromRawText(rawText) {
+    const lines = String(rawText || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+    /** @type {Array<{chord:string,lyric_raw:string,lyric_kr:string}>} */
+    const blocks = [];
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i] ?? '';
+      const next = lines[i + 1] ?? '';
+
+      if (isChordLineSimple(line) && next && !isChordLineSimple(next) && next.trim() !== '') {
+        const chordMap = buildChordStartMapFromLine(line);
+        const lyricCols = splitCols(next);
+        const maxLen = Math.max(line.length, lyricCols.length);
+        for (let col = 0; col < maxLen; col += 1) {
+          const chord = chordMap.get(col) || '';
+          const raw = col < lyricCols.length ? lyricCols[col] : ' ';
+          const kr = toKoreanReadingMvp(raw);
+          blocks.push({ chord, lyric_raw: raw, lyric_kr: kr });
+        }
+        blocks.push({ chord: '', lyric_raw: '\n', lyric_kr: '\n' });
+        i += 1;
+        continue;
+      }
+
+      if (isChordLineSimple(line)) {
+        // chord-only: 코드 토큰은 위, 나머지 문자는 아래에 그대로
+        const chordMap = buildChordStartMapFromLine(line);
+        for (let col = 0; col < line.length; col += 1) {
+          const chord = chordMap.get(col) || '';
+          const ch = line[col] || ' ';
+          // 코드 토큰이 시작되는 칸이면 아래는 공백 처리
+          const raw = chord ? ' ' : ch;
+          blocks.push({ chord, lyric_raw: raw, lyric_kr: raw });
+        }
+        blocks.push({ chord: '', lyric_raw: '\n', lyric_kr: '\n' });
+        continue;
+      }
+
+      const lyricCols = splitCols(line);
+      for (let col = 0; col < lyricCols.length; col += 1) {
+        const raw = lyricCols[col];
+        blocks.push({ chord: '', lyric_raw: raw, lyric_kr: toKoreanReadingMvp(raw) });
+      }
+      blocks.push({ chord: '', lyric_raw: '\n', lyric_kr: '\n' });
+    }
+    return blocks;
   }
 
   function chordHitCount(text) {
@@ -470,7 +649,9 @@
         if (!room) {
           room = (prompt('세션 코드(선택): 세션에서 바로 따라오게 하려면 입력', '') || '').trim().toUpperCase();
         }
-        const payload = JSON.stringify({ rawText, sourceUrl: location.href });
+        // (전략 4) rawText 대신 blocks를 직접 생성해 서버에 전달(서버 재파싱 손실 최소화)
+        const blocks = buildBlocksFromRawText(rawText);
+        const payload = JSON.stringify({ blocks, sourceUrl: location.href });
 
         GM_xmlhttpRequest({
           method: 'POST',

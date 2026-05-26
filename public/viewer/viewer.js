@@ -1078,7 +1078,14 @@ function consumeWindowNamePayload() {
     const payload = JSON.parse(decodeB64Unicode(n.slice(prefix.length)));
     window.name = '';
     handleIncomingRawChord(payload?.rawText, payload?.sourceUrl, 'bookmarklet(window.name)');
-  } catch {}
+  } catch (e) {
+    // 수신 자체가 실패하면 디버그 메시지를 남긴다.
+    try {
+      setMode('chord');
+      setCwError(`북마클릿 수신 실패: ${String(e?.message || e)}`);
+      setCwMeta('북마클릿 URL이 오래되었거나(window.name이 너무 큼), 브라우저가 북마클릿 실행을 차단했을 수 있습니다.');
+    } catch {}
+  }
 }
 
 function buildCodewikiBookmarklet() {
@@ -3475,6 +3482,9 @@ socket.on('wb:page:update', async (p) => {
 
 // ---- Init -------------------------------------------------------------------------
 async function init() {
+  // bookmarklet window.name fallback 수신은 가능한 빨리 처리(로딩/닉네임 모달 전에)
+  consumeWindowNamePayload();
+
   const metaToken = await getSocketMetaToken();
   if (metaToken) {
     try {
@@ -3487,7 +3497,7 @@ async function init() {
 
   await loadMe();
 
-  // bookmarklet window.name fallback 수신 (postMessage보다 더 안정적)
+  // 늦게 로드되는 경우를 대비해 한 번 더 시도
   consumeWindowNamePayload();
 
   // 방문자(익명)로 /viewer 접속 시: 무조건 닉네임을 설정하도록 강제

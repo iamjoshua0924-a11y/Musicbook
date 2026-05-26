@@ -999,7 +999,9 @@ function spinRouletteList(listEl, pool, highlight, delayMs = 0) {
   if (!listEl) return 0;
   const box = listEl.parentElement;
   const ITEM_H = 28;
-  const WRAP_H = Math.max(120, Number(box?.clientHeight || 160));
+  // WRAP_H는 실제 컨테이너 높이를 기준으로 해야 "중앙 라인"과 멈춤 위치가 일치한다.
+  // (미니 룰렛 높이를 줄였을 때 Math.max로 키우면 오차가 생김)
+  const WRAP_H = Math.max(40, Number(box?.clientHeight || 80));
   const centerOffset = WRAP_H / 2 - ITEM_H / 2;
 
   const total = Math.min(48, Math.max(24, 32));

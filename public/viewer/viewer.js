@@ -1677,6 +1677,10 @@ document.getElementById('songPickSearch')?.addEventListener(
     renderSongPickList(items);
   }, 120)
 );
+// 노래책 검색 입력 중 Space 등을 누를 때 뒤쪽 악보 페이지터닝 단축키로 전파되지 않게 한다.
+document.getElementById('songPickSearch')?.addEventListener('keydown', (e) => {
+  e.stopPropagation();
+});
 
 // overlap slider (GAS style)
 function setSpreadOverlapPx(px) {
@@ -2635,6 +2639,18 @@ function isAnyTextEditing() {
     for (const v of viewMap.values()) {
       const a = v?.fabric?.getActiveObject?.();
       if (a && a.type === 'i-text' && a.isEditing) return true;
+    }
+  } catch {}
+  // HTML 입력(검색/링크 입력/모달) 중에는 Space 등이 페이지 넘김으로 해석되면 안 된다.
+  try {
+    const ae = document.activeElement;
+    const tag = String(ae?.tagName || '').toUpperCase();
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || ae?.isContentEditable) return true;
+    // 모달이 열려 있으면 기본적으로 입력/선택 중이므로 단축키를 막는다.
+    const openModalIds = ['songPickModal', 'inputModal', 'joinModal'];
+    for (const id of openModalIds) {
+      const el = document.getElementById(id);
+      if (el && !el.classList.contains('hidden')) return true;
     }
   } catch {}
   return false;

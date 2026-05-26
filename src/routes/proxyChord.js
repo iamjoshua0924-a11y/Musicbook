@@ -400,7 +400,16 @@ router.post('/proxy-chord', async (req, res) => {
         sourceUrl: z.union([z.string().url(), z.literal('')]).optional()
       }),
       z.object({
-        blocks: z.array(z.any()).min(1).max(800_000),
+        // blocks는 배열(legacy) 또는 compact object(v1/v2) 둘 다 허용
+        blocks: z.union([
+          z.array(z.any()).min(1).max(800_000),
+          z
+            .object({
+              format: z.string().min(1).max(80),
+              lines: z.array(z.any()).min(1).max(300_000)
+            })
+            .passthrough()
+        ]),
         sourceUrl: z.union([z.string().url(), z.literal('')]).optional()
       })
     ])

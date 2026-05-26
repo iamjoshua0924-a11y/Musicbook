@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChordWiki → ScoreViewer Exporter (docId)
 // @namespace    musicbook
-// @version      0.4.1
+// @version      0.4.2
 // @description  ChordWiki 페이지에서 악보 텍스트를 DOM에서 추출해 ScoreViewer로 전송하고 docId로 엽니다.
 // @match        *://*.chordwiki.org/wiki/*
 // @match        *://*.chordwiki.jp/wiki/*
@@ -422,6 +422,93 @@
     return blocks;
   }
 
+  function rleEncodeSpaces(str) {
+    const s = String(str || '');
+    const out = [];
+    let i = 0;
+    while (i < s.length) {
+      const ch = s[i];
+      if (ch === ' ') {
+        let j = i + 1;
+        while (j < s.length && s[j] === ' ') j += 1;
+        out.push([0, j - i]);
+        i = j;
+        continue;
+      }
+      let j = i + 1;
+      while (j < s.length && s[j] !== ' ') j += 1;
+      out.push([1, s.slice(i, j)]);
+      i = j;
+    }
+    return out;
+  }
+
+  // blocks(Object per cell)는 payload가 너무 커질 수 있어 compact(v2)로 직접 전송한다.
+  function buildCompactV2FromRawText(rawText) {
+    const lines = String(rawText || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+    const outLines = [];
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i] ?? '';
+      const next = lines[i + 1] ?? '';
+
+      const pushLine = (rawStr, krStr, chords) => {
+        outLines.push({
+          rawRle: rleEncodeSpaces(rawStr),
+          krRle: rleEncodeSpaces(krStr),
+          chords: chords || []
+        });
+      };
+
+      if (isChordLineSimple(line) && next && !isChordLineSimple(next) && next.trim() !== '') {
+        const chordMap = buildChordStartMapFromLine(line);
+        const lyricCols = splitCols(next);
+        const maxLen = Math.max(line.length, lyricCols.length);
+        let raw = '';
+        let kr = '';
+        const chords = [];
+        for (let col = 0; col < maxLen; col += 1) {
+          const chord = chordMap.get(col) || '';
+          const rawCh = col < lyricCols.length ? lyricCols[col] : ' ';
+          raw += rawCh;
+          kr += toKoreanReadingMvp(rawCh);
+          if (chord) chords.push({ col, token: chord });
+        }
+        pushLine(raw, kr, chords);
+        i += 1;
+        continue;
+      }
+
+      if (isChordLineSimple(line)) {
+        const chordMap = buildChordStartMapFromLine(line);
+        let raw = '';
+        let kr = '';
+        const chords = [];
+        for (let col = 0; col < line.length; col += 1) {
+          const chord = chordMap.get(col) || '';
+          const ch = line[col] || ' ';
+          const rawCh = chord ? ' ' : ch;
+          raw += rawCh;
+          kr += rawCh;
+          if (chord) chords.push({ col, token: chord });
+        }
+        pushLine(raw, kr, chords);
+        continue;
+      }
+
+      // lyric-only
+      const lyricCols = splitCols(line);
+      let raw = '';
+      let kr = '';
+      for (const ch of lyricCols) {
+        raw += ch;
+        kr += toKoreanReadingMvp(ch);
+      }
+      pushLine(raw, kr, []);
+    }
+
+    return { format: 'mb_chord_compact_v2', lines: outLines };
+  }
+
   function chordHitCount(text) {
     const t = String(text || '');
     const chordRe = /\b(?:N\.C\.|NC|N\.C|[A-G](?:#|b)?(?:maj|min|m|dim|aug|sus|add)?\d*(?:\/[A-G](?:#|b)?)?)\b/g;
@@ -649,20 +736,27 @@
         if (!room) {
           room = (prompt('세션 코드(선택): 세션에서 바로 따라오게 하려면 입력', '') || '').trim().toUpperCase();
         }
-        // (전략 4) 가능하면 blocks를 직접 생성해 서버에 전달(서버 재파싱 손실 최소화)
-        // 다만 blocks는 객체 배열이라 JSON 크기가 급격히 커질 수 있어, 너무 크면 rawText로 폴백한다.
-        const blocks = buildBlocksFromRawText(rawText);
-        let payloadObj = { blocks, sourceUrl: location.href, client: 'tm_layout_v2', clientVersion: '0.4.1' };
+        // (전략 4) payload 크기 안정성을 위해 compact(v2)로 전송(서버는 그대로 저장, 뷰어에서 확장)
+        let blocks = null;
+        try {
+          blocks = buildCompactV2FromRawText(rawText);
+        } catch {
+          blocks = null;
+        }
+
+        let payloadObj = blocks
+          ? { blocks, sourceUrl: location.href, client: 'tm_layout_v2', clientVersion: '0.4.2' }
+          : { rawText, sourceUrl: location.href, client: 'tm_layout_v2', clientVersion: '0.4.2' };
         let payload = '';
         try {
           payload = JSON.stringify(payloadObj);
         } catch {
-          payloadObj = { rawText, sourceUrl: location.href, client: 'tm_layout_v2', clientVersion: '0.4.1' };
+          payloadObj = { rawText, sourceUrl: location.href, client: 'tm_layout_v2', clientVersion: '0.4.2' };
           payload = JSON.stringify(payloadObj);
         }
         // 12MB 이상이면 rawText로 전송(서버 20mb 제한 대비 + 네트워크 안정성)
         if (payload.length > 12_000_000) {
-          payloadObj = { rawText, sourceUrl: location.href, client: 'tm_layout_v2', clientVersion: '0.4.1' };
+          payloadObj = { rawText, sourceUrl: location.href, client: 'tm_layout_v2', clientVersion: '0.4.2' };
           payload = JSON.stringify(payloadObj);
         }
 

@@ -3104,7 +3104,40 @@ socket.on('session:participants', (p) => {
   updateCursorShareUI();
   const list = document.getElementById('participantsList');
   list.innerHTML = '';
+  // 같은 사람이 reconnect / 중복 탭 등으로 두 번 뜨는 현상 완화:
+  // - displayName(또는 nickname) 기준으로 1명으로 합친다.
+  // - TURNER/TOOL/요청 플래그는 OR로 병합한다.
+  // - 내 socketId는 항상 우선 유지한다.
+  const mergedMap = new Map();
   (p?.members || []).forEach((m) => {
+    const nameKey = String(m?.displayName || m?.nickname || '익명').trim() || '익명';
+    const prev = mergedMap.get(nameKey);
+    if (!prev) {
+      mergedMap.set(nameKey, { ...m });
+      return;
+    }
+    const keep =
+      prev.socketId === socket.id
+        ? prev
+        : m.socketId === socket.id
+          ? m
+          : prev.isPageTurner
+            ? prev
+            : m.isPageTurner
+              ? m
+              : prev;
+    const other = keep === prev ? m : prev;
+    mergedMap.set(nameKey, {
+      ...keep,
+      // flags merge
+      isPageTurner: Boolean(keep.isPageTurner || other.isPageTurner),
+      isToolAuthorized: Boolean(keep.isToolAuthorized || other.isToolAuthorized),
+      toolRequested: Boolean(keep.toolRequested || other.toolRequested),
+      profilePhoto: keep.profilePhoto || other.profilePhoto || ''
+    });
+  });
+
+  Array.from(mergedMap.values()).forEach((m) => {
     const row = document.createElement('div');
     row.className = 'participant-row';
     const name = m.displayName || m.nickname || '익명';
@@ -3485,8 +3518,13 @@ async function init() {
     if (rn) window.name = `mb_viewer_room_${rn}`;
   } catch {}
 
-  // chordwiki userscript -> postMessage 방식 수신(서버/DB 없이 즉시 렌더)
-  setupChordPostMessageReceiver();
+  // chordwiki userscript -> postMessage 수신은 "postmessage로 연 탭" 또는 "chord 모드 진입"에서만 활성화
+  // (일반 PDF 뷰어 기능에 영향 주지 않도록)
+  const qsMode = String(qs('mode') || '').toLowerCase();
+  const from = String(qs('from') || '').toLowerCase();
+  const shouldEnableChordMsg =
+    from === 'postmessage' || qsMode === 'chord' || String(state.fileId || '').startsWith('chord:');
+  if (shouldEnableChordMsg) setupChordPostMessageReceiver();
 
   // participants panel collapse state restore
   try {
@@ -3496,7 +3534,6 @@ async function init() {
 
 
   // Chord mode entry: /viewer?mode=chord&docId=...
-  const qsMode = String(qs('mode') || '').toLowerCase();
   const qsDocId = String(qs('docId') || '').trim();
   if (qsMode === 'chord' && qsDocId) {
     state.fileId = qsDocId;

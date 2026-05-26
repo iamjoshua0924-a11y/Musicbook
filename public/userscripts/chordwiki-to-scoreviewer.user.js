@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChordWiki → ScoreViewer Exporter (docId)
 // @namespace    musicbook
-// @version      0.4.2
+// @version      0.5.0
 // @description  ChordWiki 페이지에서 악보 텍스트를 DOM에서 추출해 ScoreViewer로 전송하고 docId로 엽니다.
 // @match        *://*.chordwiki.org/wiki/*
 // @match        *://*.chordwiki.jp/wiki/*
@@ -258,7 +258,34 @@
       outLines.push(line.replace(/[ \t]+$/g, ''));
     }
 
-    return outLines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
+    // (중요) 과도한 좌측 여백 제거:
+    // 빈 줄로 구분되는 "문단 블록"별로 최소 공통 indent를 계산해 왼쪽으로 당긴다.
+    const normalized = [];
+    let buf = [];
+    const flush = () => {
+      if (!buf.length) return;
+      const nonEmpty = buf.filter((x) => String(x || '').trim().length);
+      let minIndent = Infinity;
+      for (const l of nonEmpty) {
+        const m = String(l).match(/^[ \t]*/);
+        const ind = m ? m[0].length : 0;
+        if (ind < minIndent) minIndent = ind;
+      }
+      if (!Number.isFinite(minIndent)) minIndent = 0;
+      for (const l of buf) normalized.push(String(l || '').slice(minIndent).replace(/[ \t]+$/g, ''));
+      buf = [];
+    };
+    for (const l of outLines) {
+      if (!String(l || '').trim().length) {
+        flush();
+        normalized.push('');
+      } else {
+        buf.push(l);
+      }
+    }
+    flush();
+
+    return normalized.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
   }
 
   // ===== 간단 가나→한글(독음) 변환(클라이언트 블록 전송용) =====
@@ -509,6 +536,33 @@
     return { format: 'mb_chord_compact_v2', lines: outLines };
   }
 
+  function openViewerAndPost(blocks, room) {
+    const qs = new URLSearchParams();
+    qs.set('mode', 'chord');
+    qs.set('from', 'postmessage');
+    if (String(room || '').trim()) qs.set('room', String(room || '').trim().toUpperCase());
+    const wn = String(room || '').trim() ? `mb_viewer_room_${String(room || '').trim().toUpperCase()}` : '_blank';
+    const w = window.open(`${SCORE_VIEWER_ORIGIN}/viewer?${qs.toString()}`, wn);
+    if (!w) {
+      alert('팝업이 차단되었습니다. ScoreViewer 도메인 팝업 허용 후 다시 시도해 주세요.');
+      return;
+    }
+    const msg = {
+      type: 'mb_chord_payload_v1',
+      sourceUrl: location.href,
+      blocks
+    };
+    // 새 탭 로드 타이밍 차이가 커서 몇 번 재전송
+    const tries = [150, 400, 900, 1600, 2600];
+    tries.forEach((ms) => {
+      setTimeout(() => {
+        try {
+          w.postMessage(msg, SCORE_VIEWER_ORIGIN);
+        } catch {}
+      }, ms);
+    });
+  }
+
   function chordHitCount(text) {
     const t = String(text || '');
     const chordRe = /\b(?:N\.C\.|NC|N\.C|[A-G](?:#|b)?(?:maj|min|m|dim|aug|sus|add)?\d*(?:\/[A-G](?:#|b)?)?)\b/g;
@@ -736,69 +790,11 @@
         if (!room) {
           room = (prompt('세션 코드(선택): 세션에서 바로 따라오게 하려면 입력', '') || '').trim().toUpperCase();
         }
-        // (전략 4) payload 크기 안정성을 위해 compact(v2)로 전송(서버는 그대로 저장, 뷰어에서 확장)
-        let blocks = null;
-        try {
-          blocks = buildCompactV2FromRawText(rawText);
-        } catch {
-          blocks = null;
-        }
-
-        let payloadObj = blocks
-          ? { blocks, sourceUrl: location.href, client: 'tm_layout_v2', clientVersion: '0.4.2' }
-          : { rawText, sourceUrl: location.href, client: 'tm_layout_v2', clientVersion: '0.4.2' };
-        let payload = '';
-        try {
-          payload = JSON.stringify(payloadObj);
-        } catch {
-          payloadObj = { rawText, sourceUrl: location.href, client: 'tm_layout_v2', clientVersion: '0.4.2' };
-          payload = JSON.stringify(payloadObj);
-        }
-        // 12MB 이상이면 rawText로 전송(서버 20mb 제한 대비 + 네트워크 안정성)
-        if (payload.length > 12_000_000) {
-          payloadObj = { rawText, sourceUrl: location.href, client: 'tm_layout_v2', clientVersion: '0.4.2' };
-          payload = JSON.stringify(payloadObj);
-        }
-
-        GM_xmlhttpRequest({
-          method: 'POST',
-          url: API_ENDPOINT,
-          headers: { 'Content-Type': 'application/json' },
-          data: payload,
-          onload: function (resp) {
-            try {
-              const status = Number(resp.status || 0);
-              const txt = String(resp.responseText || '');
-              const data = txt ? JSON.parse(txt) : {};
-              if (!data.ok || !data.docId) {
-                const err = data && typeof data === 'object' ? JSON.stringify(data).slice(0, 500) : String(data);
-                alert(`전송 실패 (status=${status}): ${data?.error || 'UNKNOWN'}\n${err}`);
-                return;
-              }
-              const qs = new URLSearchParams();
-              qs.set('mode', 'chord');
-              qs.set('docId', String(data.docId));
-              if (String(room || '').trim()) qs.set('room', String(room || '').trim().toUpperCase());
-              // 디버그 UI는 기본 숨김이지만, 렌더 자체는 mode/docId로 동작한다.
-              const wn = String(room || '').trim() ? `mb_viewer_room_${String(room || '').trim().toUpperCase()}` : '_blank';
-              window.open(`${SCORE_VIEWER_ORIGIN}/viewer?${qs.toString()}`, wn);
-            } catch (e) {
-              const status = Number(resp.status || 0);
-              const txt = String(resp.responseText || '');
-              alert(
-                '응답 처리 실패' +
-                  ` (status=${status})` +
-                  ': ' +
-                  (e && e.message ? e.message : e) +
-                  '\n' +
-                  txt.slice(0, 500)
-              );
-            }
-          },
-          onerror: function (err) {
-            alert('전송 실패(onerror): ' + JSON.stringify(err));
-          }
-        });
+        // (근본 해결) 서버 저장/DB 없이 바로 뷰어로 전달한다.
+        // - Render 502(게이트웨이/DB 이슈)를 원천 제거
+        // - payload는 compact v2로 전달(공백 RLE 압축)
+        const blocks = buildCompactV2FromRawText(rawText);
+        openViewerAndPost(blocks, room);
       } finally {
         btn.disabled = false;
         btn.textContent = '🎵 ScoreViewer로 열기';

@@ -1275,6 +1275,56 @@ function expandCompactChordBlocks(blocks) {
   return out;
 }
 
+function isAllowedChordWikiOrigin(origin) {
+  const o = String(origin || '');
+  return (
+    o.endsWith('://ja.chordwiki.org') ||
+    o.endsWith('://www.chordwiki.org') ||
+    o.endsWith('://chordwiki.org') ||
+    o.endsWith('://chordwiki.jp') ||
+    o.endsWith('://www.chordwiki.jp')
+  );
+}
+
+function setupChordPostMessageReceiver() {
+  window.addEventListener('message', (ev) => {
+    try {
+      if (!isAllowedChordWikiOrigin(ev.origin)) return;
+      const d = ev.data || {};
+      if (!d || d.type !== 'mb_chord_payload_v1') return;
+      const blocks = d.blocks;
+      if (!blocks) return;
+      setMode('chord');
+      setCwError('');
+      setCwMeta('');
+      state.chordDocId = '';
+      state.chordSourceUrl = String(d.sourceUrl || '');
+      state.chordBlocks = expandCompactChordBlocks(blocks);
+      state.fileId = state.chordSourceUrl ? `chordmsg:${hashString(state.chordSourceUrl)}` : `chordmsg:${Date.now()}`;
+      renderChordBlocks(state.chordBlocks);
+      // reload 대비: sessionStorage에 저장(최대용량 제한 있으니 실패는 무시)
+      try {
+        sessionStorage.setItem('mb_lastChordMsg', JSON.stringify({ sourceUrl: state.chordSourceUrl, blocks }));
+      } catch {}
+    } catch {}
+  });
+
+  // 새로고침 시 마지막 메시지를 복원
+  try {
+    const s = sessionStorage.getItem('mb_lastChordMsg');
+    if (s) {
+      const d = JSON.parse(s);
+      if (d?.blocks) {
+        setMode('chord');
+        state.chordSourceUrl = String(d.sourceUrl || '');
+        state.chordBlocks = expandCompactChordBlocks(d.blocks);
+        state.fileId = state.chordSourceUrl ? `chordmsg:${hashString(state.chordSourceUrl)}` : `chordmsg:${Date.now()}`;
+        renderChordBlocks(state.chordBlocks);
+      }
+    }
+  } catch {}
+}
+
   // Phase2-4: chord mode annotation layer (Fabric) - 1 page canvas matching scrollHeight
   setupChordAnnoAfterRender();
 }
@@ -3423,6 +3473,9 @@ async function init() {
     const rn = safeRoomCode(qs('room')) || safeRoomCode(state.roomCode);
     if (rn) window.name = `mb_viewer_room_${rn}`;
   } catch {}
+
+  // chordwiki userscript -> postMessage 방식 수신(서버/DB 없이 즉시 렌더)
+  setupChordPostMessageReceiver();
 
   // participants panel collapse state restore
   try {

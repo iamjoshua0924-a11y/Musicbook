@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChordWiki → ScoreViewer Exporter (docId)
 // @namespace    musicbook
-// @version      0.2.1
+// @version      0.2.2
 // @description  ChordWiki 페이지에서 악보 텍스트를 DOM에서 추출해 ScoreViewer로 전송하고 docId로 엽니다.
 // @match        *://*.chordwiki.org/wiki/*
 // @match        *://*.chordwiki.jp/wiki/*
@@ -55,24 +55,48 @@
     const lines = t.split('\n');
     const isChordLine = (line) => chordHitCount(line) >= 3 && !/[\u3040-\u30ff\u3400-\u9fff]/.test(line);
 
+    // 1) BPM 라인이 있으면 그 위는 모두 버린다(사용자 규칙)
+    //    예: "BPM: 120", "BPM 120"
     let start = 0;
     for (let i = 0; i < lines.length; i++) {
-      const s = lines[i] || '';
-      if (/^\s*key\s*:/i.test(s) || isChordLine(s)) {
+      const s = String(lines[i] || '');
+      if (/\bBPM\b\s*(?::|=)?\s*\d+/i.test(s)) {
         start = i;
         break;
       }
     }
+    // 1-2) BPM이 없으면 기존 규칙(key: 또는 코드라인)으로 시작점을 잡는다.
+    if (start === 0) {
+      for (let i = 0; i < lines.length; i++) {
+        const s = lines[i] || '';
+        if (/^\s*key\s*:/i.test(s) || isChordLine(s)) {
+          start = i;
+          break;
+        }
+      }
+    }
+
     let end = lines.length;
-    // 너무 뒤쪽의 링크/푸터 노이즈는 잘라낸다(원문 라인 정렬은 유지)
-    for (let i = lines.length - 1; i >= 0; i--) {
+    // 2) copyright 라인부터 아래는 모두 버린다(사용자 규칙)
+    for (let i = start; i < lines.length; i++) {
       const s = String(lines[i] || '').trim();
       if (!s) continue;
-      if (s.includes('ChordWiki') || s.includes('http://') || s.includes('https://') || s.includes('利用規約')) {
+      if (/\bcopyright\b/i.test(s) || /©|Ⓒ|\(c\)/i.test(s) || /all rights reserved/i.test(s)) {
         end = i;
-        continue;
+        break;
       }
-      break;
+    }
+    // 2-2) 추가적인 푸터 노이즈(링크/이용규약)는 보조적으로 컷
+    if (end === lines.length) {
+      for (let i = lines.length - 1; i >= start; i--) {
+        const s = String(lines[i] || '').trim();
+        if (!s) continue;
+        if (s.includes('ChordWiki') || s.includes('http://') || s.includes('https://') || s.includes('利用規約')) {
+          end = i;
+          continue;
+        }
+        break;
+      }
     }
     return lines.slice(start, Math.max(start + 1, end + 1)).join('\n').trimEnd();
   }

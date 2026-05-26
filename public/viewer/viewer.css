@@ -87,8 +87,8 @@ body.link-collapsed .inputRow{ display:none; }
   background:rgba(122,162,255,0.22);
 }
 
-/* 코드위키 모드(비활성): 탭만 숨김 */
-#chordModeBtn{ display:none !important; }
+/* 코드위키 모드: 기본은 숨김. (플래그 기반으로만 노출) */
+body:not(.show-chord-ui) #chordModeBtn{ display:none !important; }
 #linkInput{
   padding:7px 10px;
   border-radius:10px;

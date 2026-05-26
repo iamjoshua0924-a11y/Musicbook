@@ -1,8 +1,10 @@
 const express = require('express');
 const { z } = require('zod');
+const { nanoid } = require('nanoid');
 
 const { parseRawTextToBlocks } = require('../services/chordParser');
 const { fetchRenderedHtml } = require('../services/puppeteerFetch');
+const ChordDoc = require('../models/ChordDoc');
 
 const router = express.Router();
 
@@ -167,6 +169,16 @@ function cacheSet(key, value, ttlMs) {
   cache.set(key, { value, expireAt: Date.now() + ttlMs });
 }
 
+async function createChordDoc({ blocks, meta }) {
+  const docId = `chord:${nanoid(12)}`;
+  await ChordDoc.create({
+    _id: docId,
+    meta: meta || {},
+    blocks: blocks || []
+  });
+  return docId;
+}
+
 async function fetchWithTimeout(url, timeoutMs = 15_000) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -285,6 +297,11 @@ router.get('/proxy-chord', async (req, res) => {
     },
     blocks
   };
+  try {
+    value.docId = await createChordDoc({ blocks, meta: value.meta });
+  } catch (e) {
+    return res.status(502).json({ ok: false, error: 'DOC_STORE_FAILED' });
+  }
   cacheSet(key, value, 2 * 60 * 1000);
   return res.json({ ok: true, ...value });
 });
@@ -298,9 +315,17 @@ router.post('/proxy-chord', async (req, res) => {
   if (!parsed.success) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
 
   const blocks = await parseRawTextToBlocks(parsed.data.rawText);
+  const meta = { source: 'clientRawText', sourceUrl: parsed.data.sourceUrl || '' };
+  let docId = '';
+  try {
+    docId = await createChordDoc({ blocks, meta });
+  } catch (e) {
+    return res.status(502).json({ ok: false, error: 'DOC_STORE_FAILED' });
+  }
   return res.json({
     ok: true,
-    meta: { source: 'clientRawText', sourceUrl: parsed.data.sourceUrl || '' },
+    docId,
+    meta,
     blocks
   });
 });

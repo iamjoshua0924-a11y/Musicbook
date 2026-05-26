@@ -1515,7 +1515,7 @@ async function openChordByUrl(url, { broadcast, preopenAuth } = { broadcast: tru
     } catch {}
   }
 
-  const docId = `chord:${hashString(u)}`;
+  const docId = String(r?.docId || `chord:${hashString(u)}`);
   state.chordDocId = docId;
   state.chordSourceUrl = u;
   state.chordBlocks = r.blocks || [];
@@ -1540,6 +1540,43 @@ async function openChordByUrl(url, { broadcast, preopenAuth } = { broadcast: tru
     socket.emit('session:follow:file', { roomCode: state.roomCode, fileId: docId, originalLink: u }, () => {});
   }
 
+  renderChordBlocks(state.chordBlocks);
+}
+
+async function openChordByDocId(docId, { broadcast } = { broadcast: true }) {
+  const id = String(docId || '').trim();
+  if (!id) return;
+  setMode('chord');
+  setCwError('불러오는 중...');
+  setCwMeta('');
+  showChordAuthActions(false);
+  state.chordPendingAuthUrl = '';
+
+  let r;
+  try {
+    r = await fetch(`/api/chord-doc?docId=${encodeURIComponent(id)}`).then((x) => x.json());
+  } catch (e) {
+    r = { ok: false, error: `NETWORK_ERROR: ${String(e?.message || e)}` };
+  }
+  if (!r?.ok) {
+    setCwError(`불러오기 실패: ${r?.error || ''}`);
+    return;
+  }
+
+  state.chordDocId = id;
+  state.chordSourceUrl = String(r?.meta?.sourceUrl || '');
+  state.chordBlocks = r.blocks || [];
+  state.fileId = id;
+  state.annoStore = {};
+  state.undoStack = {};
+  state.redoStack = {};
+  if (state.isInSession && state.roomCode) socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId: state.fileId });
+
+  if (broadcast && state.isInSession && state.isPageTurner && state.roomCode) {
+    socket.emit('session:follow:file', { roomCode: state.roomCode, fileId: id, originalLink: state.chordSourceUrl || '' }, () => {});
+  }
+
+  setCwError('');
   renderChordBlocks(state.chordBlocks);
 }
 
@@ -1568,7 +1605,7 @@ async function openChordByRawText(rawText, sourceUrl = '', { broadcast } = { bro
     setCwMeta(`소스: ${src}`);
   } catch {}
 
-  const docId = `chord:${hashString(sourceUrl || text.slice(0, 5000))}`;
+  const docId = String(r?.docId || `chord:${hashString(sourceUrl || text.slice(0, 5000))}`);
   state.chordDocId = docId;
   state.chordSourceUrl = sourceUrl;
   state.chordBlocks = r.blocks || [];
@@ -3320,14 +3357,10 @@ socket.on('session:state', (p) => {
   const pageNo = Number(p?.currentPageNo || 0);
   if (fileId && String(fileId) !== String(state.fileId || '')) {
     const originalLink = String(p?.currentOriginalLink || '').trim();
-    if (originalLink && /^https?:\/\//i.test(originalLink) && !extractDriveFileId(originalLink)) {
+    if (fileId.startsWith('chord:')) {
+      openChordByDocId(fileId, { broadcast: false }).catch(() => {});
+    } else if (originalLink && /^https?:\/\//i.test(originalLink) && !extractDriveFileId(originalLink)) {
       openChordByUrl(originalLink, { broadcast: false }).catch(() => {});
-    } else if (fileId.startsWith('chord:')) {
-      // late join chord doc without originalLink: show pane + request raw text
-      setMode('chord');
-      state.fileId = fileId;
-      setCwError('세션에서 코드위키 문서를 따라오려면 원문 텍스트가 필요합니다(원문 붙여넣기).');
-      socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId: state.fileId });
     } else {
       setMode('pdf');
       state.fileId = fileId;
@@ -3505,7 +3538,12 @@ socket.on('session:follow:file', (p) => {
 
   // originalLink가 있어도 재-broadcast 되지 않도록 "추출→로컬에서 로드"만 수행
   const originalLink = String(p?.originalLink || '').trim();
-  // codewiki URL follow
+  // chord doc follow (docId)
+  if (String(fileId).startsWith('chord:')) {
+    openChordByDocId(String(fileId), { broadcast: false }).catch(() => {});
+    return;
+  }
+  // codewiki URL follow (legacy)
   if (originalLink && /^https?:\/\//i.test(originalLink) && !extractDriveFileId(originalLink)) {
     openChordByUrl(originalLink, { broadcast: false }).catch(() => {});
     return;
@@ -3583,6 +3621,10 @@ async function init() {
 
   await loadMe();
 
+  // 코드위키 UI는 기본 숨김. 플래그로만 노출한다.
+  const showChordUi = String(qs('chord') || '') === '1' || String(qs('debug') || '') === '1';
+  document.body.classList.toggle('show-chord-ui', showChordUi);
+
   // 늦게 로드되는 경우를 대비해 한 번 더 시도
   consumeWindowNamePayload();
 
@@ -3626,6 +3668,15 @@ async function init() {
   } catch {}
 
 
+  // Chord mode entry: /viewer?mode=chord&docId=...
+  const qsMode = String(qs('mode') || '').toLowerCase();
+  const qsDocId = String(qs('docId') || '').trim();
+  if (qsMode === 'chord' && qsDocId) {
+    state.fileId = qsDocId;
+    await openChordByDocId(qsDocId, { broadcast: false });
+    return;
+  }
+
   // Personal entry without fileId: show prompt to open from link
   if (!state.fileId) {
     setHidden('pageHud', false);
@@ -3634,6 +3685,12 @@ async function init() {
     setTimeout(() => {
       document.getElementById('linkInput')?.focus();
     }, 120);
+    return;
+  }
+
+  // direct chord doc in path (e.g., /viewer/chord:xxxx)
+  if (String(state.fileId).startsWith('chord:')) {
+    await openChordByDocId(state.fileId, { broadcast: false });
     return;
   }
 

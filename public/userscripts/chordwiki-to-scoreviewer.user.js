@@ -1,12 +1,15 @@
 // ==UserScript==
 // @name         ChordWiki → ScoreViewer Exporter (docId)
 // @namespace    musicbook
-// @version      0.2.0
+// @version      0.2.1
 // @description  ChordWiki 페이지에서 악보 텍스트를 DOM에서 추출해 ScoreViewer로 전송하고 docId로 엽니다.
 // @match        *://*.chordwiki.org/wiki/*
 // @match        *://*.chordwiki.jp/wiki/*
 // @grant        GM_xmlhttpRequest
 // @connect      scoreviewer.onrender.com
+// @connect      *
+// @downloadURL  https://scoreviewer.onrender.com/public/userscripts/chordwiki-to-scoreviewer.user.js
+// @updateURL    https://scoreviewer.onrender.com/public/userscripts/chordwiki-to-scoreviewer.user.js
 // ==/UserScript==
 
 (function () {

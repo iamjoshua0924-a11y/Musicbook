@@ -845,25 +845,88 @@ function setRandomCandidateCount(n) {
   return v;
 }
 
+function _mbHash32(str) {
+  // FNV-1a 32-bit
+  let h = 0x811c9dc5;
+  const s = String(str || '');
+  for (let i = 0; i < s.length; i += 1) {
+    h ^= s.charCodeAt(i);
+    // h *= 16777619 (with overflow)
+    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+  }
+  return h.toString(16).padStart(8, '0');
+}
+
+function getOrCreateAnonUserKey() {
+  const k = 'mb_anon_user_v1';
+  let v = String(localStorage.getItem(k) || '').trim();
+  if (!v) {
+    v = `anon_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    localStorage.setItem(k, v);
+  }
+  return v;
+}
+
+function getRandomUserKey() {
+  const uid = String(state.userId || '').trim();
+  if (uid) return `u:${uid}`;
+  return `v:${getOrCreateAnonUserKey()}`;
+}
+
+function getRandomFilterKey() {
+  // "같은 조건" 정의: 랜덤 풀을 만드는 검색/필터 조건만 포함
+  const q = $('searchInput')?.value || '';
+  const genre = $('genreFilter')?.value || '';
+  const mood = $('moodFilter')?.value || '';
+  const vocal = $('vocalFilter')?.value || '';
+
+  const availUserIds = Array.isArray(state.filterAvailableVocalUserIds) ? [...state.filterAvailableVocalUserIds] : [];
+  availUserIds.sort();
+
+  const legacyAvailUserId = String(state.filterAvailableVocalUserId || '').trim();
+  const obj = {
+    q: String(q).trim(),
+    genre: String(genre).trim(),
+    mood: String(mood).trim(),
+    vocal: String(vocal).trim(),
+    availUserIds,
+    legacyAvailUserId,
+    availabilityEditMode: Boolean(state.availabilityEditMode)
+  };
+  return _mbHash32(JSON.stringify(obj));
+}
+
 function getTodayRandomHistory() {
-  const key = 'mb_random_history_v1';
   const today = _mbLocalDateKey();
+  const userKey = getRandomUserKey();
+  const filterKey = getRandomFilterKey();
+  const key = `mb_random_history_v2:${today}:${userKey}:${filterKey}`;
   try {
     const raw = JSON.parse(localStorage.getItem(key) || '{}');
-    if (raw && raw.date === today && Array.isArray(raw.ids)) return { date: today, ids: raw.ids };
+    if (raw && raw.date === today && Array.isArray(raw.ids)) return { key, date: today, ids: raw.ids };
   } catch {}
-  return { date: today, ids: [] };
+  return { key, date: today, ids: [] };
 }
 
-function saveTodayRandomHistory(ids) {
-  const key = 'mb_random_history_v1';
+function saveTodayRandomHistory(storageKey, ids) {
   const today = _mbLocalDateKey();
   const uniq = Array.from(new Set((ids || []).map((x) => String(x || '').trim()).filter(Boolean)));
-  localStorage.setItem(key, JSON.stringify({ date: today, ids: uniq }));
+  localStorage.setItem(storageKey, JSON.stringify({ date: today, ids: uniq }));
 }
 
-function resetTodayRandomHistory() {
-  saveTodayRandomHistory([]);
+function resetTodayRandomHistoryForUser() {
+  const today = _mbLocalDateKey();
+  const userKey = getRandomUserKey();
+  const prefix = `mb_random_history_v2:${today}:${userKey}:`;
+  try {
+    // localStorage iteration is safe here (small)
+    const toDel = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(prefix)) toDel.push(k);
+    }
+    toDel.forEach((k) => localStorage.removeItem(k));
+  } catch {}
 }
 
 function pickRandomCardsNoDup(pool, count) {
@@ -902,6 +965,7 @@ function renderRandomCandidates(candidates) {
     const btn = row.querySelector('button');
     if (btn) {
       btn.onclick = () => {
+        if (state.role === 'viewer') return toast('세션/관리자 로그인이 필요합니다.');
         closeModal('randomModal');
         openCardFlow(c).catch(() => {});
       };
@@ -910,40 +974,32 @@ function renderRandomCandidates(candidates) {
   });
 }
 
-function rollRouletteCandidates() {
-  const rerollBtn = $('randomRerollBtn');
-  if (rerollBtn) rerollBtn.style.display = 'none';
-  $('randomResult').textContent = '룰렛을 돌려 후보를 뽑습니다...';
-  renderRandomCandidates([]);
-
-  const pool = state.songCardsFiltered || [];
-  if (!pool.length) return toast('랜덤 대상 곡이 없습니다.');
-
-  const want = getRandomCandidateCount();
-  const candidates = pickRandomCardsNoDup(pool, want);
-  state._rouletteCandidates = candidates;
-
-  if (!candidates.length) {
-    $('randomResult').textContent = '오늘은 더 뽑을 곡이 없습니다. (중복 금지 기준: 오늘)';
-    toast('오늘 뽑을 곡이 없습니다. (랜덤 설정에서 “오늘 기록 초기화” 가능)');
-    return;
+function renderRouletteMulti(count) {
+  const wrap = $('rouletteMulti');
+  if (!wrap) return [];
+  wrap.innerHTML = '';
+  const listEls = [];
+  for (let i = 0; i < count; i += 1) {
+    const box = document.createElement('div');
+    box.className = 'roulette-list-wrap';
+    box.innerHTML = `
+      <div class="roulette-fade top"></div>
+      <div class="roulette-fade bottom"></div>
+      <div class="roulette-center-line"></div>
+      <div class="roulette-list"></div>
+    `;
+    const listEl = box.querySelector('.roulette-list');
+    if (listEl) listEls.push(listEl);
+    wrap.appendChild(box);
   }
-  if (candidates.length < want) {
-    toast(`오늘 남은 곡이 ${candidates.length}개뿐입니다.`);
-  }
+  return listEls;
+}
 
-  // 중복 금지 기준: "후보로 한 번이라도 나온 곡"을 오늘 기록에 추가
-  const hist = getTodayRandomHistory();
-  const nextIds = [...(hist.ids || []), ...candidates.map((c) => String(c.cardId))];
-  saveTodayRandomHistory(nextIds);
-
-  // 슬롯머신 스타일: 후보 중 랜덤 1개에서 멈추는 연출
-  const listEl = $('rouletteList');
-  if (!listEl) return;
-  const highlight = candidates[Math.floor(Math.random() * candidates.length)];
-
-  const ITEM_H = 44;
-  const WRAP_H = 220;
+function spinRouletteList(listEl, pool, highlight, delayMs = 0) {
+  if (!listEl) return 0;
+  const box = listEl.parentElement;
+  const ITEM_H = 36;
+  const WRAP_H = Math.max(120, Number(box?.clientHeight || 160));
   const centerOffset = WRAP_H / 2 - ITEM_H / 2;
 
   const total = Math.min(48, Math.max(24, 32));
@@ -963,17 +1019,59 @@ function rollRouletteCandidates() {
     )
     .join('');
 
-  requestAnimationFrame(() => {
-    const y = centerOffset - stopIndex * ITEM_H;
-    listEl.style.transition = 'transform 2.6s cubic-bezier(0.12, 0.86, 0.10, 1)';
-    listEl.style.transform = `translateY(${y}px)`;
-  });
+  const duration = 2600;
+  setTimeout(() => {
+    requestAnimationFrame(() => {
+      const y = centerOffset - stopIndex * ITEM_H;
+      listEl.style.transition = `transform ${duration}ms cubic-bezier(0.12, 0.86, 0.10, 1)`;
+      listEl.style.transform = `translateY(${y}px)`;
+    });
+  }, Math.max(0, delayMs));
+
+  return duration + Math.max(0, delayMs);
+}
+
+function rollRouletteCandidates() {
+  const rerollBtn = $('randomRerollBtn');
+  if (rerollBtn) rerollBtn.style.display = 'none';
+  $('randomResult').textContent = '룰렛을 돌려 후보를 뽑습니다...';
+  renderRandomCandidates([]);
+
+  const pool = state.songCardsFiltered || [];
+  if (!pool.length) return toast('랜덤 대상 곡이 없습니다.');
+
+  const want = getRandomCandidateCount();
+  const candidates = pickRandomCardsNoDup(pool, want);
+  state._rouletteCandidates = candidates;
+
+  if (!candidates.length) {
+    $('randomResult').textContent = '오늘은 더 뽑을 곡이 없습니다. (현재 조건/사용자 기준 중복 금지)';
+    toast('오늘(현재 조건) 뽑을 곡이 없습니다. (랜덤 설정에서 “오늘 기록 초기화” 가능)');
+    return;
+  }
+  if (candidates.length < want) {
+    toast(`오늘 남은 곡이 ${candidates.length}개뿐입니다.`);
+  }
+
+  // 중복 금지 기준: "후보로 한 번이라도 나온 곡"을 오늘 기록에 추가
+  const hist = getTodayRandomHistory();
+  const nextIds = [...(hist.ids || []), ...candidates.map((c) => String(c.cardId))];
+  saveTodayRandomHistory(hist.key, nextIds);
+
+  // 후보 수만큼 "미니 룰렛"을 각각 돌린다(각각 1곡에서 멈춤)
+  const listEls = renderRouletteMulti(candidates.length);
+  const stagger = 140;
+  let maxMs = 0;
+  for (let i = 0; i < listEls.length; i += 1) {
+    const ms = spinRouletteList(listEls[i], pool, candidates[i], i * stagger);
+    if (ms > maxMs) maxMs = ms;
+  }
 
   setTimeout(() => {
     $('randomResult').innerHTML = `<div><b>후보 ${candidates.length}개 중에서 골라주세요</b></div><div style="opacity:.75;margin-top:4px">마음에 안 들면 “후보 다시 뽑기”</div>`;
     renderRandomCandidates(candidates);
     if (rerollBtn) rerollBtn.style.display = 'inline-flex';
-  }, 2700);
+  }, Math.max(600, maxMs + 50));
 }
 
 // ---- Requests --------------------------------------------------------------------
@@ -1355,8 +1453,8 @@ function wireEvents() {
   };
   $('randomSettingsCloseBtn').onclick = () => closeModal('randomSettingsModal');
   $('randomHistoryResetBtn').onclick = () => {
-    resetTodayRandomHistory();
-    toast('오늘 랜덤 기록을 초기화했습니다.');
+    resetTodayRandomHistoryForUser();
+    toast('오늘 랜덤 기록(이 사용자/브라우저)을 초기화했습니다.');
   };
   $('randomCandidateCountInput').addEventListener('change', (e) => {
     const v = setRandomCandidateCount(e.target.value);

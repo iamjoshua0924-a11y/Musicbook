@@ -880,11 +880,17 @@ body.hide-tags .song-chips{ display:none; }
 }
 
 /* 랜덤 룰렛(슬롯머신 스타일) */
+.roulette-multi{
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin: 12px auto 10px;
+  width: min(420px, 92vw);
+}
 .roulette-list-wrap{
   position: relative;
-  width: min(420px, 92vw);
-  height: 220px;
-  margin: 12px auto 10px;
+  width: 100%;
+  height: 160px;
   border-radius: 18px;
   border: 1px solid rgba(0,0,0,0.08);
   background: rgba(0,0,0,0.04);
@@ -897,7 +903,7 @@ body.hide-tags .song-chips{ display:none; }
   will-change: transform;
 }
 .roulette-item{
-  height: 44px;
+  height: 36px;
   display:flex;
   align-items:center;
   padding: 0 14px;
@@ -916,7 +922,7 @@ body.hide-tags .song-chips{ display:none; }
 }
 .roulette-fade{
   position:absolute; left:0; right:0;
-  height: 70px;
+  height: 54px;
   z-index: 2;
   pointer-events:none;
 }

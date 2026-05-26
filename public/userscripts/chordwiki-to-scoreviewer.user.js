@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChordWiki → ScoreViewer Exporter (docId)
 // @namespace    musicbook
-// @version      0.2.4
+// @version      0.2.5
 // @description  ChordWiki 페이지에서 악보 텍스트를 DOM에서 추출해 ScoreViewer로 전송하고 docId로 엽니다.
 // @match        *://*.chordwiki.org/wiki/*
 // @match        *://*.chordwiki.jp/wiki/*
@@ -22,6 +22,11 @@
   function pickText(s) {
     // NBSP(웹에서 흔함) -> 일반 스페이스로 정규화해서 "공백 인덱스"가 보존되게 한다.
     return String(s || '').replace(/\u00A0/g, ' ').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trimEnd();
+  }
+
+  function normalizeFragment(s) {
+    // DOM 텍스트 노드 조각을 합칠 때는 trim을 하면 공백 인덱스가 깨진다.
+    return String(s || '').replace(/\u00A0/g, ' ').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   }
 
   function chordHitCount(text) {
@@ -61,7 +66,7 @@
       if (!node) return;
       const nt = node.nodeType;
       if (nt === Node.TEXT_NODE) {
-        out.push(pickText(node.nodeValue || ''));
+        out.push(normalizeFragment(node.nodeValue || ''));
         return;
       }
       if (nt !== Node.ELEMENT_NODE) return;
@@ -78,6 +83,50 @@
     };
     walk(root);
     return pickText(out.join('').replace(/\n{3,}/g, '\n\n'));
+  }
+
+  async function fetchWikiSourceText() {
+    // chordwiki는 페이지 구조가 케이스마다 달라서(줄바꿈이 <br> 기반/가공된 경우),
+    // 가장 안정적인 방법은 "원문(source/edit)"을 같은 도메인에서 가져오는 것이다.
+    const tryParseHtmlForTextarea = async (url) => {
+      try {
+        const html = await fetch(url, { credentials: 'include' }).then((r) => (r.ok ? r.text() : ''));
+        if (!html) return '';
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        const ta =
+          doc.querySelector('textarea[name="msg"]') ||
+          doc.querySelector('textarea[name="source"]') ||
+          doc.querySelector('textarea#msg') ||
+          doc.querySelector('textarea');
+        const v = ta ? String(ta.value || ta.textContent || '') : '';
+        return pickText(v);
+      } catch {
+        return '';
+      }
+    };
+
+    // 1) ?cmd=edit (보통 textarea로 원문이 있음)
+    const u1 = `${location.href}${location.search ? '&' : '?'}cmd=edit`;
+    const t1 = await tryParseHtmlForTextarea(u1);
+    if (t1 && t1.includes('\n')) return t1;
+
+    // 2) ?cmd=source (구현에 따라 pre 또는 plain text)
+    try {
+      const u2 = `${location.href}${location.search ? '&' : '?'}cmd=source`;
+      const res = await fetch(u2, { credentials: 'include' });
+      if (!res.ok) return '';
+      const ct = String(res.headers.get('content-type') || '').toLowerCase();
+      const body = await res.text();
+      if (!body) return '';
+      if (ct.includes('text/plain')) return pickText(body);
+      // html일 수도 있음
+      const doc = new DOMParser().parseFromString(body, 'text/html');
+      const pre = doc.querySelector('pre');
+      if (pre) return pickText(pre.textContent || '');
+      return '';
+    } catch {
+      return '';
+    }
   }
 
   function trimToChordArea(text) {
@@ -165,9 +214,21 @@
       btn.textContent = '전송 중...';
       try {
         const candidates = collectCandidates();
-        const rawText = selectBestCandidate(candidates);
+        let rawText = selectBestCandidate(candidates);
+
+        // 구조가 특이한 페이지(줄바꿈이 깨지거나, 본문이 잘못 선택된 경우)에는 원문(source/edit)을 직접 가져온다.
+        const weak =
+          !rawText ||
+          rawText.length < 20 ||
+          rawText.split('\n').length < 6 ||
+          (rawText.length > 2000 && rawText.split('\n').length < 3) ||
+          chordHitCount(rawText) < 8;
+        if (weak) {
+          const src = await fetchWikiSourceText();
+          if (src) rawText = trimToChordArea(src);
+        }
         if (!rawText || rawText.length < 20) {
-          alert('악보 본문 텍스트를 찾지 못했습니다.');
+          alert('악보 본문 텍스트를 찾지 못했습니다. (source/edit에서도 원문을 찾지 못함)');
           return;
         }
 

@@ -27,16 +27,41 @@ function looksLikeChordToken(s) {
   return /^[A-G](?:#|b)?(?:maj|min|m|dim|aug|sus|add)?\d*(?:\/[A-G](?:#|b)?)?$/i.test(t);
 }
 
+/**
+ * 1단계: 줄(Line) 성격 판별
+ * - Chord Line: 코드 토큰/바(|)/대시(-)/공백 등 "코드표기용 ASCII"로만 구성된 줄
+ * - Lyric Line: 일본어(한자/카나) 또는 일반 문장 성분이 포함된 줄
+ *
+ * 절대 원칙:
+ * - Chord Line과 Lyric Line은 절대 섞이지 않는다(가사 문자열 사이에 코드 토큰이 들어가면 안 됨)
+ */
 function isChordLine(line) {
-  const s = String(line || '');
-  if (!s.trim()) return false;
-  if (/^\s*key\s*:/i.test(s)) return false;
-  const kanaOrKanji = /[\u3040-\u30ff\u3400-\u9fff]/.test(s);
-  if (kanaOrKanji) return false;
-  const matches = s.match(/\b(?:N\.C\.|NC|N\.C)\b|\b[A-G][#b]?(?:maj|min|m|dim|aug|sus|add)?\d*(?:\/[A-G][#b]?)?\b/g) || [];
-  if (matches.length === 0) return false;
-  const density = matches.length / Math.max(1, s.replace(/\s/g, '').length / 8);
-  return density >= 0.8;
+  const s = String(line ?? '');
+  const t = s.trim();
+  if (!t) return false;
+
+  // 메타 라인은 chord로 취급하지 않는다.
+  if (/^\s*(?:key|capo|bpm)\s*[:=]/i.test(t)) return false;
+
+  // 일본어/한글이 섞이면 무조건 가사 라인이다.
+  if (/[\u3040-\u30ff\u3400-\u9fff\uAC00-\uD7AF]/.test(s)) return false;
+
+  // 리듬/구분자만 있는 라인도 "가사 없는 섹션"이므로 chord 라인으로 본다.
+  if (/^[\s|=:_\-–—~.*+\\/]+$/.test(s)) return true;
+
+  // 허용 문자(ASCII) 외가 있으면 chord 라인이 아니다.
+  // (괄호는 일부 표기에서 등장할 수 있어 허용)
+  if (!/^[A-Za-z0-9#b/|().+\-_\s]+$/.test(s)) return false;
+
+  // 코드 토큰이 실제로 존재해야 한다.
+  const spans = buildChordTokenSpans(s);
+  if (!spans.length) return false;
+
+  // 토큰이 너무 적으면(우연히 'A' 같은 문자) chord로 오인할 수 있으니 완화 기준을 둔다.
+  const nonSpace = s.replace(/\s/g, '');
+  if (spans.length === 1 && nonSpace.length <= 3) return false;
+
+  return true;
 }
 
 function buildChordStartMap(chordLine) {
@@ -191,6 +216,9 @@ function isFuriganaChar(ch) {
 
 let _tokenizerPromise = null;
 function getTokenizer() {
+  // kuromoji는 사전 로딩 비용이 매우 커서 기본은 OFF.
+  // 필요할 때만 켠다: ENABLE_KUROMOJI=1
+  if (String(process.env.ENABLE_KUROMOJI || '') !== '1') return Promise.resolve(null);
   if (_tokenizerPromise) return _tokenizerPromise;
   _tokenizerPromise = (async () => {
     try {
@@ -272,9 +300,12 @@ async function buildLyricCellsStrict(line) {
     const tok = tryParseFuriganaToken(src, i);
     if (tok) {
       const readingKr = toKoreanReadingMvp(tok.readingKana);
-      const segs = distributeText(readingKr, tok.base.length);
-      for (let bi = 0; bi < tok.base.length; bi += 1) {
-        const rawCh = tok.base[bi];
+      // 후리가나 전체는 "표시 폭을 base 길이로만" 소비한다.
+      // (괄호와 괄호 안 카나는 폭 0)
+      const baseLen = Math.max(1, tok.base.length);
+      const segs = baseLen === 1 ? [readingKr] : distributeText(readingKr, baseLen);
+      for (let bi = 0; bi < baseLen; bi += 1) {
+        const rawCh = tok.base[bi] || '';
         cells.push({ raw: rawCh, kr: segs[bi] || '' });
       }
       i = tok.end;
@@ -362,27 +393,34 @@ async function parseRawTextToBlocks(rawText) {
     const line = normalizeTabs(lines[i] ?? '');
     const next = normalizeTabs(lines[i + 1] ?? '');
 
-    if (isChordLine(line)) {
-      if (next && !isChordLine(next) && next.trim() !== '') {
-        const chordMap = buildChordStartMap(line);
-        const lyricCells = await buildLyricCellsStrict(next);
-        const maxLen = Math.max(String(line).length, lyricCells.length);
-        for (let col = 0; col < maxLen; col += 1) {
-          const chord = chordMap.get(col) || '';
-          const cell = lyricCells[col] || { raw: ' ', kr: ' ' };
-          out.push({ chord, lyric_raw: cell.raw, lyric_kr: cell.kr });
-        }
-        i += 1;
-        out.push({ chord: '', lyric_raw: '\n', lyric_kr: '\n' });
-        continue;
+    // 1단계: 줄 성격 판별(Chord vs Lyric)
+    const isChord = isChordLine(line);
+    const isNextChord = isChordLine(next);
+
+    // 2단계: chord 라인 + 바로 다음 lyric 라인이면 수직 매핑
+    if (isChord && next && !isNextChord && next.trim() !== '') {
+      const chordMap = buildChordStartMap(line);
+      const lyricCells = await buildLyricCellsStrict(next);
+      const maxLen = Math.max(String(line).length, lyricCells.length);
+      for (let col = 0; col < maxLen; col += 1) {
+        const chord = chordMap.get(col) || '';
+        const cell = lyricCells[col] || { raw: ' ', kr: ' ' };
+        out.push({ chord, lyric_raw: cell.raw, lyric_kr: cell.kr });
       }
+      i += 1;
+      out.push({ chord: '', lyric_raw: '\n', lyric_kr: '\n' });
+      continue;
+    }
+
+    // 3단계: chord-only (가사 없는 섹션)도 공백/기호를 1셀로 유지
+    if (isChord) {
       const chordMap = buildChordStartMap(line);
       emitChordOnly(line, chordMap, out);
       out.push({ chord: '', lyric_raw: '\n', lyric_kr: '\n' });
       continue;
     }
 
-    // 가사만 있는 줄도 공백/기호 포함 "셀"로 엄격히 출력
+    // 4단계: lyric-only (절대 코드 토큰을 섞지 않는다)
     const lyricCells = await buildLyricCellsStrict(line);
     for (let col = 0; col < lyricCells.length; col += 1) {
       const cell = lyricCells[col];

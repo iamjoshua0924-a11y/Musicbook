@@ -24,7 +24,70 @@ function looksLikeChordToken(s) {
   const t = String(s).trim();
   if (/^(?:N\.C\.|N\.C|NC)$/i.test(t)) return true;
   // 엄격한 코드 토큰 패턴(메타 텍스트(BPM 등) 오탐 방지)
-  return /^[A-G](?:#|b)?(?:maj|min|m|dim|aug|sus|add)?\d*(?:\/[A-G](?:#|b)?)?$/i.test(t);
+  // - /B /A 같은 "베이스만" 표기 허용 (선행 '/' 허용)
+  // - /Bb >== 같은 케이스는 토큰 스캐너가 '>'에서 끊어주므로 token은 /Bb 로 들어온다.
+  return /^\/?[A-G](?:#|b)?(?:maj|min|m|dim|aug|sus|add)?\d*(?:\/[A-G](?:#|b)?)?$/i.test(t);
+}
+
+function hasKanaKanjiOrHangul(s) {
+  return /[\u3040-\u30ff\u3400-\u9fff\uAC00-\uD7AF]/.test(String(s || ''));
+}
+
+function firstNonSpaceIndex(s) {
+  const str = String(s || '');
+  for (let i = 0; i < str.length; i += 1) {
+    if (str[i] !== ' ' && str[i] !== '\t') return i;
+  }
+  return -1;
+}
+
+/**
+ * "코드라인 + 가사라인"이 줄바꿈 없이 한 줄로 붙어 들어온 케이스를 복구한다.
+ *
+ * 예)
+ *   chord: "D      C#7    F#m"
+ *   lyric: "くすり たいで"
+ * 가 newline 없이 붙으면:
+ *   "D      C#7    F#mくすり たいで"
+ *
+ * 복구 규칙(사용자 지시):
+ * - 코드(알파벳+숫자)로만 보이는 prefix가 있고, 그 뒤에 텍스트/기호(가사)가 바로 붙으면
+ *   그 지점에서 2행으로 분리하여 수직 정렬한다.
+ */
+function splitMergedChordLyricLine(line) {
+  const s = normalizeTabs(String(line || ''));
+  if (!s.trim()) return null;
+
+  const spans = buildChordTokenSpans(s);
+  if (!spans.length) return null;
+
+  // 1) "가사(일본어/한글)"가 등장하는 지점에서 split
+  for (let i = 0; i < s.length; i += 1) {
+    if (!hasKanaKanjiOrHangul(s[i])) continue;
+    const prefix = s.slice(0, i);
+    const suffix = s.slice(i);
+    if (isChordLine(prefix)) {
+      return { chordLine: prefix, lyricLine: suffix };
+    }
+    break;
+  }
+
+  // 2) 가사는 없지만, 코드라인 뒤에 리듬 기호가 붙은 케이스(-,>,= 등)
+  //    예: "Em7----" / "/Bb>=="
+  for (const sp of spans) {
+    const j = sp.end;
+    if (j >= s.length) continue;
+    const next = s[j];
+    if (next === '-' || next === '>' || next === '=' || next === '|') {
+      const prefix = s.slice(0, j);
+      const suffix = s.slice(j);
+      if (isChordLine(prefix) && suffix.trim()) {
+        return { chordLine: prefix, lyricLine: suffix };
+      }
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -400,6 +463,21 @@ async function parseRawTextToBlocks(rawText) {
   for (let i = 0; i < lines.length; i += 1) {
     const line = normalizeTabs(lines[i] ?? '');
     const next = normalizeTabs(lines[i + 1] ?? '');
+
+    // 0) 줄바꿈이 깨져 "코드라인 + 가사라인"이 한 줄로 붙어온 케이스를 우선 복구한다.
+    const merged = splitMergedChordLyricLine(line);
+    if (merged?.chordLine && merged?.lyricLine) {
+      const chordMap = buildChordStartMap(merged.chordLine);
+      const lyricCells = await buildLyricCellsStrict(merged.lyricLine);
+      const maxLen = Math.max(String(merged.chordLine).length, lyricCells.length);
+      for (let col = 0; col < maxLen; col += 1) {
+        const chord = chordMap.get(col) || '';
+        const cell = lyricCells[col] || { raw: ' ', kr: ' ' };
+        out.push({ chord, lyric_raw: cell.raw, lyric_kr: cell.kr });
+      }
+      out.push({ chord: '', lyric_raw: '\n', lyric_kr: '\n' });
+      continue;
+    }
 
     // 1단계: 줄 성격 판별(Chord vs Lyric)
     const isChord = isChordLine(line);

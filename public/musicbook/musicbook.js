@@ -998,7 +998,7 @@ function renderRouletteMulti(count) {
 function spinRouletteList(listEl, pool, highlight, delayMs = 0) {
   if (!listEl) return 0;
   const box = listEl.parentElement;
-  const ITEM_H = 36;
+  const ITEM_H = 28;
   const WRAP_H = Math.max(120, Number(box?.clientHeight || 160));
   const centerOffset = WRAP_H / 2 - ITEM_H / 2;
 

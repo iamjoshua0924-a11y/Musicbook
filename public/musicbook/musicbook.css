@@ -890,7 +890,8 @@ body.hide-tags .song-chips{ display:none; }
 .roulette-list-wrap{
   position: relative;
   width: 100%;
-  height: 160px;
+  /* 미니 룰렛: 후보가 많을 때(최대 5개) 모달이 넘치지 않도록 높이를 더 줄임 */
+  height: 80px;
   border-radius: 18px;
   border: 1px solid rgba(0,0,0,0.08);
   background: rgba(0,0,0,0.04);
@@ -903,12 +904,13 @@ body.hide-tags .song-chips{ display:none; }
   will-change: transform;
 }
 .roulette-item{
-  height: 36px;
+  height: 28px;
   display:flex;
   align-items:center;
   padding: 0 14px;
   gap:10px;
   font-weight: 1000;
+  font-size: 13px;
 }
 .roulette-item .sub{
   font-weight: 900;
@@ -922,7 +924,7 @@ body.hide-tags .song-chips{ display:none; }
 }
 .roulette-fade{
   position:absolute; left:0; right:0;
-  height: 54px;
+  height: 34px;
   z-index: 2;
   pointer-events:none;
 }

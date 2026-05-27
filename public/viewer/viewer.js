@@ -1318,6 +1318,20 @@ function setupChordPostMessageReceiver() {
     } catch {}
   });
 
+  // opener(ChordWiki 탭)에게 "ready" 신호를 보내 payload 유실을 방지한다.
+  try {
+    if (allowRestore && window.opener && typeof window.opener.postMessage === 'function') {
+      const ping = () => {
+        try {
+          window.opener.postMessage({ type: 'mb_viewer_ready_v1' }, '*');
+        } catch {}
+      };
+      ping();
+      setTimeout(ping, 250);
+      setTimeout(ping, 900);
+    }
+  } catch {}
+
   // 새로고침 시 마지막 메시지를 복원
   if (allowRestore) {
     try {

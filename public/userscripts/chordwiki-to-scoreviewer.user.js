@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChordWiki → ScoreViewer Exporter (docId)
 // @namespace    musicbook
-// @version      0.5.0
+// @version      0.5.1
 // @description  ChordWiki 페이지에서 악보 텍스트를 DOM에서 추출해 ScoreViewer로 전송하고 docId로 엽니다.
 // @match        *://*.chordwiki.org/wiki/*
 // @match        *://*.chordwiki.jp/wiki/*
@@ -137,9 +137,15 @@
     const segs = [];
 
     // 1) 텍스트 노드 기반 수집(좌표 정밀도를 위해)
+    const tStart = performance.now ? performance.now() : Date.now();
+    const overBudget = () => {
+      const now = performance.now ? performance.now() : Date.now();
+      return now - tStart > 650; // 모바일에서도 클릭이 멈추지 않게 예산 제한
+    };
     const tw = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
     let tn = tw.nextNode();
     while (tn) {
+      if (overBudget() || segs.length > 9000) break;
       const textRaw = normalizeFragment(tn.nodeValue || '');
       const t = pickText(textRaw);
       if (t && !isNoiseText(t) && t.length <= 260) {
@@ -163,6 +169,7 @@
                 const str = String(tn.nodeValue || '');
                 // code unit index로 range를 잡되, ascii 위주(스코어)라 안전
                 for (let i = 0; i < str.length; i += 1) {
+                  if (overBudget() || segs.length > 9000) break;
                   const ch = str[i];
                   if (ch === '\n' || ch === '\r') continue;
                   if (!ch.trim()) continue; // 공백은 x로 간접 복원
@@ -552,15 +559,40 @@
       sourceUrl: location.href,
       blocks
     };
-    // 새 탭 로드 타이밍 차이가 커서 몇 번 재전송
-    const tries = [150, 400, 900, 1600, 2600];
-    tries.forEach((ms) => {
-      setTimeout(() => {
-        try {
-          w.postMessage(msg, SCORE_VIEWER_ORIGIN);
-        } catch {}
-      }, ms);
-    });
+
+    // 안정화: viewer가 로드/초기화되기 전에 메시지가 날아가서 누락되는 케이스가 있어
+    // viewer -> opener "ready" 신호를 기다렸다가 payload를 보낸다(그래도 안전을 위해 재전송도 유지).
+    let sent = false;
+    const send = () => {
+      if (sent) return;
+      sent = true;
+      const tries = [0, 150, 400, 900, 1600, 2600, 4200, 6500];
+      tries.forEach((ms) => {
+        setTimeout(() => {
+          try {
+            w.postMessage(msg, SCORE_VIEWER_ORIGIN);
+          } catch {}
+        }, ms);
+      });
+    };
+
+    const onMsg = (ev) => {
+      try {
+        if (String(ev.origin || '') !== SCORE_VIEWER_ORIGIN) return;
+        const d = ev.data || {};
+        if (d?.type !== 'mb_viewer_ready_v1') return;
+        window.removeEventListener('message', onMsg);
+        send();
+      } catch {}
+    };
+    window.addEventListener('message', onMsg);
+    // timeout fallback
+    setTimeout(() => {
+      try {
+        window.removeEventListener('message', onMsg);
+      } catch {}
+      send();
+    }, 2500);
   }
 
   function chordHitCount(text) {

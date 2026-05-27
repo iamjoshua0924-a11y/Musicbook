@@ -1407,9 +1407,22 @@ function renderChordCompact(compact) {
   pre.style.margin = '0';
   pre.style.padding = '12px';
   pre.style.fontFamily =
-    "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace";
+    "'D2Coding','D2 Coding', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace";
   pre.style.fontSize = '14px';
   pre.style.lineHeight = '1.45';
+
+  const isWideChar = (ch) => /[\u3040-\u30ff\u3400-\u9fff\uAC00-\uD7AF\u3000-\u303F\uFF00-\uFFEF]/.test(String(ch || ''));
+  const buildCharToCol = (text) => {
+    const chars = Array.from(String(text ?? ''));
+    /** @type {number[]} */
+    const map = new Array(chars.length);
+    let col = 0;
+    for (let i = 0; i < chars.length; i += 1) {
+      map[i] = col;
+      col += isWideChar(chars[i]) ? 2 : 1;
+    }
+    return { chars, map, totalCols: col };
+  };
 
   const rleDecode = (arr) => {
     if (!Array.isArray(arr)) return '';
@@ -1427,13 +1440,20 @@ function renderChordCompact(compact) {
     return String(ln?.kr || ln?.raw || '');
   };
 
-  const buildChordLine = (len, chordArr) => {
-    const arr = Array.from({ length: Math.max(0, len) }, () => ' ');
+  const buildChordLine = (lyricText, chordArr) => {
+    const { chars, map, totalCols } = buildCharToCol(lyricText);
+    const arr = Array.from({ length: Math.max(0, totalCols) }, () => ' ');
     const chords = Array.isArray(chordArr) ? chordArr : [];
+    const maxCol = chords.reduce((m, c) => Math.max(m, Number(c?.col) || 0), 0);
+    // 구버전 compact( widePad=false ) + CJK 포함 라인은 col이 "문자 인덱스"였고,
+    // <pre> 렌더에서는 전각폭 때문에 chord가 왼쪽으로 밀린다.
+    // => 이 경우에만 charIndex → displayCol로 변환한다.
+    const needCharIndexToDisplayCol = !compact?.widePad && totalCols > chars.length && maxCol <= chars.length;
     for (const c of chords) {
-      const col = Number(c?.col);
+      const rawCol = Number(c?.col);
       const tok = String(c?.token || '');
-      if (!Number.isFinite(col) || col < 0 || !tok) continue;
+      if (!Number.isFinite(rawCol) || rawCol < 0 || !tok) continue;
+      const col = needCharIndexToDisplayCol ? Number(map[rawCol] ?? rawCol) : rawCol;
       const need = col + tok.length;
       while (arr.length < need) arr.push(' ');
       for (let i = 0; i < tok.length; i += 1) arr[col + i] = tok[i];
@@ -1444,7 +1464,7 @@ function renderChordCompact(compact) {
   let out = '';
   for (const ln of lines) {
     const lyric = decodeLineText(ln);
-    const chordLine = buildChordLine(lyric.length, ln?.chords);
+    const chordLine = buildChordLine(lyric, ln?.chords);
     out += chordLine + '\n' + lyric + '\n';
   }
   pre.textContent = out.trimEnd();

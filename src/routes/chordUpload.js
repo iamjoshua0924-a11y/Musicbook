@@ -72,7 +72,7 @@ function compactBlocksV2(blocks) {
     col += 1;
   }
   if (raw.length || kr.length || chords.length) flush();
-  return { format: 'mb_chord_compact_v2', lines };
+  return { format: 'mb_chord_compact_v2', colUnit: 'cell', widePad: true, lines };
 }
 
 // POST /api/chord/upload

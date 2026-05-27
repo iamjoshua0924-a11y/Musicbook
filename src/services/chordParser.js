@@ -16,6 +16,8 @@
 function isChordTokenChar(ch) {
   // '-'는 리듬 표기와 충돌해 제외
   // '.'은 N.C. 표기 지원
+  // 한글/한자/가나는 코드 토큰이 될 수 없으므로 반드시 종료
+  if (/[\u3040-\u30ff\u3400-\u9fff\uAC00-\uD7AF]/.test(String(ch || ''))) return false;
   return /[A-Za-z0-9#b/.()+]/.test(ch);
 }
 
@@ -39,6 +41,9 @@ function looksLikeChordToken(s) {
   if (!s) return false;
   const t = String(s).trim();
   if (/^(?:N\.C\.|N\.C|NC)$/i.test(t)) return true;
+  // 악보 다이나믹/볼륨 표기: V/W/X + 숫자 (예: EmV30, EmW30)
+  // => 코드 토큰으로 취급하지 않는다.
+  if (/^[A-G](?:#|b)?(?:maj|MAJ|min|MIN|m|M)?[VWXvwx]\d+/.test(t)) return false;
   // 엄격한 코드 토큰 패턴(메타 텍스트(BPM 등) 오탐 방지)
   // - /B /A 같은 "베이스만" 표기 허용 (선행 '/' 허용)
   // - /Bb >== 같은 케이스는 토큰 스캐너가 '>'에서 끊어주므로 token은 /Bb 로 들어온다.
@@ -301,7 +306,8 @@ function toKoreanReadingMvp(input) {
 
 // ---- Furigana + kanji fallback ---------------------------------------------------
 function isKanji(ch) {
-  return /[\u3400-\u9fff]/.test(ch);
+  // BMP 한자 + 호환 한자 영역
+  return /[\u3400-\u9FFF\uF900-\uFAFF]/.test(String(ch || ''));
 }
 function isFuriganaChar(ch) {
   return /[\u3040-\u30ffー]/.test(ch);
@@ -535,6 +541,16 @@ function tokenizeInlineLine(line) {
       push({ type: 'rhythm', text: s.slice(i, j) });
       i = j;
       continue;
+    }
+
+    // 3.5) 악보 다이나믹/볼륨 표기(예: EmV30, EmW30)는 코드가 아니라 가사로 취급
+    {
+      const mDyn = s.slice(i).match(/^[A-G](?:#|b)?(?:maj|MAJ|min|MIN|m|M)?[VWXvwx]\d+/);
+      if (mDyn?.[0]) {
+        push({ type: 'lyric', text: mDyn[0] });
+        i += mDyn[0].length;
+        continue;
+      }
     }
 
     // 4) chord token attempt

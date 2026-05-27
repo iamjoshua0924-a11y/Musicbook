@@ -938,7 +938,8 @@ const state = {
   isPageTurner: false,
   isToolAuthorized: false,
   cursorShareOn: false,
-  cursorShareMode: String(localStorage.getItem('mb_viewer_cursorMode') || 'line') === 'row' ? 'row' : 'line',
+  // 커서공유 디폴트: 한줄전체(row)
+  cursorShareMode: String(localStorage.getItem('mb_viewer_cursorMode') || 'row') === 'line' ? 'line' : 'row',
   nickname: getOrCreateNickname(),
   overlapPx: 0,
 
@@ -2602,6 +2603,22 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
+  // Undo/Redo (annotation)
+  if (e.ctrlKey || e.metaKey) {
+    const k = String(e.key || '').toLowerCase();
+    if (k === 'z') {
+      e.preventDefault();
+      if (e.shiftKey) redoForActivePage();
+      else undoForActivePage();
+      return;
+    }
+    if (k === 'y') {
+      e.preventDefault();
+      redoForActivePage();
+      return;
+    }
+  }
+
   const { prev, next } = loadBoundKeys();
   if (next.includes(e.key)) {
     if (e.key === ' ') e.preventDefault();
@@ -3030,6 +3047,20 @@ function makeView(pageNo) {
 
     if (state.tool === 'text') {
       const p = getPointer(opt);
+      const tgt = opt?.target;
+      // 이미 있는 텍스트를 눌렀으면 그대로 편집 진입(새 텍스트 생성 X)
+      if (tgt && tgt.type === 'i-text') {
+        try {
+          fabricCanvas.setActiveObject(tgt);
+          tgt.enterEditing?.();
+          tgt.selectAll?.();
+          fabricCanvas.requestRenderAll();
+        } catch {}
+        return;
+      }
+      // 다른 오브젝트를 누른 경우: 선택/이동만 하고 새 텍스트는 만들지 않는다.
+      if (tgt) return;
+
       const color = String(state.brushColor || '#ff2d55');
       const it = new fabric.IText('텍스트', {
         left: p.x,
@@ -3039,12 +3070,16 @@ function makeView(pageNo) {
         fontWeight: 700
       });
       fabricCanvas.add(it);
-      it.enterEditing();
       fabricCanvas.setActiveObject(it);
+      // NOTE: 편집 진입을 다음 tick으로 넘기면 가끔 focus가 튀는 케이스가 있어 즉시 실행
+      try {
+        it.enterEditing();
+        it.selectAll?.();
+      } catch {}
+      fabricCanvas.requestRenderAll();
       vPushUndo();
       vBroadcast();
-      // 텍스트 1회 생성 후 자연스럽게 선택 도구로 복귀
-      setTimeout(() => setTool('select'), 0);
+      // 텍스트 툴은 유지(입력 중 풀리는 문제 방지)
       return;
     }
 
@@ -3214,6 +3249,15 @@ function makeView(pageNo) {
     broadcast();
   });
 
+  // 텍스트 편집 중에도 안정적으로 반영/공유되도록(Backspace 등 입력 도중 툴이 풀리는 문제 완화)
+  const pushUndoTextDebounced = debounce(() => {
+    if (state.locked) return;
+    pushUndo();
+    broadcast();
+  }, 250);
+  fabricCanvas.on('text:changed', () => pushUndoTextDebounced());
+  fabricCanvas.on('text:editing:exited', () => pushUndoTextDebounced());
+
   const v = { pageNo, root, pdfCanvas, annoCanvas, fabric: fabricCanvas, pushUndo, broadcast };
   viewMap.set(pageNo, v);
   applyToolToAll();
@@ -3278,10 +3322,14 @@ function applyToolToCanvas(fab) {
     // transient pointer (custom mouse events)
     fab.isDrawingMode = false;
     makeSelectable(false);
-  } else if (state.tool === 'shape' || state.tool === 'text') {
+  } else if (state.tool === 'shape') {
     // placement happens on mouse events
     fab.isDrawingMode = false;
     makeSelectable(false);
+  } else if (state.tool === 'text') {
+    // 텍스트는 "생성 + 기존 텍스트 편집"을 위해 selectable on
+    fab.isDrawingMode = false;
+    makeSelectable(true);
   }
 }
 
@@ -3540,7 +3588,12 @@ document.getElementById('penBtn').addEventListener('click', () => setTool('pen')
 document.getElementById('highlighterBtn').addEventListener('click', () => setTool('highlighter'));
 document.getElementById('cursorShareBtn')?.addEventListener('click', () => {
   if (state.cursorShareOn) stopCursorShare(true);
-  else startCursorShare();
+  else {
+    // 기본은 "한줄전체" (요구사항)
+    state.cursorShareMode = 'row';
+    localStorage.setItem('mb_viewer_cursorMode', 'row');
+    startCursorShare();
+  }
 });
 document.getElementById('cursorModeLineBtn')?.addEventListener('click', () => {
   state.cursorShareMode = 'line';
@@ -3736,6 +3789,8 @@ function getActiveView() {
 // Delete key (selection mode)
 window.addEventListener('keydown', (e) => {
   if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+  // 텍스트 편집 중에는 삭제키를 "오브젝트 삭제"로 해석하면 안 된다.
+  if (isAnyTextEditing()) return;
   if (state.tool !== 'select') return;
   const pageNo = state.activeDrawPageNo || state.pageNo;
   const v = viewMap.get(pageNo);

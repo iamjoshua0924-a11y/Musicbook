@@ -31,6 +31,7 @@
             <span class="vsep" aria-hidden="true"></span>
             <button id="createSessionFloatBtn" title="세션 만들기">세션만들기</button>
             <button id="sessionFloatBtn" title="세션 참여/나가기">세션참여</button>
+            <button id="participantsBtn" type="button" class="mini">접속자</button>
             <span class="vsep" aria-hidden="true"></span>
             <button id="fullscreenBtn" type="button">전체화면</button>
             <button id="themeBtn" type="button">테마</button>
@@ -83,41 +84,13 @@
             </div>
           </div>
 
-          <!-- 코드위키 모드 보기옵션(코드뷰어일 때만 노출) -->
-          <div class="group hidden" id="cwViewGroup">
+          <!-- 코드위키 모드: 편집만 노출 -->
+          <div class="group hidden" id="cwEditGroup">
             <span class="label">코드뷰</span>
-            <select id="cwLayoutSelect" class="mini" title="줄바꿈 기준">
-              <option value="auto">자동(폭/마디)</option>
-              <option value="m1">1마디</option>
-              <option value="m2">2마디</option>
-              <option value="m4">4마디</option>
-            </select>
-            <select id="cwMeasureStdSelect" class="mini" title="마디 폭 정규화">
-              <option value="line">마디폭:줄기준</option>
-              <option value="global">마디폭:전체</option>
-              <option value="off">마디폭:끄기</option>
-            </select>
-            <span class="kv">줄폭</span>
-            <input id="cwMaxCols" type="range" min="60" max="200" step="5" value="120" />
-            <span class="kv" id="cwMaxColsLabel">120</span>
-            <span class="kv">행간</span>
-            <input id="cwLineHeight" type="range" min="120" max="220" step="5" value="155" />
-            <span class="kv" id="cwLineHeightLabel">1.55</span>
-            <span class="kv">자간</span>
-            <input id="cwLetterSpacing" type="range" min="-1" max="3" step="0.5" value="0" />
-            <span class="kv" id="cwLetterSpacingLabel">0</span>
-            <span class="kv">세트</span>
-            <input id="cwGapLines" type="range" min="0" max="3" step="1" value="1" />
-            <span class="kv" id="cwGapLinesLabel">1</span>
-            <button id="chordListBtn" type="button" class="mini">코드위키</button>
             <button id="chordEditBtn" type="button" class="mini" title="페이지터너/관리자용">편집</button>
           </div>
 
           <div class="spacer"></div>
-
-          <div class="group" id="participantsBtnGroup">
-            <button id="participantsBtn" type="button" class="mini">접속자</button>
-          </div>
 
           <div class="group" id="pageInfoGroup">
             <span class="label">페이지</span>
@@ -316,46 +289,17 @@
       </div>
     </div>
 
-    <!-- 코드뷰어 편집(페이지터너/관리자): 코드/가사 2열 편집 -->
+    <!-- 코드뷰어 편집(페이지터너/관리자): 통텍스트 편집 -->
     <div class="modalOverlay hidden" id="chordEditModal">
-      <div class="modalBox" style="max-width:min(980px, 96vw);">
+      <div class="modalBox" style="max-width:min(920px, 94vw);">
         <div class="modalTitle">코드뷰어 편집</div>
         <div class="muted" style="margin-top:6px; line-height:1.35;">
-          코드/가사 라인이 한 세트로 묶여 저장됩니다. 코드 라인에서 글자를 추가/삭제하면 가사 라인에 공백이 자동으로 같이 반영되어 정렬이 유지됩니다.
+          1) 위: 코드행 / 아래: 가사행 형식으로 수정하세요. 저장하면 이 docId에 덮어씌워집니다.
         </div>
-        <div class="chordEditTableWrap">
-          <table class="chordEditTable">
-            <thead>
-              <tr>
-                <th>코드 라인</th>
-                <th>가사 라인</th>
-              </tr>
-            </thead>
-            <tbody id="chordEditTbody"></tbody>
-          </table>
-        </div>
+        <textarea id="chordEditField" class="modalTextarea" spellcheck="false"></textarea>
         <div class="modalActions">
           <button id="chordEditCancelBtn" type="button">취소</button>
-          <button id="chordEditAddRowBtn" type="button">줄 추가</button>
           <button id="chordEditSaveBtn" type="button" class="primary">저장</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 코드위키 데이터 목록 -->
-    <div class="modalOverlay hidden" id="chordListModal">
-      <div class="modalBox" style="max-width:min(900px, 96vw);">
-        <div class="modalTitle">코드위키 데이터</div>
-        <div class="row" style="margin-top:10px; gap:8px; align-items:center;">
-          <input id="chordListSearch" type="text" placeholder="검색: docId 또는 sourceUrl" style="flex:1;" />
-          <button id="chordListSearchBtn" type="button" class="mini">검색</button>
-        </div>
-        <div id="chordListMeta" class="muted" style="margin-top:8px;"></div>
-        <div class="chordListItems" id="chordListItems"></div>
-        <div class="modalActions">
-          <button id="chordListPrevBtn" type="button">이전</button>
-          <button id="chordListNextBtn" type="button">다음</button>
-          <button id="chordListCloseBtn" type="button" class="primary">닫기</button>
         </div>
       </div>
     </div>
@@ -366,6 +310,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
     <script src="../config.js"></script>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
-    <script src="viewer.js?v=20260527_20"></script>
+    <script src="viewer.js?v=20260527_21"></script>
   </body>
 </html>

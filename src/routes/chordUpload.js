@@ -92,7 +92,34 @@ router.post(
     if (!parsed.success) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
 
     const rawText = parsed.data.rawText;
-    const meta = { source: 'clientRawText', sourceUrl: parsed.data.sourceUrl || '' };
+    const sourceUrl = String(parsed.data.sourceUrl || '').trim();
+    const meta = { source: 'clientRawText', sourceUrl };
+
+    // 같은 링크가 다시 들어오면 기존 저장본을 재사용한다.
+    // - 요청사항: 제목 자동인식/목록 UI 없이도 "같은 링크면 바로 열림" UX 제공
+    if (sourceUrl) {
+      try {
+        const existing = await ChordDoc.findOne({ 'meta.sourceUrl': sourceUrl }).sort({ createdAt: -1 }).lean();
+        if (existing?._id) {
+          // TTL 연장(재사용된 문서는 더 오래 유지)
+          try {
+            await ChordDoc.updateOne({ _id: existing._id }, { $set: { createdAt: new Date() } });
+          } catch {}
+          // memory cache (옵션)
+          setTempDoc(String(existing._id), { meta: existing.meta || {}, blocks: existing.blocks || [] }, 2 * 60 * 60 * 1000); // 2h
+          return res.json({
+            ok: true,
+            docId: String(existing._id),
+            meta: existing.meta || {},
+            blocksCount: Array.isArray(existing.blocks) ? existing.blocks.length : Array.isArray(existing.blocks?.lines) ? existing.blocks.lines.length : 0,
+            reused: true
+          });
+        }
+      } catch {
+        // reuse 실패 시 신규 생성으로 진행
+      }
+    }
+
     const blocksRaw = await parseRawTextToBlocks(rawText);
 
     const docId = `chord:${nanoid(12)}`;

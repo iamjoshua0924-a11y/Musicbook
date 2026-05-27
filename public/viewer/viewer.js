@@ -24,9 +24,9 @@ const apiUrl = (path) => {
   return `${API_URL}${p.startsWith('/') ? '' : '/'}${p}`;
 };
 
-// ---- Chord view preferences -------------------------------------------------------
-const CW_PREF_KEY = 'mb_cw_view_prefs_v1';
-const CW_PREF_DEFAULTS = {
+// ---- Chord view (고정 설정) -------------------------------------------------------
+// 요청사항: 줄폭/행간/자간 등 사용자 조절 기능 제거. 렌더는 고정값으로 처리한다.
+const CW_FIXED = {
   layout: 'auto', // auto | m1 | m2 | m4
   measureStd: 'line', // line | global | off
   maxLineCols: 120,
@@ -36,113 +36,10 @@ const CW_PREF_DEFAULTS = {
   letterSpacing: 0 // px
 };
 
-function loadCwPrefs() {
-  try {
-    const raw = localStorage.getItem(CW_PREF_KEY);
-    const obj = raw ? JSON.parse(raw) : {};
-    const p = { ...CW_PREF_DEFAULTS, ...(obj || {}) };
-    p.maxLineCols = Math.min(240, Math.max(40, Number(p.maxLineCols || 120)));
-    p.maxMeasureCap = Math.min(80, Math.max(10, Number(p.maxMeasureCap || 36)));
-    p.gapLines = Math.min(5, Math.max(0, Math.round(Number(p.gapLines ?? 1))));
-    p.lineHeight = Math.min(2.8, Math.max(1.1, Number(p.lineHeight || 1.55)));
-    p.letterSpacing = Math.min(6, Math.max(-2, Number(p.letterSpacing || 0)));
-    p.layout = ['auto', 'm1', 'm2', 'm4'].includes(String(p.layout)) ? String(p.layout) : 'auto';
-    p.measureStd = ['line', 'global', 'off'].includes(String(p.measureStd)) ? String(p.measureStd) : 'line';
-    return p;
-  } catch {
-    return { ...CW_PREF_DEFAULTS };
-  }
-}
-
-function saveCwPrefs(patch) {
-  const cur = loadCwPrefs();
-  const next = loadCwPrefs(); // normalized
-  Object.assign(next, cur, patch || {});
-  try {
-    localStorage.setItem(CW_PREF_KEY, JSON.stringify(next));
-  } catch {}
-  return loadCwPrefs();
-}
-
 function applyCwPrefToPre(pre) {
   if (!pre) return;
-  const p = loadCwPrefs();
-  pre.style.lineHeight = String(p.lineHeight || 1.55);
-  pre.style.letterSpacing = `${Number(p.letterSpacing || 0)}px`;
-}
-
-function rerenderChordNow() {
-  if (state?.mode !== 'chord') return;
-  try {
-    if (state.chordBlocksRaw && typeof state.chordBlocksRaw === 'object' && !Array.isArray(state.chordBlocksRaw)) {
-      renderChordCompact(state.chordBlocksRaw);
-      return;
-    }
-    if (Array.isArray(state.chordBlocks) && state.chordBlocks.length) {
-      renderChordBlocks(state.chordBlocks);
-    }
-  } catch {}
-}
-
-function initCwControls() {
-  const layoutSel = document.getElementById('cwLayoutSelect');
-  const stdSel = document.getElementById('cwMeasureStdSelect');
-  const maxCols = document.getElementById('cwMaxCols');
-  const maxColsLabel = document.getElementById('cwMaxColsLabel');
-  const lineHeight = document.getElementById('cwLineHeight');
-  const lineHeightLabel = document.getElementById('cwLineHeightLabel');
-  const letter = document.getElementById('cwLetterSpacing');
-  const letterLabel = document.getElementById('cwLetterSpacingLabel');
-  const gap = document.getElementById('cwGapLines');
-  const gapLabel = document.getElementById('cwGapLinesLabel');
-  if (!layoutSel || !stdSel || !maxCols || !lineHeight || !letter || !gap) return;
-
-  const p = loadCwPrefs();
-  try {
-    layoutSel.value = String(p.layout || 'auto');
-    stdSel.value = String(p.measureStd || 'line');
-    maxCols.value = String(Math.round(Number(p.maxLineCols || 120)));
-    lineHeight.value = String(Math.round(Number(p.lineHeight || 1.55) * 100));
-    letter.value = String(Number(p.letterSpacing || 0));
-    gap.value = String(Number(p.gapLines ?? 1));
-  } catch {}
-
-  const updateLabels = (pp) => {
-    try {
-      if (maxColsLabel) maxColsLabel.textContent = String(Math.round(Number(pp.maxLineCols || 120)));
-      if (lineHeightLabel) lineHeightLabel.textContent = String((Number(pp.lineHeight || 1.55)).toFixed(2));
-      if (letterLabel) letterLabel.textContent = String(Number(pp.letterSpacing || 0));
-      if (gapLabel) gapLabel.textContent = String(Number(pp.gapLines ?? 1));
-    } catch {}
-  };
-  updateLabels(p);
-
-  const apply = () => {
-    const next = saveCwPrefs({
-      layout: String(layoutSel.value || 'auto'),
-      measureStd: String(stdSel.value || 'line'),
-      maxLineCols: Number(maxCols.value || 120),
-      lineHeight: Number(lineHeight.value || 155) / 100,
-      letterSpacing: Number(letter.value || 0),
-      gapLines: Number(gap.value || 1)
-    });
-    // 입력값을 정규화된 값으로 되돌림
-    try {
-      maxCols.value = String(Math.round(Number(next.maxLineCols || 120)));
-      lineHeight.value = String(Math.round(Number(next.lineHeight || 1.55) * 100));
-      letter.value = String(Number(next.letterSpacing || 0));
-      gap.value = String(Number(next.gapLines ?? 1));
-    } catch {}
-    updateLabels(next);
-    rerenderChordNow();
-  };
-
-  layoutSel.onchange = apply;
-  stdSel.onchange = apply;
-  maxCols.oninput = apply;
-  lineHeight.oninput = apply;
-  letter.oninput = apply;
-  gap.oninput = apply;
+  pre.style.lineHeight = String(CW_FIXED.lineHeight || 1.55);
+  pre.style.letterSpacing = `${Number(CW_FIXED.letterSpacing || 0)}px`;
 }
 
 function extractDriveFileIdFromAny(input) {
@@ -433,226 +330,25 @@ function openInputModalRequired({ title, placeholder = '', value = '', minLen = 
 
 function openChordEditModal({ value = '' } = {}) {
   const overlay = document.getElementById('chordEditModal');
-  const tbody = document.getElementById('chordEditTbody');
+  const field = document.getElementById('chordEditField');
   const okBtn = document.getElementById('chordEditSaveBtn');
   const cancelBtn = document.getElementById('chordEditCancelBtn');
-  const addBtn = document.getElementById('chordEditAddRowBtn');
-  if (!overlay || !tbody || !okBtn || !cancelBtn || !addBtn) return Promise.resolve(null);
+  if (!overlay || !field || !okBtn || !cancelBtn) return Promise.resolve(null);
 
-  const splitToPairs = (text) => {
-    const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
-    /** @type {Array<{ch:string, ly:string}>} */
-    const pairs = [];
-    let i = 0;
-    while (i < lines.length) {
-      const ch = lines[i] ?? '';
-      const ly = lines[i + 1] ?? '';
-      pairs.push({ ch, ly });
-      i += 2;
-      // 세트 공백(빈 줄)은 전역 gapLines로 다시 생성하므로 여기서는 흡수
-      while (i < lines.length && String(lines[i] || '').trim() === '') i += 1;
-    }
-    if (!pairs.length) pairs.push({ ch: '', ly: '' });
-    return pairs;
-  };
-
-  const esc = (s) => String(s ?? '');
-  const applyMirrorEdit = (otherEl, prev, next) => {
-    // 공통 prefix/suffix 기반의 "삽입/삭제"를 감지하고, 다른 라인에는 동일 길이만큼 공백 삽입/삭제
-    const a = esc(prev);
-    const b = esc(next);
-    let p = 0;
-    while (p < a.length && p < b.length && a[p] === b[p]) p += 1;
-    let sa = a.length - 1;
-    let sb = b.length - 1;
-    while (sa >= p && sb >= p && a[sa] === b[sb]) {
-      sa -= 1;
-      sb -= 1;
-    }
-    const removedLen = Math.max(0, sa - p + 1);
-    const addedLen = Math.max(0, sb - p + 1);
-
-    // other string
-    const other = esc(otherEl.value);
-    if (addedLen > 0) {
-      otherEl.value = other.slice(0, p) + ' '.repeat(addedLen) + other.slice(p);
-    } else if (removedLen > 0) {
-      otherEl.value = other.slice(0, p) + other.slice(p + removedLen);
-    }
-  };
-
-  const pairs = splitToPairs(value);
-
-  const renderRow = ({ ch = '', ly = '' } = {}) => {
-    const tr = document.createElement('tr');
-    const tdCh = document.createElement('td');
-    const tdLy = document.createElement('td');
-    const chEl = document.createElement('input');
-    const lyEl = document.createElement('input');
-    chEl.className = 'chordEditInput';
-    lyEl.className = 'chordEditInput';
-    chEl.spellcheck = false;
-    lyEl.spellcheck = false;
-    chEl.value = esc(ch);
-    lyEl.value = esc(ly);
-
-    let lock = false;
-    let prevCh = chEl.value;
-    let prevLy = lyEl.value;
-
-    chEl.addEventListener('input', () => {
-      if (lock) return;
-      lock = true;
-      applyMirrorEdit(lyEl, prevCh, chEl.value);
-      prevCh = chEl.value;
-      prevLy = lyEl.value;
-      lock = false;
-    });
-    lyEl.addEventListener('input', () => {
-      if (lock) return;
-      lock = true;
-      applyMirrorEdit(chEl, prevLy, lyEl.value);
-      prevLy = lyEl.value;
-      prevCh = chEl.value;
-      lock = false;
-    });
-
-    tdCh.appendChild(chEl);
-    tdLy.appendChild(lyEl);
-    tr.appendChild(tdCh);
-    tr.appendChild(tdLy);
-    return tr;
-  };
-
-  tbody.innerHTML = '';
-  for (const p of pairs) tbody.appendChild(renderRow(p));
-
+  field.value = String(value || '');
   overlay.classList.remove('hidden');
-  setTimeout(() => {
-    const first = tbody.querySelector('input');
-    first?.focus?.();
-  }, 0);
-
-  const buildText = () => {
-    const pref = loadCwPrefs();
-    const gapLines = clamp(Number(pref?.gapLines ?? 1), 0, 3);
-    /** @type {string[]} */
-    const lines = [];
-    const rows = Array.from(tbody.querySelectorAll('tr'));
-    for (const r of rows) {
-      const ins = Array.from(r.querySelectorAll('input'));
-      const ch = String(ins[0]?.value ?? '');
-      const ly = String(ins[1]?.value ?? '');
-      // 완전 빈 줄은 스킵
-      if (!ch.trim() && !ly.trim()) continue;
-      lines.push(ch);
-      lines.push(ly);
-      for (let k = 0; k < gapLines; k += 1) lines.push('');
-    }
-    return lines.join('\n').trimEnd();
-  };
+  setTimeout(() => field.focus(), 0);
 
   return new Promise((resolve) => {
     const cleanup = (result) => {
       overlay.classList.add('hidden');
       okBtn.onclick = null;
       cancelBtn.onclick = null;
-      addBtn.onclick = null;
       resolve(result);
     };
-    okBtn.onclick = () => cleanup(buildText());
+    okBtn.onclick = () => cleanup(field.value);
     cancelBtn.onclick = () => cleanup(null);
-    addBtn.onclick = () => {
-      tbody.appendChild(renderRow({ ch: '', ly: '' }));
-      const inputs = tbody.lastChild?.querySelectorAll?.('input');
-      inputs?.[0]?.focus?.();
-    };
-  });
-}
-
-function openChordListModal() {
-  const overlay = document.getElementById('chordListModal');
-  const search = document.getElementById('chordListSearch');
-  const searchBtn = document.getElementById('chordListSearchBtn');
-  const metaEl = document.getElementById('chordListMeta');
-  const itemsEl = document.getElementById('chordListItems');
-  const prevBtn = document.getElementById('chordListPrevBtn');
-  const nextBtn = document.getElementById('chordListNextBtn');
-  const closeBtn = document.getElementById('chordListCloseBtn');
-  if (!overlay || !search || !searchBtn || !metaEl || !itemsEl || !prevBtn || !nextBtn || !closeBtn) return Promise.resolve(null);
-
-  let page = 1;
-  const limit = 30;
-
-  const render = (r) => {
-    const total = Number(r?.total || 0);
-    metaEl.textContent = `총 ${total}개 · ${page}p`;
-    itemsEl.innerHTML = '';
-    const items = Array.isArray(r?.items) ? r.items : [];
-    for (const it of items) {
-      const div = document.createElement('div');
-      div.className = 'chordListItem';
-      const docId = String(it?.docId || '');
-      const url = String(it?.meta?.sourceUrl || '');
-      const title = url ? url.replace(/^https?:\/\//, '') : docId;
-      div.innerHTML = `<div class="title">${docId}</div><div class="sub">${title}</div>`;
-      div.onclick = () => {
-        overlay.classList.add('hidden');
-        // 클릭 즉시 로드
-        openChordByDocId(docId, { broadcast: false }).catch(() => {});
-      };
-      itemsEl.appendChild(div);
-    }
-    prevBtn.disabled = page <= 1;
-    nextBtn.disabled = items.length < limit;
-  };
-
-  const load = async () => {
-    const q = String(search.value || '').trim();
-    metaEl.textContent = '불러오는 중...';
-    itemsEl.innerHTML = '';
-    try {
-      const r = await apiGet(`/api/chord-doc/list?q=${encodeURIComponent(q)}&page=${page}&limit=${limit}`);
-      if (!r?.ok) throw new Error(r?.error || 'LOAD_FAILED');
-      render(r);
-    } catch (e) {
-      metaEl.textContent = `불러오기 실패: ${e?.message || 'ERROR'}`;
-    }
-  };
-
-  overlay.classList.remove('hidden');
-  setTimeout(() => search.focus(), 0);
-  load().catch(() => {});
-
-  return new Promise((resolve) => {
-    const cleanup = (v) => {
-      overlay.classList.add('hidden');
-      searchBtn.onclick = null;
-      prevBtn.onclick = null;
-      nextBtn.onclick = null;
-      closeBtn.onclick = null;
-      search.onkeydown = null;
-      resolve(v);
-    };
-    searchBtn.onclick = () => {
-      page = 1;
-      load().catch(() => {});
-    };
-    prevBtn.onclick = () => {
-      if (page <= 1) return;
-      page -= 1;
-      load().catch(() => {});
-    };
-    nextBtn.onclick = () => {
-      page += 1;
-      load().catch(() => {});
-    };
-    closeBtn.onclick = () => cleanup(null);
-    search.onkeydown = (e) => {
-      if (e.key === 'Enter') {
-        page = 1;
-        load().catch(() => {});
-      }
+    field.onkeydown = (e) => {
       if (e.key === 'Escape') cleanup(null);
     };
   });
@@ -1605,8 +1301,8 @@ function setMode(mode) {
 
   setHidden('pdf-container', mode !== 'pdf');
   setHidden('chordwikiPane', mode !== 'chord');
-  // 코드위키 보기옵션은 chord 모드에서만 노출
-  setHidden('cwViewGroup', mode !== 'chord');
+  // 코드위키 편집 버튼은 chord 모드에서만 노출
+  setHidden('cwEditGroup', mode !== 'chord');
 
   if (mode === 'pdf') {
     document.getElementById('linkInput')?.setAttribute('placeholder', '구글드라이브 PDF 링크 또는 fileId');
@@ -1713,11 +1409,10 @@ function renderChordBlocks(blocks) {
   });
 
   // ---- 1) 바(|) 단위 래핑 + 2) 코드 겹침 방지 + 3) 세트 간 간격 + 4) 마디폭 표준화 ----
-  const pref = loadCwPrefs();
-  const MAX_LINE_COLS = Number(pref.maxLineCols || 120); // 마디 단위 줄바꿈 폭
-  const MAX_MEASURE_COLS_CAP = Number(pref.maxMeasureCap || 36); // 표준 마디폭 cap
-  const SET_GAP_LINES = Number(pref.gapLines ?? 1); // 세트 간 간격(빈 줄 개수)
-  const FIXED_MEASURES = String(pref.layout || 'auto').startsWith('m') ? Number(String(pref.layout).slice(1)) : 0;
+  const MAX_LINE_COLS = Number(CW_FIXED.maxLineCols || 120); // 마디 단위 줄바꿈 폭
+  const MAX_MEASURE_COLS_CAP = Number(CW_FIXED.maxMeasureCap || 36); // 표준 마디폭 cap
+  const SET_GAP_LINES = Number(CW_FIXED.gapLines ?? 1); // 세트 간 간격(빈 줄 개수)
+  const FIXED_MEASURES = String(CW_FIXED.layout || 'auto').startsWith('m') ? Number(String(CW_FIXED.layout).slice(1)) : 0;
 
   const renderLineToCols = (ln) => {
     /** @type {Array<{baseCol:number, token:string}>} */
@@ -1811,7 +1506,7 @@ function renderChordBlocks(blocks) {
 
   // global 마디폭(선택): 전체 라인에서 가장 긴 마디를 기준으로(단 cap 적용)
   let globalStd = 0;
-  if (pref.measureStd === 'global') {
+  if (CW_FIXED.measureStd === 'global') {
     for (const ln of linesFiltered) {
       const { lyricCols, chordCols } = renderLineToCols(ln);
       const { measures, hasBar } = splitMeasures(lyricCols, chordCols);
@@ -1836,8 +1531,8 @@ function renderChordBlocks(blocks) {
     // - line: 해당 줄에서 가장 긴 마디 길이 기준
     // - global: 전체에서 가장 긴 마디 길이 기준
     let std = 0;
-    if (pref.measureStd === 'off') std = 0;
-    else if (pref.measureStd === 'global') std = globalStd;
+    if (CW_FIXED.measureStd === 'off') std = 0;
+    else if (CW_FIXED.measureStd === 'global') std = globalStd;
     else if (hasBar) {
       const measureHasChord = (m) => Array.isArray(m?.ch) && m.ch.some((c) => c !== ' ');
       for (const m of measures) {
@@ -2033,11 +1728,10 @@ function renderChordCompact(compact) {
   // - 마디(|) 단위 줄바꿈(바가 닫히기 전에 개행 금지)
   // - 코드 겹침 방지(필요 시 공백 삽입)
   // - 마디폭 표준화(선택: 줄/전체/끄기)
-  const pref = loadCwPrefs();
-  const MAX_LINE_COLS = Number(pref.maxLineCols || 120);
-  const MAX_MEASURE_COLS_CAP = Number(pref.maxMeasureCap || 36);
-  const SET_GAP_LINES = Number(pref.gapLines ?? 1);
-  const FIXED_MEASURES = String(pref.layout || 'auto').startsWith('m') ? Number(String(pref.layout).slice(1)) : 0;
+  const MAX_LINE_COLS = Number(CW_FIXED.maxLineCols || 120);
+  const MAX_MEASURE_COLS_CAP = Number(CW_FIXED.maxMeasureCap || 36);
+  const SET_GAP_LINES = Number(CW_FIXED.gapLines ?? 1);
+  const FIXED_MEASURES = String(CW_FIXED.layout || 'auto').startsWith('m') ? Number(String(CW_FIXED.layout).slice(1)) : 0;
 
   const buildMeasuresFromLine = (lyricText, chordArr) => {
     const { chars, map, totalCols } = buildCharToCol(lyricText);
@@ -3814,11 +3508,6 @@ function updateToolActiveUI() {
   on('lineBtn', state.tool === 'shape' && state.shape === 'line');
   on('rectBtn', state.tool === 'shape' && state.shape === 'rect');
   on('circleBtn', state.tool === 'shape' && state.shape === 'circle');
-  // 코드위키 목록 버튼(코드모드에서만)
-  try {
-    const listBtn = document.getElementById('chordListBtn');
-    if (listBtn) listBtn.classList.toggle('hidden', state.mode !== 'chord');
-  } catch {}
   // 코드뷰어 편집 버튼(페이지터너/관리자)
   try {
     const btn = document.getElementById('chordEditBtn');
@@ -3914,10 +3603,6 @@ document.getElementById('chordEditBtn')?.addEventListener('click', async () => {
   }
 });
 
-document.getElementById('chordListBtn')?.addEventListener('click', async () => {
-  if (state.mode !== 'chord') return;
-  await openChordListModal();
-});
 
 // Brush / color / text size controls
 document.getElementById('brushSize')?.addEventListener('input', (e) => {
@@ -4669,7 +4354,7 @@ async function init() {
 
   await loadMe();
   // 코드뷰 렌더 옵션 UI 초기화(값 복원 + 변경 시 즉시 재렌더)
-  initCwControls();
+  // 코드뷰 옵션(줄폭/자간/행간 등) 기능 제거됨
 
   // 방문자(익명)로 /viewer 접속 시:
   // - 기존에는 "무조건 닉네임 모달"을 띄워서 chord/doc 로딩까지 막았는데,

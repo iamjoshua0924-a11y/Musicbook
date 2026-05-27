@@ -1278,6 +1278,19 @@ function renderChordBlocks(blocks) {
   }
   setCwError('');
 
+  const isWideChar = (ch) => {
+    const s = String(ch || '');
+    if (!s) return false;
+    // CJK + punctuation + fullwidth forms
+    return /[\u3040-\u30ff\u3400-\u9fff\uAC00-\uD7AF\u3000-\u303F\uFF00-\uFFEF]/.test(s);
+  };
+  const displayCols = (text) => {
+    const s = String(text ?? '');
+    let w = 0;
+    for (const ch of Array.from(s)) w += isWideChar(ch) ? 2 : 1;
+    return Math.max(1, w);
+  };
+
   let line = document.createElement('div');
   line.className = 'chord-line';
   wrap.appendChild(line);
@@ -1294,11 +1307,33 @@ function renderChordBlocks(blocks) {
 
     const chordEl = document.createElement('div');
     chordEl.className = 'cwChord';
-    chordEl.textContent = String(b?.chord || '');
+    const chordTok = String(b?.chord || '');
+    chordEl.textContent = chordTok;
 
     const lyricEl = document.createElement('div');
     lyricEl.className = 'cwLyric';
-    lyricEl.textContent = String(b?.lyric_kr ?? b?.lyric_raw ?? '');
+    const lyricText = String(b?.lyric_kr ?? b?.lyric_raw ?? '');
+    lyricEl.textContent = lyricText;
+
+    // --- width hints -------------------------------------------------------------
+    // 1) 전각(2ch) 글자: data-wide
+    // 2) 멀티문자 토큰(예: "(4/4)" directive): data-span + --span
+    if (lyricText.length === 1 && isWideChar(lyricText)) {
+      cell.dataset.wide = '1';
+    } else if (lyricText.length > 1) {
+      const span = displayCols(lyricText);
+      cell.dataset.span = String(span);
+      cell.style.setProperty('--span', String(span));
+      // 전각만으로 2칸인 경우는 wide로도 표시(디버깅/호환)
+      if (span === 2) cell.dataset.wide = '1';
+    }
+
+    // 긴 코드 토큰은 chord row에서 폭을 확장해 가사가 가려지는 것을 줄인다.
+    const chordLen = chordTok.length;
+    if (chordLen > 1) {
+      cell.dataset.chordSpan = String(chordLen);
+      cell.style.setProperty('--chSpan', String(chordLen));
+    }
 
     cell.appendChild(chordEl);
     cell.appendChild(lyricEl);

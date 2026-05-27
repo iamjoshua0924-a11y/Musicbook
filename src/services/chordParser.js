@@ -214,9 +214,7 @@ function emitChordOnly(chordLine, _chordMap, out) {
     if (ch === ' ' || ch === '\t') {
       let runEnd = i;
       while (runEnd < s.length && (s[runEnd] === ' ' || s[runEnd] === '\t')) runEnd += 1;
-      const rawCount = runEnd - i;
-      const nextIsSpan = spanByStart.has(runEnd);
-      const emitCount = nextIsSpan ? Math.min(rawCount, 2) : Math.min(rawCount, 4);
+      const emitCount = runEnd - i; // 압축 없이 원본 폭 유지
       for (let k = 0; k < emitCount; k += 1) out.push({ chord: '', lyric_raw: ' ', lyric_kr: ' ' });
       i = runEnd;
       continue;
@@ -1068,22 +1066,9 @@ async function parseRawTextToBlocks(rawText) {
       }
       const chordMap = buildChordStartMap(line);
       const lyricCells = await buildLyricCellsStrict(next);
-      // chordLine의 공백이 과도해 chord col이 lyric 범위를 넘어가면,
-      // chord 위치를 lyric 셀 범위로 근사(scale+clamp)해서 정렬을 회복한다.
-      const lineLen = Math.max(1, String(line).length);
-      const maxLyricCol = Math.max(0, lyricCells.length - 1);
-      const needsScale = [...chordMap.keys()].some((c) => Number(c) > maxLyricCol) || lineLen > lyricCells.length * 1.35;
-      const scaledMap = new Map();
-      if (needsScale) {
-        for (const [rawCol, token] of chordMap.entries()) {
-          const scaled = Math.round((Number(rawCol) / lineLen) * lyricCells.length);
-          const clamped = Math.max(0, Math.min(maxLyricCol, scaled));
-          if (!scaledMap.has(clamped)) scaledMap.set(clamped, token);
-        }
-      }
-      const maxLen = lyricCells.length;
+      const maxLen = Math.max(String(line).length, lyricCells.length);
       for (let col = 0; col < maxLen; col += 1) {
-        const chord = (needsScale ? scaledMap.get(col) : chordMap.get(col)) || '';
+        const chord = chordMap.get(col) || '';
         const cell = lyricCells[col] || { raw: ' ', kr: ' ' };
         out.push({ chord, lyric_raw: cell.raw, lyric_kr: cell.kr });
       }

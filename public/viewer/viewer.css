@@ -305,23 +305,43 @@ button.danger{ background:rgba(255,107,107,0.14); border-color:rgba(255,107,107,
   pointer-events:none;
 }
 .chord-sheet{
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Noto Sans Mono", monospace;
+  font-family:
+    "D2Coding","D2 Coding",
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Noto Sans KR Mono","Malgun Gothic",
+    "MS Gothic","Hiragino Kaku Gothic ProN",
+    monospace;
   font-size:14px;
   line-height:1.25;
   white-space:nowrap;
   position:relative;
   z-index:1;
+  display:inline-block; /* shrink-wrap */
+  min-width: 100%;
 }
 .chord-line{ display:flex; gap:0; }
 /* 핵심: "셀 폭 고정"으로 레고블록 정렬 보장 */
 .chord-lyric-cell{
   display:flex;
   flex-direction:column;
-  /* 1ch(=숫자 '0' 폭)는 CJK(전각) 문자 폭과 달라 정렬이 깨질 수 있어 1em 기반으로 고정 */
-  flex:0 0 1em;
-  width:1em;
-  min-width:1em;
-  max-width:1em;
+  /* 1ch(=숫자 '0' 폭) 기준으로 고정폭 */
+  flex:0 0 1ch;
+  width:1ch;
+  min-width:1ch;
+  max-width:1ch;
+}
+/* 전각(또는 멀티문자) 셀 폭 */
+.chord-lyric-cell[data-wide]{
+  flex:0 0 2ch;
+  width:2ch;
+  min-width:2ch;
+  max-width:2ch;
+}
+.chord-lyric-cell[data-span]{
+  flex:0 0 calc(var(--span, 1) * 1ch);
+  width:calc(var(--span, 1) * 1ch);
+  min-width:calc(var(--span, 1) * 1ch);
+  max-width:calc(var(--span, 1) * 1ch);
 }
 .cwChord{
   font-weight:900;
@@ -332,6 +352,9 @@ button.danger{ background:rgba(255,107,107,0.14); border-color:rgba(255,107,107,
   white-space:pre;
   overflow:visible;
 }
+.chord-lyric-cell[data-chord-span] .cwChord{
+  width: calc(var(--chSpan, 1) * 1ch);
+}
 .cwLyric{
   font-weight:800;
   font-size:14px;
@@ -339,6 +362,11 @@ button.danger{ background:rgba(255,107,107,0.14); border-color:rgba(255,107,107,
   line-height:18px;
   white-space:pre;
   overflow:visible;
+}
+
+#cwContent{
+  overflow-x: auto;
+  overflow-y: visible;
 }
 
 /* 커서 공유(세로 형광펜 라인) */

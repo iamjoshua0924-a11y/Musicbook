@@ -237,6 +237,15 @@ body.mobile-viewer #turnUnitSpreadBtn{
   justify-content:center;
   line-height:1;
 }
+.mini:is(select){
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 26px;
+  background:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%) calc(100% - 16px) calc(50% - 2px)/6px 6px no-repeat,
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%) calc(100% - 12px) calc(50% - 2px)/6px 6px no-repeat,
+    rgba(255,255,255,0.03);
+}
 .seg button.active{
   border-color:rgba(122,162,255,0.6);
   box-shadow:0 0 0 2px rgba(122,162,255,0.12) inset;

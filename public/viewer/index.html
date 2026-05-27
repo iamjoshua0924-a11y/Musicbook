@@ -6,7 +6,7 @@
     <title>Score Viewer</title>
     <!-- cache-bust for mobile browsers -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/naver/d2codingfont@master/D2Coding.css" />
-    <link rel="stylesheet" href="/public/viewer/viewer.css?v=20260527_11" />
+    <link rel="stylesheet" href="/public/viewer/viewer.css?v=20260527_14" />
   </head>
   <body>
     <div id="viewer-wrapper">
@@ -161,6 +161,29 @@
             </div>
           </div>
 
+          <div class="group" id="cwLayoutGroup">
+            <span class="label">코드뷰</span>
+            <select id="cwLayoutSelect" class="mini" title="줄바꿈 기준">
+              <option value="auto">자동(폭/마디)</option>
+              <option value="m1">1마디</option>
+              <option value="m2">2마디</option>
+              <option value="m4">4마디</option>
+            </select>
+            <select id="cwMeasureStdSelect" class="mini" title="마디 폭 정규화">
+              <option value="line">마디폭:줄기준</option>
+              <option value="global">마디폭:전체</option>
+              <option value="off">마디폭:끄기</option>
+            </select>
+            <span class="kv">줄폭</span>
+            <input id="cwMaxCols" type="range" min="60" max="200" step="5" value="120" />
+            <span class="kv">행간</span>
+            <input id="cwLineHeight" type="range" min="120" max="220" step="5" value="155" />
+            <span class="kv">자간</span>
+            <input id="cwLetterSpacing" type="range" min="-1" max="3" step="0.5" value="0" />
+            <span class="kv">세트</span>
+            <input id="cwGapLines" type="range" min="0" max="3" step="1" value="1" />
+          </div>
+
           <div class="group" id="brushGroup">
             <span class="label">옵션</span>
             <span class="kv">굵기</span>
@@ -289,6 +312,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
-    <script src="/public/viewer/viewer.js?v=20260527_13"></script>
+    <script src="/public/viewer/viewer.js?v=20260527_14"></script>
   </body>
 </html>

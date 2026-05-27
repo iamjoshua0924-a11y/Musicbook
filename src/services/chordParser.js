@@ -437,9 +437,24 @@ function isSingleLetterChordInContext(cand, prev, next, line, pos) {
 
   // ── lyric로 판정하는 경우 ──
   if (/[a-zA-Z]/.test(prev)) return false;
-  if (/[a-zA-Z]/.test(next)) return false;
-  const afterSpace = String(line || '').slice(pos + cand.length).trimStart();
-  if (/^[a-z]/.test(afterSpace)) return false;
+  // Don't / I'm 같은 영문 수축형 보호
+  if (next === "'" || next === '’') return false;
+  // "Don't"처럼 바로 소문자가 오면 무조건 가사
+  if (/[a-z]/.test(next)) return false;
+
+  const after = String(line || '').slice(pos + cand.length);
+  const afterTrim = after.trimStart();
+
+  // "DStop"처럼 (공백 없이) 대문자+소문자 단어가 붙는 경우는
+  // 앞의 1글자(D)를 코드로 보고 단어는 가사로 남긴다.
+  if (/^[A-Z][a-z]{1,}/.test(after)) return true;
+
+  // 공백 뒤에 다음 토큰이 "코드/바/리듬"이면 코드로 본다.
+  // (예: "D  G/B", "| D |")
+  if (next === ' ' || next === '\t') {
+    if (/^(?:\/?[A-GN]|[|=:_\-–—~.*+\\/])/.test(afterTrim)) return true;
+    return false; // (예: "B O Y" 같은 영문 철자 나열은 가사)
+  }
 
   return false;
 }
@@ -619,15 +634,12 @@ async function emitInlineTokensAsBlocks(tokens, out) {
     }
 
     if (tok.type === 'cue') {
+      // 보컬 분배 기호(♥♠ 등): "가사"로 표시하되, 코드/가사 정렬을 깨지 않도록 한 셀만 소비
+      putChordIfPending(col);
       ensureCell(col);
-      // cue는 chord row로 올린다(가사는 공백 유지)
-      if (cells[col].chord) {
-        col += 1;
-        ensureCell(col);
-      }
-      cells[col].chord = String(tok.text || '').trim();
-      if (!cells[col].raw) cells[col].raw = ' ';
-      if (!cells[col].kr) cells[col].kr = ' ';
+      const t = String(tok.text || '');
+      cells[col].raw = t;
+      cells[col].kr = t;
       col += 1;
       continue;
     }

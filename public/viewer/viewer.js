@@ -13,6 +13,112 @@ try {
   else window.name = 'mb_viewer_main';
 } catch {}
 
+// ---- Chord view preferences -------------------------------------------------------
+const CW_PREF_KEY = 'mb_cw_view_prefs_v1';
+const CW_PREF_DEFAULTS = {
+  layout: 'auto', // auto | m1 | m2 | m4
+  measureStd: 'line', // line | global | off
+  maxLineCols: 120,
+  maxMeasureCap: 36,
+  gapLines: 1,
+  lineHeight: 1.55,
+  letterSpacing: 0 // px
+};
+
+function loadCwPrefs() {
+  try {
+    const raw = localStorage.getItem(CW_PREF_KEY);
+    const obj = raw ? JSON.parse(raw) : {};
+    const p = { ...CW_PREF_DEFAULTS, ...(obj || {}) };
+    p.maxLineCols = Math.min(240, Math.max(40, Number(p.maxLineCols || 120)));
+    p.maxMeasureCap = Math.min(80, Math.max(10, Number(p.maxMeasureCap || 36)));
+    p.gapLines = Math.min(5, Math.max(0, Math.round(Number(p.gapLines ?? 1))));
+    p.lineHeight = Math.min(2.8, Math.max(1.1, Number(p.lineHeight || 1.55)));
+    p.letterSpacing = Math.min(6, Math.max(-2, Number(p.letterSpacing || 0)));
+    p.layout = ['auto', 'm1', 'm2', 'm4'].includes(String(p.layout)) ? String(p.layout) : 'auto';
+    p.measureStd = ['line', 'global', 'off'].includes(String(p.measureStd)) ? String(p.measureStd) : 'line';
+    return p;
+  } catch {
+    return { ...CW_PREF_DEFAULTS };
+  }
+}
+
+function saveCwPrefs(patch) {
+  const cur = loadCwPrefs();
+  const next = loadCwPrefs(); // normalized
+  Object.assign(next, cur, patch || {});
+  try {
+    localStorage.setItem(CW_PREF_KEY, JSON.stringify(next));
+  } catch {}
+  return loadCwPrefs();
+}
+
+function applyCwPrefToPre(pre) {
+  if (!pre) return;
+  const p = loadCwPrefs();
+  pre.style.lineHeight = String(p.lineHeight || 1.55);
+  pre.style.letterSpacing = `${Number(p.letterSpacing || 0)}px`;
+}
+
+function rerenderChordNow() {
+  if (state?.mode !== 'chord') return;
+  try {
+    if (state.chordBlocksRaw && typeof state.chordBlocksRaw === 'object' && !Array.isArray(state.chordBlocksRaw)) {
+      renderChordCompact(state.chordBlocksRaw);
+      return;
+    }
+    if (Array.isArray(state.chordBlocks) && state.chordBlocks.length) {
+      renderChordBlocks(state.chordBlocks);
+    }
+  } catch {}
+}
+
+function initCwControls() {
+  const layoutSel = document.getElementById('cwLayoutSelect');
+  const stdSel = document.getElementById('cwMeasureStdSelect');
+  const maxCols = document.getElementById('cwMaxCols');
+  const lineHeight = document.getElementById('cwLineHeight');
+  const letter = document.getElementById('cwLetterSpacing');
+  const gap = document.getElementById('cwGapLines');
+  if (!layoutSel || !stdSel || !maxCols || !lineHeight || !letter || !gap) return;
+
+  const p = loadCwPrefs();
+  try {
+    layoutSel.value = String(p.layout || 'auto');
+    stdSel.value = String(p.measureStd || 'line');
+    maxCols.value = String(Math.round(Number(p.maxLineCols || 120)));
+    lineHeight.value = String(Math.round(Number(p.lineHeight || 1.55) * 100));
+    letter.value = String(Number(p.letterSpacing || 0));
+    gap.value = String(Number(p.gapLines ?? 1));
+  } catch {}
+
+  const apply = () => {
+    const next = saveCwPrefs({
+      layout: String(layoutSel.value || 'auto'),
+      measureStd: String(stdSel.value || 'line'),
+      maxLineCols: Number(maxCols.value || 120),
+      lineHeight: Number(lineHeight.value || 155) / 100,
+      letterSpacing: Number(letter.value || 0),
+      gapLines: Number(gap.value || 1)
+    });
+    // 입력값을 정규화된 값으로 되돌림
+    try {
+      maxCols.value = String(Math.round(Number(next.maxLineCols || 120)));
+      lineHeight.value = String(Math.round(Number(next.lineHeight || 1.55) * 100));
+      letter.value = String(Number(next.letterSpacing || 0));
+      gap.value = String(Number(next.gapLines ?? 1));
+    } catch {}
+    rerenderChordNow();
+  };
+
+  layoutSel.onchange = apply;
+  stdSel.onchange = apply;
+  maxCols.oninput = apply;
+  lineHeight.oninput = apply;
+  letter.oninput = apply;
+  gap.oninput = apply;
+}
+
 function extractDriveFileIdFromAny(input) {
   const s = String(input || '').trim();
   if (!s) return '';
@@ -1323,10 +1429,12 @@ function renderChordBlocks(blocks) {
     return true;
   });
 
-  // ---- 1) 바(|) 단위 래핑 + 2) 코드 겹침 방지 + 4) 마디폭 표준화 ----------------------
-  const MAX_LINE_COLS = 120; // 마디 단위로 줄바꿈을 시도할 최대 폭(대략값)
-  const MAX_MEASURE_COLS_CAP = 36; // 표준 마디폭이 과도하게 커지는 것을 방지
-  const SET_GAP_LINES = 1; // 3) 세트 간 간격(빈 줄 개수)
+  // ---- 1) 바(|) 단위 래핑 + 2) 코드 겹침 방지 + 3) 세트 간 간격 + 4) 마디폭 표준화 ----
+  const pref = loadCwPrefs();
+  const MAX_LINE_COLS = Number(pref.maxLineCols || 120); // 마디 단위 줄바꿈 폭
+  const MAX_MEASURE_COLS_CAP = Number(pref.maxMeasureCap || 36); // 표준 마디폭 cap
+  const SET_GAP_LINES = Number(pref.gapLines ?? 1); // 세트 간 간격(빈 줄 개수)
+  const FIXED_MEASURES = String(pref.layout || 'auto').startsWith('m') ? Number(String(pref.layout).slice(1)) : 0;
 
   const renderLineToCols = (ln) => {
     /** @type {Array<{baseCol:number, token:string}>} */
@@ -1335,8 +1443,13 @@ function renderChordBlocks(blocks) {
     const lyricCols = [];
     let col = 0;
     for (const b of ln) {
-      const chordTok = String(b?.chord || '').trim();
-      const lyricText = String(b?.lyric_kr ?? b?.lyric_raw ?? '');
+      let chordTok = String(b?.chord || '').trim();
+      let lyricText = String(b?.lyric_kr ?? b?.lyric_raw ?? '');
+      // ♥♠ 등 보컬 분배 기호는 "코드"가 아니라 가사로 보여야 한다(기존 데이터 호환)
+      if (/^[♥♠♦♣♡○●◎★☆▲▼■□▶◀]+$/.test(chordTok) && !String(lyricText || '').trim()) {
+        lyricText = chordTok;
+        chordTok = '';
+      }
       if (chordTok) chordEvents.push({ baseCol: col, token: chordTok });
       const cols = textToCols(lyricText || ' ');
       lyricCols.push(...cols);
@@ -1386,9 +1499,11 @@ function renderChordBlocks(blocks) {
       const ly = lyricCols[i];
       const ch = chordCols[i] || ' ';
       if (ly === '|') {
-        flush();
-        measures.push({ ly: ['|'], ch: [ch] });
+        // bar는 "마디 닫힘"이므로 직전 마디에 포함시켜야 한다(바가 닫히기 전 개행 금지)
+        bufLy.push('|');
+        bufCh.push(ch);
         hasBar = true;
+        flush();
         continue;
       }
       bufLy.push(ly);
@@ -1400,17 +1515,39 @@ function renderChordBlocks(blocks) {
 
   /** @type {Array<{lyricCols:string[], chordCols:string[]}>} */
   const rendered = [];
+
+  // global 마디폭(선택): 전체 라인에서 가장 긴 마디를 기준으로(단 cap 적용)
+  let globalStd = 0;
+  if (pref.measureStd === 'global') {
+    for (const ln of linesFiltered) {
+      const { lyricCols, chordCols } = renderLineToCols(ln);
+      const { measures, hasBar } = splitMeasures(lyricCols, chordCols);
+      if (!hasBar) continue;
+      for (const m of measures) {
+        const endsWithBar = m.ly.length && m.ly[m.ly.length - 1] === '|';
+        const bodyLen = m.ly.length - (endsWithBar ? 1 : 0);
+        globalStd = Math.max(globalStd, bodyLen);
+      }
+    }
+    globalStd = Math.min(globalStd, MAX_MEASURE_COLS_CAP);
+  }
+
   for (const ln of linesFiltered) {
     const { lyricCols, chordCols } = renderLineToCols(ln);
     const { measures, hasBar } = splitMeasures(lyricCols, chordCols);
 
-    // 4) 마디폭 표준화(곡 전체 기준이되, 과도 확대는 cap)
-    // - 표준폭 = 이 줄에서 가장 긴 마디폭 (바가 있는 줄만)
+    // 4) 마디폭 표준화:
+    // - off: 패딩 없음
+    // - line: 해당 줄에서 가장 긴 마디 길이 기준
+    // - global: 전체에서 가장 긴 마디 길이 기준
     let std = 0;
-    if (hasBar) {
+    if (pref.measureStd === 'off') std = 0;
+    else if (pref.measureStd === 'global') std = globalStd;
+    else if (hasBar) {
       for (const m of measures) {
-        if (m.ly.length === 1 && m.ly[0] === '|') continue;
-        std = Math.max(std, m.ly.length);
+        const endsWithBar = m.ly.length && m.ly[m.ly.length - 1] === '|';
+        const bodyLen = m.ly.length - (endsWithBar ? 1 : 0);
+        std = Math.max(std, bodyLen);
       }
       std = Math.min(std, MAX_MEASURE_COLS_CAP);
     }
@@ -1420,6 +1557,7 @@ function renderChordBlocks(blocks) {
     /** @type {Array<string>} */
     let curCh = [];
     let curLen = 0;
+    let curMeasureCount = 0;
     const pushLine = () => {
       if (!curLy.length && !curCh.length) return;
       // 1) 바가 열렸는데 닫히기 전에 줄바꿈이 생기는 것 방지:
@@ -1428,22 +1566,30 @@ function renderChordBlocks(blocks) {
       curLy = [];
       curCh = [];
       curLen = 0;
+      curMeasureCount = 0;
     };
 
     for (const m of measures) {
-      const isBar = m.ly.length === 1 && m.ly[0] === '|';
-      const lyPart = isBar
-        ? ['|']
-        : [...m.ly, ...Array.from({ length: Math.max(0, std - m.ly.length) }, () => ' ')];
-      const chPart = isBar
-        ? [m.ch[0] || ' ']
-        : [...m.ch, ...Array.from({ length: Math.max(0, std - m.ch.length) }, () => ' ')];
+      const endsWithBar = m.ly.length && m.ly[m.ly.length - 1] === '|';
+      const bodyLy = endsWithBar ? m.ly.slice(0, -1) : m.ly.slice();
+      const bodyCh = endsWithBar ? m.ch.slice(0, -1) : m.ch.slice();
+      const pad = std > 0 ? Math.max(0, std - bodyLy.length) : 0;
+      const lyPart = [...bodyLy, ...Array.from({ length: pad }, () => ' '), ...(endsWithBar ? ['|'] : [])];
+      const chPart = [...bodyCh, ...Array.from({ length: pad }, () => ' '), ...(endsWithBar ? [m.ch[m.ch.length - 1] || ' '] : [])];
 
-      // 래핑: 다음 measure를 붙이면 폭이 넘으면, measure 경계에서 줄바꿈
-      if (curLen > 0 && curLen + lyPart.length > MAX_LINE_COLS) pushLine();
+      const isBarOnly = lyPart.length === 1 && lyPart[0] === '|';
+      const nextMeasureCount = isBarOnly ? curMeasureCount : curMeasureCount + 1;
+
+      // 래핑(선택):
+      // - fixed: 마디 N개 단위
+      // - auto: 폭 기반
+      if (FIXED_MEASURES > 0 && curLen > 0 && curMeasureCount >= FIXED_MEASURES && !isBarOnly) pushLine();
+      if (curLen > 0 && curLen + lyPart.length > MAX_LINE_COLS && !isBarOnly) pushLine();
+
       curLy.push(...lyPart);
       curCh.push(...chPart);
       curLen += lyPart.length;
+      curMeasureCount = nextMeasureCount;
     }
     pushLine();
   }
@@ -1457,7 +1603,7 @@ function renderChordBlocks(blocks) {
   pre.style.fontFamily =
     "'D2Coding','D2 Coding', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace";
   pre.style.fontSize = '14px';
-  pre.style.lineHeight = '1.55';
+  applyCwPrefToPre(pre);
 
   let out = '';
   for (const ln of rendered) {
@@ -1535,7 +1681,7 @@ function renderChordCompact(compact) {
   pre.style.fontFamily =
     "'D2Coding','D2 Coding', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace";
   pre.style.fontSize = '14px';
-  pre.style.lineHeight = '1.55';
+  applyCwPrefToPre(pre);
 
   const isWideChar = (ch) => /[\u3040-\u30ff\u3400-\u9fff\uAC00-\uD7AF\u3000-\u303F\uFF00-\uFFEF]/.test(String(ch || ''));
   const buildCharToCol = (text) => {
@@ -1578,12 +1724,14 @@ function renderChordCompact(compact) {
   // renderChordBlocks와 동일한 정책:
   // - 마디(|) 단위 줄바꿈(바가 닫히기 전에 개행 금지)
   // - 코드 겹침 방지(필요 시 공백 삽입)
-  // - 마디폭은 "해당 줄" 기준 표준화 + cap
-  const MAX_LINE_COLS = 120;
-  const MAX_MEASURE_COLS_CAP = 36;
-  const SET_GAP_LINES = 1;
+  // - 마디폭 표준화(선택: 줄/전체/끄기)
+  const pref = loadCwPrefs();
+  const MAX_LINE_COLS = Number(pref.maxLineCols || 120);
+  const MAX_MEASURE_COLS_CAP = Number(pref.maxMeasureCap || 36);
+  const SET_GAP_LINES = Number(pref.gapLines ?? 1);
+  const FIXED_MEASURES = String(pref.layout || 'auto').startsWith('m') ? Number(String(pref.layout).slice(1)) : 0;
 
-  const renderOneLine = (lyricText, chordArr) => {
+  const buildMeasuresFromLine = (lyricText, chordArr) => {
     const { chars, map, totalCols } = buildCharToCol(lyricText);
     const lyricCols = textToCols(lyricText);
     const chordCols = Array.from({ length: lyricCols.length }, () => ' ');
@@ -1636,66 +1784,88 @@ function renderChordCompact(compact) {
       const ly = lyricCols[i];
       const ch = chordCols[i] || ' ';
       if (ly === '|') {
-        flush();
-        measures.push({ ly: ['|'], ch: [ch] });
+        bufLy.push('|');
+        bufCh.push(ch);
         hasBar = true;
+        flush();
       } else {
         bufLy.push(ly);
         bufCh.push(ch);
       }
     }
     flush();
+    return { measures, hasBar };
+  };
 
-    // std width per-line
-    let std = 0;
-    if (hasBar) {
+  /** @type {Array<{lyricCols:string[], chordCols:string[]}>} */
+  const renderedLines = [];
+  let globalStd = 0;
+  if (pref.measureStd === 'global') {
+    for (const ln of lines) {
+      const lyric = decodeLineText(ln);
+      const { measures, hasBar } = buildMeasuresFromLine(lyric, ln?.chords);
+      if (!hasBar) continue;
       for (const m of measures) {
-        if (m.ly.length === 1 && m.ly[0] === '|') continue;
-        std = Math.max(std, m.ly.length);
+        const endsWithBar = m.ly.length && m.ly[m.ly.length - 1] === '|';
+        const bodyLen = m.ly.length - (endsWithBar ? 1 : 0);
+        globalStd = Math.max(globalStd, bodyLen);
+      }
+    }
+    globalStd = Math.min(globalStd, MAX_MEASURE_COLS_CAP);
+  }
+
+  for (const ln of lines) {
+    const lyric = decodeLineText(ln);
+    const { measures, hasBar } = buildMeasuresFromLine(lyric, ln?.chords);
+
+    let std = 0;
+    if (pref.measureStd === 'off') std = 0;
+    else if (pref.measureStd === 'global') std = globalStd;
+    else if (hasBar) {
+      for (const m of measures) {
+        const endsWithBar = m.ly.length && m.ly[m.ly.length - 1] === '|';
+        const bodyLen = m.ly.length - (endsWithBar ? 1 : 0);
+        std = Math.max(std, bodyLen);
       }
       std = Math.min(std, MAX_MEASURE_COLS_CAP);
     }
 
     /** @type {Array<{ly:string[], ch:string[]}>} */
-    const packed = [];
-    measures.forEach((m) => {
-      const isBar = m.ly.length === 1 && m.ly[0] === '|';
-      if (isBar) return packed.push({ ly: ['|'], ch: [m.ch[0] || ' '] });
-      const pad = Math.max(0, std - m.ly.length);
-      packed.push({
-        ly: [...m.ly, ...Array.from({ length: pad }, () => ' ')],
-        ch: [...m.ch, ...Array.from({ length: pad }, () => ' ')]
-      });
+    const packed = measures.map((m) => {
+      const endsWithBar = m.ly.length && m.ly[m.ly.length - 1] === '|';
+      const bodyLy = endsWithBar ? m.ly.slice(0, -1) : m.ly.slice();
+      const bodyCh = endsWithBar ? m.ch.slice(0, -1) : m.ch.slice();
+      const pad = std > 0 ? Math.max(0, std - bodyLy.length) : 0;
+      return {
+        ly: [...bodyLy, ...Array.from({ length: pad }, () => ' '), ...(endsWithBar ? ['|'] : [])],
+        ch: [...bodyCh, ...Array.from({ length: pad }, () => ' '), ...(endsWithBar ? [m.ch[m.ch.length - 1] || ' '] : [])]
+      };
     });
 
-    // wrap by measure boundary
-    /** @type {Array<{lyricCols:string[], chordCols:string[]}>} */
-    const outLines = [];
+    // wrap by measure boundary (auto: 폭 / fixed: 마디 수)
     let curLy = [];
     let curCh = [];
     let curLen = 0;
+    let curMeasureCount = 0;
     const push = () => {
       if (!curLy.length) return;
-      outLines.push({ lyricCols: curLy, chordCols: curCh });
+      renderedLines.push({ lyricCols: curLy, chordCols: curCh });
       curLy = [];
       curCh = [];
       curLen = 0;
+      curMeasureCount = 0;
     };
     for (const m of packed) {
-      if (curLen > 0 && curLen + m.ly.length > MAX_LINE_COLS) push();
+      const isBarOnly = m.ly.length === 1 && m.ly[0] === '|';
+      const nextMeasureCount = isBarOnly ? curMeasureCount : curMeasureCount + 1;
+      if (FIXED_MEASURES > 0 && curLen > 0 && curMeasureCount >= FIXED_MEASURES && !isBarOnly) push();
+      if (curLen > 0 && curLen + m.ly.length > MAX_LINE_COLS && !isBarOnly) push();
       curLy.push(...m.ly);
       curCh.push(...m.ch);
       curLen += m.ly.length;
+      curMeasureCount = nextMeasureCount;
     }
     push();
-    return outLines;
-  };
-
-  /** @type {Array<{lyricCols:string[], chordCols:string[]}>} */
-  const renderedLines = [];
-  for (const ln of lines) {
-    const lyric = decodeLineText(ln);
-    renderOneLine(lyric, ln?.chords).forEach((x) => renderedLines.push(x));
   }
 
   let out = '';
@@ -4059,6 +4229,8 @@ async function init() {
   }
 
   await loadMe();
+  // 코드뷰 렌더 옵션 UI 초기화(값 복원 + 변경 시 즉시 재렌더)
+  initCwControls();
 
   // 방문자(익명)로 /viewer 접속 시:
   // - 기존에는 "무조건 닉네임 모달"을 띄워서 chord/doc 로딩까지 막았는데,

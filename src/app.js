@@ -20,7 +20,25 @@ function createApp() {
   app.set('trust proxy', 1);
 
   app.use(helmet({ contentSecurityPolicy: false }));
-  app.use(cors({ origin: true, credentials: true }));
+  // CORS (GitHub Pages 프론트 ↔ Render 백엔드 분리 대응)
+  const ALLOWED_ORIGINS = [
+    process.env.FRONTEND_URL,
+    'https://iamjoshua0924-a11y.github.io',
+    'http://localhost:5500',
+    'http://localhost:3000'
+  ].filter(Boolean);
+  app.use(
+    cors({
+      origin: (origin, cb) => {
+        // origin이 없는 경우 = same-origin / 서버 간 요청 → 허용
+        if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+        return cb(new Error(`CORS blocked: ${origin}`));
+      },
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization']
+    })
+  );
   app.use(morgan(env === 'production' ? 'combined' : 'dev'));
   app.use(cookieParser());
   // Legacy CSV import may exceed a few MB; keep a safe cap.
@@ -37,7 +55,8 @@ function createApp() {
         httpOnly: true,
         // 프론트(깃헙페이지) ↔ 백엔드(Render) 분리 시 cross-site 쿠키 전송을 위해 필요
         sameSite: env === 'production' ? 'none' : 'lax',
-        secure: env === 'production'
+        secure: env === 'production',
+        maxAge: 7 * 24 * 60 * 60 * 1000
       }
     })
   );

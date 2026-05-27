@@ -3,7 +3,7 @@
 // ---- State -----------------------------------------------------------------------
 // TODO: Render 백엔드 배포 후 발급받은 새 주소를 여기에 입력할 예정
 // (또는 public/config.js에서 window.API_URL을 설정)
-const API_URL = String(window.API_URL || window.location.origin || '').replace(/\/$/, '');
+const API_URL = String(window.API_URL || window.MB_API || window.location.origin || '').replace(/\/$/, '');
 const apiUrl = (path) => {
   const p = String(path || '');
   if (!p) return API_URL;

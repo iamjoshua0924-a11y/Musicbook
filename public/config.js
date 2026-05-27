@@ -7,3 +7,5 @@
 //
 // NOTE: 끝의 '/'는 있어도 자동으로 제거됩니다.
 window.API_URL = window.API_URL || 'https://musicbook-ahpz.onrender.com';
+// 작업지시서 호환(alias)
+window.MB_API = window.MB_API || window.API_URL;

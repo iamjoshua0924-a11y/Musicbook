@@ -1166,6 +1166,29 @@ function setCwMeta(msg) {
   el.textContent = m;
 }
 
+function clearChordPaneState({ keepMode = false } = {}) {
+  try {
+    state.chordDocId = '';
+    state.chordSourceUrl = '';
+    state.chordBlocks = null;
+  } catch {}
+  try {
+    const wrap = document.getElementById('cwContent');
+    if (wrap) wrap.innerHTML = '';
+    const host = document.getElementById('cwAnnoHost');
+    if (host) host.innerHTML = '';
+    setCwError('');
+    setCwMeta('');
+  } catch {}
+  // chord 전용 fabric view가 남아있으면 PDF로 전환 시 겹칠 수 있어 정리
+  try {
+    clearViews();
+  } catch {}
+  if (!keepMode) {
+    // noop (caller decides)
+  }
+}
+
 function setMode(mode) {
   state.mode = mode;
   document.getElementById('pdfModeBtn')?.classList.toggle('active', mode === 'pdf');
@@ -1175,8 +1198,8 @@ function setMode(mode) {
 
   if (mode === 'pdf') {
     document.getElementById('linkInput')?.setAttribute('placeholder', '구글드라이브 PDF 링크 또는 fileId');
-    setCwError('');
-    setCwMeta('');
+    // chord 모드에서 PDF로 넘어갈 때는 chord UI/캔버스를 확실히 정리한다.
+    clearChordPaneState({ keepMode: true });
     // restore pdf fileId for viewer internals
     if (state.pdfFileId) {
       state.fileId = state.pdfFileId;
@@ -1232,6 +1255,10 @@ function renderChordBlocks(blocks) {
     cell.appendChild(lyricEl);
     line.appendChild(cell);
   }
+  try {
+    // 텍스트 렌더 후 캔버스(주석) 레이어를 덮는다.
+    setupChordAnnoAfterRender();
+  } catch {}
 }
 
 function expandCompactChordBlocks(blocks) {
@@ -1338,6 +1365,10 @@ function renderChordCompact(compact) {
   }
   pre.textContent = out.trimEnd();
   wrap.appendChild(pre);
+  try {
+    // 텍스트 렌더 후 캔버스(주석) 레이어를 덮는다.
+    setupChordAnnoAfterRender();
+  } catch {}
 }
 
 function isAllowedChordWikiOrigin(origin) {
@@ -1481,6 +1512,7 @@ function setupChordPostMessageReceiver() {
 }
 
 function setupChordAnnoAfterRender() {
+  if (state.mode !== 'chord') return;
   const host = document.getElementById('cwAnnoHost');
   const inner = document.getElementById('cwInner');
   if (!host || !inner) return;
@@ -3700,6 +3732,7 @@ async function init() {
   try {
     const rn = safeRoomCode(qs('room')) || safeRoomCode(state.roomCode);
     if (rn) window.name = `mb_viewer_room_${rn}`;
+    else window.name = 'mb_viewer_main';
   } catch {}
 
   // chordwiki userscript -> postMessage 수신은 "postmessage로 연 탭" 또는 "chord 모드 진입"에서만 활성화

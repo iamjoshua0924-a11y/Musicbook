@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChordWiki → ScoreViewer Exporter (docId)
 // @namespace    musicbook
-// @version      0.6.4
+// @version      0.6.5
 // @description  ChordWiki 페이지에서 악보 텍스트를 DOM에서 추출해 ScoreViewer로 전송하고 docId로 엽니다.
 // @match        *://*.chordwiki.org/wiki/*
 // @match        *://*.chordwiki.jp/wiki/*
@@ -551,7 +551,8 @@
     qs.set('mode', 'chord');
     qs.set('docId', String(docId));
     if (String(room || '').trim()) qs.set('room', String(room || '').trim().toUpperCase());
-    const wn = String(room || '').trim() ? `mb_viewer_room_${String(room || '').trim().toUpperCase()}` : '_blank';
+    // room이 없더라도 "메인 뷰어 탭"을 재사용해서 빈 탭이 남지 않게 한다.
+    const wn = String(room || '').trim() ? `mb_viewer_room_${String(room || '').trim().toUpperCase()}` : 'mb_viewer_main';
     window.open(`${SCORE_VIEWER_ORIGIN}/viewer?${qs.toString()}`, wn);
   }
 

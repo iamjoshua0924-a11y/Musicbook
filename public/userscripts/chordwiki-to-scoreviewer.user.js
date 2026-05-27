@@ -801,6 +801,11 @@
             try {
               const status = Number(resp.status || 0);
               const txt = String(resp.responseText || '');
+              // Render 502/404 등에서 HTML이 내려오면 JSON.parse가 터진다.
+              if (txt.trim().startsWith('<')) {
+                alert(`전송 실패 (status=${status}): 서버가 JSON이 아닌 HTML을 반환했습니다.\n${txt.slice(0, 400)}`);
+                return;
+              }
               const data = txt ? JSON.parse(txt) : {};
               if (!data?.ok || !data?.docId) {
                 alert(`전송 실패 (status=${status}): ${data?.error || 'UNKNOWN'}\n${txt.slice(0, 500)}`);

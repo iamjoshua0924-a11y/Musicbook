@@ -186,6 +186,7 @@
             <span class="kv">세트</span>
             <input id="cwGapLines" type="range" min="0" max="3" step="1" value="1" />
             <span class="kv" id="cwGapLinesLabel">1</span>
+            <button id="chordEditBtn" type="button" class="mini" title="페이지터너/관리자용">편집</button>
           </div>
 
           <div class="group" id="brushGroup">
@@ -311,12 +312,27 @@
       </div>
     </div>
 
+    <!-- 코드뷰어 텍스트 편집(페이지터너/관리자) -->
+    <div class="modalOverlay hidden" id="chordEditModal">
+      <div class="modalBox" style="max-width:min(920px, 94vw);">
+        <div class="modalTitle">코드뷰어 편집</div>
+        <div class="muted" style="margin-top:6px; line-height:1.35;">
+          1) 위: 코드행 / 아래: 가사행 형식으로 수정하세요. 저장하면 이 docId에 덮어씌워집니다.
+        </div>
+        <textarea id="chordEditField" class="modalTextarea" spellcheck="false"></textarea>
+        <div class="modalActions">
+          <button id="chordEditCancelBtn" type="button">취소</button>
+          <button id="chordEditSaveBtn" type="button" class="primary">저장</button>
+        </div>
+      </div>
+    </div>
+
     <!-- pdf.js + fabric.js (CDN, GAS 원본과 동일 계열) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
     <script src="../config.js"></script>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
-    <script src="viewer.js?v=20260527_18"></script>
+    <script src="viewer.js?v=20260527_19"></script>
   </body>
 </html>

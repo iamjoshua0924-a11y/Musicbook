@@ -431,6 +431,34 @@ function openInputModalRequired({ title, placeholder = '', value = '', minLen = 
   });
 }
 
+function openChordEditModal({ value = '' } = {}) {
+  const overlay = document.getElementById('chordEditModal');
+  const field = document.getElementById('chordEditField');
+  const okBtn = document.getElementById('chordEditSaveBtn');
+  const cancelBtn = document.getElementById('chordEditCancelBtn');
+  if (!overlay || !field || !okBtn || !cancelBtn) return Promise.resolve(null);
+
+  field.value = String(value || '');
+  overlay.classList.remove('hidden');
+  setTimeout(() => field.focus(), 0);
+
+  return new Promise((resolve) => {
+    const cleanup = (result) => {
+      overlay.classList.add('hidden');
+      okBtn.onclick = null;
+      cancelBtn.onclick = null;
+      field.onkeydown = null;
+      resolve(result);
+    };
+    okBtn.onclick = () => cleanup(field.value);
+    cancelBtn.onclick = () => cleanup(null);
+    field.onkeydown = (e) => {
+      if (e.key === 'Escape') cleanup(null);
+      // textarea라서 Enter는 그대로 입력(저장은 버튼)
+    };
+  });
+}
+
 function setText(id, text) {
   const el = document.getElementById(id);
   if (el) el.textContent = text;
@@ -720,9 +748,10 @@ function startCursorShare() {
     return;
   }
   ensureCursorEls();
-  state.cursorShareOn = true;
   // 커서공유는 "표시"가 핵심이므로 chord 모드에서는 select로 강제(스크롤/포인터 안정)
+  // (주의) setTool은 cursorShareOn이면 stopCursorShare를 호출하므로, 먼저 tool을 정리한 뒤 켠다.
   if (state.mode === 'chord') setTool('select');
+  state.cursorShareOn = true;
   updateCursorShareUI();
   updateToolActiveUI();
 
@@ -1397,7 +1426,8 @@ function setMode(mode) {
   }
 
   const cwHost = document.getElementById('cwAnnoHost');
-  if (cwHost) cwHost.style.pointerEvents = state.mode === 'chord' && state.tool === 'select' ? 'none' : 'auto';
+  if (cwHost) cwHost.style.pointerEvents = state.mode === 'chord' && state.tool === 'select' && !state.cursorShareOn ? 'none' : 'auto';
+  updateToolActiveUI();
 }
 
 document.getElementById('pdfModeBtn')?.addEventListener('click', () => setMode('pdf'));
@@ -1585,7 +1615,9 @@ function renderChordBlocks(blocks) {
       const { lyricCols, chordCols } = renderLineToCols(ln);
       const { measures, hasBar } = splitMeasures(lyricCols, chordCols);
       if (!hasBar) continue;
+      const measureHasChord = (m) => Array.isArray(m?.ch) && m.ch.some((c) => c !== ' ');
       for (const m of measures) {
+        if (!measureHasChord(m)) continue;
         const endsWithBar = m.ly.length && m.ly[m.ly.length - 1] === '|';
         const bodyLen = m.ly.length - (endsWithBar ? 1 : 0);
         globalStd = Math.max(globalStd, bodyLen);
@@ -1606,7 +1638,10 @@ function renderChordBlocks(blocks) {
     if (pref.measureStd === 'off') std = 0;
     else if (pref.measureStd === 'global') std = globalStd;
     else if (hasBar) {
+      const measureHasChord = (m) => Array.isArray(m?.ch) && m.ch.some((c) => c !== ' ');
       for (const m of measures) {
+        // 코드가 없는 마디(당김음)는 std 계산에서 제외
+        if (!measureHasChord(m)) continue;
         const endsWithBar = m.ly.length && m.ly[m.ly.length - 1] === '|';
         const bodyLen = m.ly.length - (endsWithBar ? 1 : 0);
         std = Math.max(std, bodyLen);
@@ -1631,11 +1666,13 @@ function renderChordBlocks(blocks) {
       curMeasureCount = 0;
     };
 
+    const measureHasChord = (m) => Array.isArray(m?.ch) && m.ch.some((c) => c !== ' ');
     for (const m of measures) {
       const endsWithBar = m.ly.length && m.ly[m.ly.length - 1] === '|';
       const bodyLy = endsWithBar ? m.ly.slice(0, -1) : m.ly.slice();
       const bodyCh = endsWithBar ? m.ch.slice(0, -1) : m.ch.slice();
-      const pad = std > 0 ? Math.max(0, std - bodyLy.length) : 0;
+      // 코드가 없는 마디(당김음)는 패딩 제외(여백 폭발 방지)
+      const pad = std > 0 && measureHasChord(m) ? Math.max(0, std - bodyLy.length) : 0;
       const lyPart = [...bodyLy, ...Array.from({ length: pad }, () => ' '), ...(endsWithBar ? ['|'] : [])];
       const chPart = [...bodyCh, ...Array.from({ length: pad }, () => ' '), ...(endsWithBar ? [m.ch[m.ch.length - 1] || ' '] : [])];
 
@@ -1667,11 +1704,19 @@ function renderChordBlocks(blocks) {
   pre.style.fontSize = '14px';
   applyCwPrefToPre(pre);
 
-  let out = '';
+  const escHtml = (s) =>
+    String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  let outHtml = '';
+  let outText = '';
   for (const ln of rendered) {
-    out += ln.chordCols.join('') + '\n' + ln.lyricCols.join('') + '\n' + '\n'.repeat(SET_GAP_LINES);
+    const ch = ln.chordCols.join('');
+    const ly = ln.lyricCols.join('');
+    outHtml += `<span class="cwChordLine">${escHtml(ch)}</span>\n${escHtml(ly)}\n${'\n'.repeat(SET_GAP_LINES)}`;
+    outText += ch + '\n' + ly + '\n' + '\n'.repeat(SET_GAP_LINES);
   }
-  pre.textContent = out.trimEnd();
+  pre.innerHTML = outHtml.trimEnd();
+  state.chordEditText = outText.trimEnd();
   wrap.appendChild(pre);
   try {
     // 텍스트 렌더 후 캔버스(주석) 레이어를 덮는다.
@@ -1882,7 +1927,9 @@ function renderChordCompact(compact) {
       const lyric = decodeLineText(ln);
       const { measures, hasBar } = buildMeasuresFromLine(lyric, ln?.chords);
       if (!hasBar) continue;
+      const measureHasChord = (m) => Array.isArray(m?.ch) && m.ch.some((c) => c !== ' ');
       for (const m of measures) {
+        if (!measureHasChord(m)) continue;
         const endsWithBar = m.ly.length && m.ly[m.ly.length - 1] === '|';
         const bodyLen = m.ly.length - (endsWithBar ? 1 : 0);
         globalStd = Math.max(globalStd, bodyLen);
@@ -1899,7 +1946,9 @@ function renderChordCompact(compact) {
     if (pref.measureStd === 'off') std = 0;
     else if (pref.measureStd === 'global') std = globalStd;
     else if (hasBar) {
+      const measureHasChord = (m) => Array.isArray(m?.ch) && m.ch.some((c) => c !== ' ');
       for (const m of measures) {
+        if (!measureHasChord(m)) continue;
         const endsWithBar = m.ly.length && m.ly[m.ly.length - 1] === '|';
         const bodyLen = m.ly.length - (endsWithBar ? 1 : 0);
         std = Math.max(std, bodyLen);
@@ -1912,7 +1961,8 @@ function renderChordCompact(compact) {
       const endsWithBar = m.ly.length && m.ly[m.ly.length - 1] === '|';
       const bodyLy = endsWithBar ? m.ly.slice(0, -1) : m.ly.slice();
       const bodyCh = endsWithBar ? m.ch.slice(0, -1) : m.ch.slice();
-      const pad = std > 0 ? Math.max(0, std - bodyLy.length) : 0;
+      const measureHasChord = Array.isArray(m?.ch) && m.ch.some((c) => c !== ' ');
+      const pad = std > 0 && measureHasChord ? Math.max(0, std - bodyLy.length) : 0;
       return {
         ly: [...bodyLy, ...Array.from({ length: pad }, () => ' '), ...(endsWithBar ? ['|'] : [])],
         ch: [...bodyCh, ...Array.from({ length: pad }, () => ' '), ...(endsWithBar ? [m.ch[m.ch.length - 1] || ' '] : [])]
@@ -1945,11 +1995,19 @@ function renderChordCompact(compact) {
     push();
   }
 
-  let out = '';
+  const escHtml = (s) =>
+    String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  let outHtml = '';
+  let outText = '';
   for (const ln of renderedLines) {
-    out += ln.chordCols.join('') + '\n' + ln.lyricCols.join('') + '\n' + '\n'.repeat(SET_GAP_LINES);
+    const ch = ln.chordCols.join('');
+    const ly = ln.lyricCols.join('');
+    outHtml += `<span class="cwChordLine">${escHtml(ch)}</span>\n${escHtml(ly)}\n${'\n'.repeat(SET_GAP_LINES)}`;
+    outText += ch + '\n' + ly + '\n' + '\n'.repeat(SET_GAP_LINES);
   }
-  pre.textContent = out.trimEnd();
+  pre.innerHTML = outHtml.trimEnd();
+  state.chordEditText = outText.trimEnd();
   wrap.appendChild(pre);
   try {
     // 텍스트 렌더 후 캔버스(주석) 레이어를 덮는다.
@@ -3555,6 +3613,15 @@ function updateToolActiveUI() {
   on('lineBtn', state.tool === 'shape' && state.shape === 'line');
   on('rectBtn', state.tool === 'shape' && state.shape === 'rect');
   on('circleBtn', state.tool === 'shape' && state.shape === 'circle');
+  // 코드뷰어 편집 버튼(페이지터너/관리자)
+  try {
+    const btn = document.getElementById('chordEditBtn');
+    const can =
+      state.mode === 'chord' &&
+      Boolean(state.chordDocId) &&
+      ((state.isInSession && state.isPageTurner) || (!state.isInSession && ['admin', 'session'].includes(String(authState?.role || ''))));
+    if (btn) btn.classList.toggle('hidden', !can);
+  } catch {}
 }
 
 function syncBrushOptionUI() {
@@ -3579,7 +3646,7 @@ function setTool(tool, shape = null) {
   document.body.classList.toggle('tool-text', tool === 'text');
   // chord mode: select일 때는 스크롤/드래그가 우선이므로 캔버스 입력을 막는다.
   const cwHost = document.getElementById('cwAnnoHost');
-  if (cwHost) cwHost.style.pointerEvents = state.mode === 'chord' && tool === 'select' ? 'none' : 'auto';
+  if (cwHost) cwHost.style.pointerEvents = state.mode === 'chord' && tool === 'select' && !state.cursorShareOn ? 'none' : 'auto';
   applyToolToAll();
   updateToolActiveUI();
 }
@@ -3612,6 +3679,34 @@ document.getElementById('lineBtn').addEventListener('click', () => setTool('shap
 document.getElementById('rectBtn').addEventListener('click', () => setTool('shape', 'rect'));
 document.getElementById('circleBtn').addEventListener('click', () => setTool('shape', 'circle'));
 document.getElementById('textBtn').addEventListener('click', () => setTool('text'));
+
+document.getElementById('chordEditBtn')?.addEventListener('click', async () => {
+  if (state.mode !== 'chord' || !state.chordDocId) return;
+  const can =
+    (state.isInSession && state.isPageTurner) || (!state.isInSession && ['admin', 'session'].includes(String(authState?.role || '')));
+  if (!can) return flashHud('페이지터너/관리자만 편집 가능합니다', 1200);
+
+  const next = await openChordEditModal({ value: state.chordEditText || '' });
+  if (next == null) return;
+  const rawText = String(next || '');
+  if (!rawText.trim()) return flashHud('비어있습니다', 1000);
+
+  flashHud('저장 중...', 900);
+  try {
+    const r = await fetch(apiUrl('/api/chord-doc'), {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ docId: state.chordDocId, rawText })
+    }).then((x) => x.json());
+    if (!r?.ok) throw new Error(r?.error || 'SAVE_FAILED');
+    flashHud('저장 완료', 900);
+    // 갱신해서 다시 렌더
+    await openChordByDocId(state.chordDocId, { broadcast: false });
+  } catch (e) {
+    flashHud(`저장 실패: ${e?.message || 'ERROR'}`, 1400);
+  }
+});
 
 // Brush / color / text size controls
 document.getElementById('brushSize')?.addEventListener('input', (e) => {

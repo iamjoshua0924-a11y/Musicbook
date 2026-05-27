@@ -51,11 +51,13 @@ function looksLikeChordToken(s) {
     const v = Number.parseInt(n, 10);
     if (Number.isFinite(v) && v > 13) return false;
   }
+  // trailing slash 제거 후 판정 (예: "D/" => "D")
+  const cleaned = t.replace(/\/$/, '');
   // 엄격한 코드 토큰 패턴(메타 텍스트(BPM 등) 오탐 방지)
   // - /B /A 같은 "베이스만" 표기 허용 (선행 '/' 허용)
   // - /Bb >== 같은 케이스는 토큰 스캐너가 '>'에서 끊어주므로 token은 /Bb 로 들어온다.
   // NOTE: i flag 제거(영문 가사 오탐 방지) + 케이스는 명시적으로 허용
-  return /^\/?[A-G](?:#|b)?(?:maj|MAJ|min|MIN|m|M|dim|DIM|aug|AUG|sus|SUS|add|ADD)?\d*(?:\([^)]*\))?(?:\/[A-G](?:#|b)?)?$/.test(t);
+  return /^\/?[A-G](?:#|b)?(?:maj|MAJ|min|MIN|m|M|dim|DIM|aug|AUG|sus|SUS|add|ADD)?\d*(?:\([^)]*\))?(?:\/[A-G](?:#|b)?)?$/.test(cleaned);
 }
 
 function hasKanaKanjiOrHangul(s) {
@@ -154,8 +156,8 @@ function isChordLine(line) {
   if (!spans.length) return false;
 
   // 토큰이 너무 적으면(우연히 'A' 같은 문자) chord로 오인할 수 있으니 완화 기준을 둔다.
-  const nonSpace = s.replace(/\s/g, '');
-  if (spans.length === 1 && nonSpace.length <= 3) return false;
+  const validTokenLen = spans.reduce((sum, sp) => sum + String(sp?.token || '').length, 0);
+  if (spans.length === 1 && validTokenLen <= 3) return false;
 
   return true;
 }
@@ -171,11 +173,27 @@ function buildChordStartMap(chordLine) {
       idx += 1;
       continue;
     }
-    let j = idx;
-    j = scanChordTokenEnd(s, idx);
-    const token = s.slice(idx, j).trim();
-    if (looksLikeChordToken(token)) map.set(idx, token);
-    idx = Math.max(j, idx + 1);
+    if (!isChordTokenChar(ch) && ch !== '/') {
+      idx += 1;
+      continue;
+    }
+
+    const scanEnd = scanChordTokenEnd(s, idx);
+    let best = '';
+    let bestEnd = idx;
+    for (let j = idx + 1; j <= scanEnd; j += 1) {
+      const cand = s.slice(idx, j).trim();
+      if (looksLikeChordToken(cand)) {
+        best = cand;
+        bestEnd = j;
+      }
+    }
+    if (best) {
+      map.set(idx, best);
+      idx = bestEnd; // 유효 토큰 길이만큼만 전진
+    } else {
+      idx += 1; // 실패하면 1글자만 스킵하고 재시도
+    }
   }
   return map;
 }
@@ -222,6 +240,14 @@ function emitChordOnly(chordLine, _chordMap, out) {
       continue;
     }
     const ch = s[i];
+    // 슬래시 단독 리듬 슬롯: "/ + 공백들"을 1셀로 정규화(들쭉날쭉 폭 방지)
+    if (ch === '/' && !isChordTokenChar(s[i + 1] || '')) {
+      let runEnd = i + 1;
+      while (runEnd < s.length && (s[runEnd] === ' ' || s[runEnd] === '\t')) runEnd += 1;
+      out.push({ chord: '', lyric_raw: '/', lyric_kr: '/' });
+      i = runEnd;
+      continue;
+    }
     // 코드 토큰 사이의 과도한 공백은 정렬을 망가뜨리므로 상한을 둔다.
     if (ch === ' ' || ch === '\t') {
       let runEnd = i;
@@ -745,6 +771,11 @@ function isKana(ch) {
   return /[\u3040-\u30ffー]/.test(String(ch || ''));
 }
 
+function isFuriganaReadingChar(ch) {
+  // 후리가나 독음: 히라가나/가타카나/장음 + (이미 KR 변환된) 한글도 허용
+  return /[\u3040-\u30ffー\uAC00-\uD7AF]/.test(String(ch || ''));
+}
+
 function tryParseFuriganaToken(s, i) {
   // 패턴: <base>(<kana>)  where base has at least one Kanji and kana has only kana/ー
   // 예: 濁(にご) , 寝言(ねごと)
@@ -764,7 +795,7 @@ function tryParseFuriganaToken(s, i) {
   if (!hasKanjiInBase) return null;
 
   let k = j + 1;
-  while (k < str.length && isKana(str[k])) k += 1;
+  while (k < str.length && isFuriganaReadingChar(str[k])) k += 1;
   if (str[k] !== ')' || k <= j + 1) return null;
   const readingKana = str.slice(j + 1, k);
   const end = k + 1;
@@ -824,15 +855,27 @@ async function buildLyricCellsStrict(line) {
     return cells;
   }
 
-  const cleanLine = cells.map((c) => c.raw).join('');
   try {
-    const tokens = tokenizer.tokenize(cleanLine);
+    // kuromoji는 한글/ASCII 혼재를 잘 못하므로, 일본어(한자/가나)만 추출해서 돌린 뒤 역매핑한다.
+    let jpStr = '';
+    /** @type {Map<number, number>} */
+    const posToCell = new Map(); // jpStr charPos -> cells index
+    for (let ci = 0; ci < cells.length; ci += 1) {
+      const ch = String(cells[ci]?.raw || '');
+      if (/[\u3400-\u9fff\u3040-\u30ffー]/.test(ch)) {
+        posToCell.set(jpStr.length, ci);
+        jpStr += ch;
+      }
+    }
+    if (!jpStr) throw new Error('NO_JP');
+
+    const tokens = tokenizer.tokenize(jpStr);
     let pos = 0;
     for (const t of tokens) {
       const surf = String(t.surface_form || '');
       if (!surf) continue;
-      if (!cleanLine.startsWith(surf, pos)) {
-        const found = cleanLine.indexOf(surf, pos);
+      if (!jpStr.startsWith(surf, pos)) {
+        const found = jpStr.indexOf(surf, pos);
         if (found === -1) continue;
         pos = found;
       }
@@ -846,12 +889,14 @@ async function buildLyricCellsStrict(line) {
       const readingKr = toKoreanReadingMvp(reading);
       const segs = distributeText(readingKr, surf.length);
 
-      for (let x = start; x < end && x < cells.length; x += 1) {
-        // 이미 후리가나로 채워진 경우는 유지
-        if (String(cells[x].kr || '').trim()) continue;
-        // 한자 위치에만 주입
-        if (!isKanji(cells[x].raw)) continue;
-        cells[x].kr = segs[x - start] || '';
+      for (let x = 0; x < surf.length; x += 1) {
+        const ci = posToCell.get(start + x);
+        if (!Number.isFinite(Number(ci))) continue;
+        const cell = cells[ci];
+        if (!cell) continue;
+        if (String(cell.kr || '').trim()) continue; // 이미 후리가나로 채워진 경우는 유지
+        if (!isKanji(cell.raw)) continue; // 한자 위치에만 주입
+        cell.kr = segs[x] || '';
       }
     }
   } catch {}
@@ -919,15 +964,27 @@ async function buildLyricCellsStrictWithMap(line) {
     return { cells, rawToCol };
   }
 
-  const cleanLine = cells.map((c) => c.raw).join('');
   try {
-    const tokens = tokenizer.tokenize(cleanLine);
+    // kuromoji는 한글/ASCII 혼재를 잘 못하므로, 일본어(한자/가나)만 추출해서 돌린 뒤 역매핑한다.
+    let jpStr = '';
+    /** @type {Map<number, number>} */
+    const posToCell = new Map(); // jpStr charPos -> cells index
+    for (let ci = 0; ci < cells.length; ci += 1) {
+      const ch = String(cells[ci]?.raw || '');
+      if (/[\u3400-\u9fff\u3040-\u30ffー]/.test(ch)) {
+        posToCell.set(jpStr.length, ci);
+        jpStr += ch;
+      }
+    }
+    if (!jpStr) throw new Error('NO_JP');
+
+    const tokens = tokenizer.tokenize(jpStr);
     let pos = 0;
     for (const t of tokens) {
       const surf = String(t.surface_form || '');
       if (!surf) continue;
-      if (!cleanLine.startsWith(surf, pos)) {
-        const found = cleanLine.indexOf(surf, pos);
+      if (!jpStr.startsWith(surf, pos)) {
+        const found = jpStr.indexOf(surf, pos);
         if (found === -1) continue;
         pos = found;
       }
@@ -940,10 +997,14 @@ async function buildLyricCellsStrictWithMap(line) {
       if (!hasKanji || !reading) continue;
       const readingKr = toKoreanReadingMvp(reading);
       const segs = distributeText(readingKr, surf.length);
-      for (let x = start; x < end && x < cells.length; x += 1) {
-        if (String(cells[x].kr || '').trim()) continue;
-        if (!isKanji(cells[x].raw)) continue;
-        cells[x].kr = segs[x - start] || '';
+      for (let x = 0; x < surf.length; x += 1) {
+        const ci = posToCell.get(start + x);
+        if (!Number.isFinite(Number(ci))) continue;
+        const cell = cells[ci];
+        if (!cell) continue;
+        if (String(cell.kr || '').trim()) continue;
+        if (!isKanji(cell.raw)) continue;
+        cell.kr = segs[x] || '';
       }
     }
   } catch {}
@@ -1101,7 +1162,8 @@ async function parseRawTextToBlocks(rawText) {
       }
       const chordMap = buildChordStartMap(line);
       const lyricCells = await buildLyricCellsStrict(next);
-      const maxLen = Math.max(String(line).length, lyricCells.length);
+      const lastChordEnd = Math.max(0, ...Array.from(chordMap.entries()).map(([col, tok]) => col + String(tok || '').length));
+      const maxLen = Math.max(lastChordEnd, lyricCells.length);
       for (let col = 0; col < maxLen; col += 1) {
         const chord = chordMap.get(col) || '';
         const cell = lyricCells[col] || { raw: ' ', kr: ' ' };

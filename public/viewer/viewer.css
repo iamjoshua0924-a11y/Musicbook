@@ -521,6 +521,26 @@ body.light .cursor-marker{
 }
 .modalActions button{ height:36px; }
 
+.modalTextarea{
+  width: min(880px, 86vw);
+  height: min(60vh, 520px);
+  margin-top: 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(0,0,0,0.22);
+  color: var(--text);
+  padding: 10px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.45;
+  resize: vertical;
+  outline: none;
+}
+body.light .modalTextarea{
+  background: rgba(255,255,255,0.9);
+  color: var(--text);
+}
+
 /* ===== 노래책에서 고르기 ===== */
 .songPickList{
   margin-top:10px;
@@ -677,6 +697,13 @@ body.live-mode #participantsPanel{
 }
 
 /* MUST-2: Fullscreen target is #viewer-wrapper, overlays are inside */
+
+/* ===== 코드뷰어(Chord) 강조 ===== */
+.cwChordLine{
+  /* 가사와 구분되게 코드행은 블루 톤 */
+  color: #6bb6ff;
+  font-weight: 800;
+}
 #viewer-wrapper:fullscreen { position: relative; background: #fff; }
 
 /* Mobile / tablet live mode */

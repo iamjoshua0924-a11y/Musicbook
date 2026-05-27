@@ -216,7 +216,14 @@ function buildChordTokenSpans(line) {
     let j = idx;
     j = scanChordTokenEnd(s, idx);
     const token = s.slice(idx, j).trim();
-    if (looksLikeChordToken(token)) spans.push({ start: idx, end: j, token });
+    if (looksLikeChordToken(token)) {
+      // 경계 보호:
+      // - "AC30W" 같은 문자열에서 C3만 코드로 오인하면 전체 라인 분류가 깨진다.
+      // - 단, 다음 문자가 코드 토큰 시작(A-G/N/ or /)이면 붙어있는 코드로 보고 허용한다. (예: "Em7N.C.")
+      const next = s[j] || '';
+      const okBoundary = !next || /[\s\t|=:_\-–—~.*+\\/]/.test(next) || /[A-GN/]/.test(next);
+      if (okBoundary) spans.push({ start: idx, end: j, token });
+    }
     idx = Math.max(j, idx + 1);
   }
   return spans;
@@ -377,7 +384,8 @@ function toKoreanReadingMvp(input) {
     const nx = nextTwo || nextOne || '';
     if (/^(?:か|き|く|け|こ|きゃ|きゅ|きょ|が|ぎ|ぐ|げ|ご|ぎゃ|ぎゅ|ぎょ)/.test(nx)) return 'ㄱ';
     if (/^(?:さ|し|す|せ|そ|しゃ|しゅ|しょ|ざ|じ|ず|ぜ|ぞ|じゃ|じゅ|じょ)/.test(nx)) return 'ㅅ';
-    if (/^(?:た|ち|つ|て|と|ちゃ|ちゅ|ちょ|だ|ぢ|づ|で|ど)/.test(nx)) return 'ㄷ';
+    // 왓토(ワット) 같은 표기를 위해 타행 촉음은 ㅅ 받침으로 두는 편이 한국어 관습에 가깝다.
+    if (/^(?:た|ち|つ|て|と|ちゃ|ちゅ|ちょ|だ|ぢ|づ|で|ど)/.test(nx)) return 'ㅅ';
     if (/^(?:ぱ|ぴ|ぷ|ぺ|ぽ|ぴゃ|ぴゅ|ぴょ|ば|び|ぶ|べ|ぼ|びゃ|びゅ|びょ)/.test(nx)) return 'ㅂ';
     if (/^(?:ま|み|む|め|も|みゃ|みゅ|みょ)/.test(nx)) return 'ㅁ';
     if (/^(?:な|に|ぬ|ね|の|にゃ|にゅ|にょ)/.test(nx)) return 'ㄴ';
@@ -464,7 +472,13 @@ async function toKrReadingWithKanjiFallback(text) {
   try {
     const tokens = tokenizer.tokenize(src);
     const reading = tokens
-      .map((t) => String(t?.reading || t?.surface_form || ''))
+      .map((t) => {
+        const surf = String(t?.surface_form || '');
+        const rd = String(t?.reading || surf || '');
+        // kuromoji가 眠眠을 "ネムリネムリ"로 주는 케이스 보정(지시서 v2 핵심)
+        if (surf === '眠眠' && /ネムリ/i.test(rd)) return 'ミンミン';
+        return rd;
+      })
       .join('');
     // reading은 보통 katakana로 오므로 hira로 변환 후 KR로
     return toKoreanReadingMvp(kataToHira(reading));
@@ -653,6 +667,16 @@ function tokenizeInlineLine(line) {
       continue;
     }
 
+    // 1.5) ASCII(가나다) 형태: VOX(ボックス), AC30W(ワット) 등
+    {
+      const m = s.slice(i).match(/^([A-Za-z0-9]+)\(([^)]+)\)/);
+      if (m?.[0] && /[\u3040-\u30ffー]/.test(m[2] || '')) {
+        push({ type: 'furigana', base: m[1], readingKana: m[2] });
+        i += m[0].length;
+        continue;
+      }
+    }
+
     // 2) bar
     if (isBarChar(ch)) {
       push({ type: 'bar', text: '|' });
@@ -679,6 +703,16 @@ function tokenizeInlineLine(line) {
       }
     }
 
+    // 3.6) 모델/기기명(예: AC30W, JC120 등)에서 내부 서브스트링(C3 등)을 코드로 오인 방지
+    {
+      const mModel = s.slice(i).match(/^[A-Za-z]{1,3}\d+[A-Za-z]+/);
+      if (mModel?.[0]) {
+        push({ type: 'lyric', text: mModel[0] });
+        i += mModel[0].length;
+        continue;
+      }
+    }
+
     // 4) chord token attempt
     if (/[A-GN/]/.test(ch)) {
       // NOTE:
@@ -698,6 +732,19 @@ function tokenizeInlineLine(line) {
       if (best) {
         const prevCh = i > 0 ? s[i - 1] : '';
         const nextCh = s[bestEnd] || '';
+        // 경계 보호: "AC30W" 같은 단어 내부에서는 chord 인식 금지(단, 다음이 코드 시작이면 허용)
+        if (nextCh && /[0-9A-Za-z]/.test(nextCh) && !/[A-GN/]/.test(nextCh)) {
+          // 예외: Em7Boys 같은 케이스는 chord + 영문 단어로 간주(기존 요구)
+          const rest = s.slice(bestEnd);
+          const allowChordPlusWord = best.length > 1 && /^[A-Z][a-z]{1,}/.test(rest);
+          if (!allowChordPlusWord) {
+            // chord로 push하지 않고 가사 처리로 떨어뜨림
+          } else {
+            push({ type: 'chord', text: best });
+            i = bestEnd;
+            continue;
+          }
+        }
         // 복합 코드(길이>1)는 무조건 코드로 인정
         if (best.length > 1) {
           push({ type: 'chord', text: best });
@@ -853,7 +900,11 @@ async function emitInlineTokensAsBlocks(tokens, out) {
 
 function normalizeTabs(line) {
   // 탭은 코드/가사 정렬을 깨뜨리므로, 고정 폭 스페이스로 치환한다.
-  return String(line || '').replace(/\t/g, '  ');
+  // 또한 chordwiki 원문에는 ♯/♭(유니코드) 표기가 섞이므로 ASCII(#/b)로 정규화한다.
+  return String(line || '')
+    .replace(/\t/g, '  ')
+    .replace(/♯/g, '#')
+    .replace(/♭/g, 'b');
 }
 
 function splitGraphemes(str) {
@@ -939,6 +990,21 @@ async function buildLyricCellsStrict(line) {
       continue;
     }
 
+    // ASCII(가나) 표기: VOX(ボックス), AC30W(ワット) 등
+    {
+      const m = src.slice(i).match(/^([A-Za-z0-9]+)\(([^)]+)\)/);
+      if (m?.[0] && /[\u3040-\u30ffー]/.test(m[2] || '')) {
+        const base = String(m[1] || '');
+        const readingKr = toKoreanReadingMvp(String(m[2] || ''));
+        const baseChars = splitChars(base);
+        for (let bi = 0; bi < baseChars.length; bi += 1) {
+          cells.push({ raw: baseChars[bi], kr: bi === 0 ? readingKr : '' });
+        }
+        i += m[0].length;
+        continue;
+      }
+    }
+
     const ch = src[i];
     if (ch === '\r') {
       i += 1;
@@ -946,7 +1012,16 @@ async function buildLyricCellsStrict(line) {
     }
     if (ch === '\n') break;
     if (isKana(ch)) {
-      cells.push({ raw: ch, kr: toKoreanReadingMvp(ch) });
+      // 가나는 낱자 단위로 뿌리면 "네 무 리"처럼 과분리되어 보인다.
+      // => 연속 가나(run)를 하나로 읽고, 첫 칸에만 kr를 넣는다(폭/정렬은 유지).
+      let j = i + 1;
+      while (j < src.length && isKana(src[j])) j += 1;
+      const run = src.slice(i, j);
+      const runKr = toKoreanReadingMvp(run);
+      const chars = splitChars(run);
+      for (let k = 0; k < chars.length; k += 1) cells.push({ raw: chars[k], kr: k === 0 ? runKr : '' });
+      i = j;
+      continue;
     } else if (isKanji(ch)) {
       // 후리가나/kuromoji에서 채우기 전까지는 raw를 그대로 보여주고, kr는 빈 값으로 둔다.
       // (렌더링은 lyric_kr 우선이므로, 최종 단계에서 kr가 비면 raw로 채운다)
@@ -1000,7 +1075,9 @@ async function buildLyricCellsStrict(line) {
       pos = end;
 
       const hasKanji = /[\u3400-\u9fff]/.test(surf);
-      const reading = String(t.reading || '');
+      let reading = String(t.reading || '');
+      // kuromoji가 眠眠을 "ネムリネムリ"로 주는 케이스 보정(지시서 v2 핵심)
+      if (surf === '眠眠' && /ネムリ/i.test(reading)) reading = 'ミンミン';
       if (!hasKanji || !reading) continue;
       const readingKr = toKoreanReadingMvp(reading);
       const segs = distributeText(readingKr, surf.length);

@@ -1296,32 +1296,90 @@ function setupChordPostMessageReceiver() {
     allowRestore = String(u.searchParams.get('from') || '') === 'postmessage';
   } catch {}
 
-  window.addEventListener('message', (ev) => {
+  // chunk 수신 버퍼 (tab life 동안만)
+  const chunkStore = new Map(); // transferId -> { total, got:Set, chunks:Array<string>, sourceUrl }
+
+  const tryAssemble = (transferId, ev) => {
+    const st = chunkStore.get(transferId);
+    if (!st) return;
+    if (st.got.size !== st.total) return;
     try {
-      if (!isAllowedChordWikiOrigin(ev.origin)) return;
-      const d = ev.data || {};
-      if (!d || d.type !== 'mb_chord_payload_v1') return;
-      const blocks = d.blocks;
+      const json = st.chunks.join('');
+      const payload = JSON.parse(json);
+      const blocks = payload?.blocks;
       if (!blocks) return;
       setMode('chord');
       setCwError('');
       setCwMeta('');
       state.chordDocId = '';
-      state.chordSourceUrl = String(d.sourceUrl || '');
+      state.chordSourceUrl = String(payload?.sourceUrl || st.sourceUrl || '');
       state.chordBlocks = expandCompactChordBlocks(blocks);
       state.fileId = state.chordSourceUrl ? `chordmsg:${hashString(state.chordSourceUrl)}` : `chordmsg:${Date.now()}`;
       renderChordBlocks(state.chordBlocks);
-      // opener에 수신 완료 ack (payload 유실 디버깅)
+      // opener에 수신 완료 ack
       try {
         ev.source?.postMessage?.(
           { type: 'mb_chord_ack_v1', ok: true, lines: Array.isArray(blocks?.lines) ? blocks.lines.length : 0 },
           ev.origin
         );
       } catch {}
-      // reload 대비: sessionStorage에 저장(최대용량 제한 있으니 실패는 무시)
       try {
         sessionStorage.setItem('mb_lastChordMsg', JSON.stringify({ sourceUrl: state.chordSourceUrl, blocks }));
       } catch {}
+    } catch {}
+    chunkStore.delete(transferId);
+  };
+
+  window.addEventListener('message', (ev) => {
+    try {
+      if (!isAllowedChordWikiOrigin(ev.origin)) return;
+      const d = ev.data || {};
+      // 1) small payload (legacy)
+      if (d?.type === 'mb_chord_payload_v1') {
+        const blocks = d.blocks;
+        if (!blocks) return;
+        setMode('chord');
+        setCwError('');
+        setCwMeta('');
+        state.chordDocId = '';
+        state.chordSourceUrl = String(d.sourceUrl || '');
+        state.chordBlocks = expandCompactChordBlocks(blocks);
+        state.fileId = state.chordSourceUrl ? `chordmsg:${hashString(state.chordSourceUrl)}` : `chordmsg:${Date.now()}`;
+        renderChordBlocks(state.chordBlocks);
+        // opener에 수신 완료 ack
+        try {
+          ev.source?.postMessage?.(
+            { type: 'mb_chord_ack_v1', ok: true, lines: Array.isArray(blocks?.lines) ? blocks.lines.length : 0 },
+            ev.origin
+          );
+        } catch {}
+        try {
+          sessionStorage.setItem('mb_lastChordMsg', JSON.stringify({ sourceUrl: state.chordSourceUrl, blocks }));
+        } catch {}
+        return;
+      }
+
+      // 2) chunked payload (new)
+      if (d?.type === 'mb_chord_init_v1') {
+        const transferId = String(d.transferId || '');
+        const total = Number(d.totalChunks || 0);
+        if (!transferId || !Number.isFinite(total) || total <= 0 || total > 5000) return;
+        chunkStore.set(transferId, { total, got: new Set(), chunks: Array.from({ length: total }, () => ''), sourceUrl: String(d.sourceUrl || '') });
+        return;
+      }
+      if (d?.type === 'mb_chord_chunk_v1') {
+        const transferId = String(d.transferId || '');
+        const idx = Number(d.idx);
+        const chunk = String(d.chunk || '');
+        const st = chunkStore.get(transferId);
+        if (!st || !Number.isFinite(idx) || idx < 0 || idx >= st.total) return;
+        if (!st.got.has(idx)) {
+          st.got.add(idx);
+          st.chunks[idx] = chunk;
+        }
+        tryAssemble(transferId, ev);
+        return;
+      }
     } catch {}
   });
 

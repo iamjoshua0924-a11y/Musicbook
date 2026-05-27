@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChordWiki → ScoreViewer Exporter (docId)
 // @namespace    musicbook
-// @version      0.5.2
+// @version      0.5.3
 // @description  ChordWiki 페이지에서 악보 텍스트를 DOM에서 추출해 ScoreViewer로 전송하고 docId로 엽니다.
 // @match        *://*.chordwiki.org/wiki/*
 // @match        *://*.chordwiki.jp/wiki/*
@@ -566,17 +566,39 @@
     // - 또한 viewer가 실제로 payload를 수신했는지 ack로 확인한다.
     let sent = false;
     let acked = false;
-    const send = () => {
+
+    // postMessage payload가 크면 브라우저가 조용히 실패하거나(DataCloneError) 유실될 수 있어,
+    // 기본은 "chunk 전송"을 사용한다.
+    const transferId = `mbx_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    const chunkSize = 180_000; // safe-ish for most browsers
+    let json = '';
+    try {
+      json = JSON.stringify({ sourceUrl: location.href, blocks });
+    } catch {
+      json = '';
+    }
+    const totalChunks = Math.max(1, Math.ceil(json.length / chunkSize));
+
+    const sendChunked = () => {
       if (sent) return;
       sent = true;
-      const tries = [0, 150, 400, 900, 1600, 2600, 4200, 6500];
-      tries.forEach((ms) => {
-        setTimeout(() => {
-          try {
-            w.postMessage(msg, SCORE_VIEWER_ORIGIN);
-          } catch {}
-        }, ms);
-      });
+      try {
+        w.postMessage(
+          { type: 'mb_chord_init_v1', transferId, sourceUrl: location.href, totalChunks, chunkSize },
+          SCORE_VIEWER_ORIGIN
+        );
+      } catch {}
+      for (let i = 0; i < totalChunks; i += 1) {
+        const chunk = json.slice(i * chunkSize, (i + 1) * chunkSize);
+        const delays = [0, 200, 900, 2200, 4200]; // retry a few times (best-effort)
+        delays.forEach((dly) => {
+          setTimeout(() => {
+            try {
+              w.postMessage({ type: 'mb_chord_chunk_v1', transferId, idx: i, chunk }, SCORE_VIEWER_ORIGIN);
+            } catch {}
+          }, dly + i * 2); // tiny stagger
+        });
+      }
     };
 
     const onMsg = (ev) => {
@@ -584,7 +606,7 @@
         if (String(ev.origin || '') !== SCORE_VIEWER_ORIGIN) return;
         const d = ev.data || {};
         if (d?.type === 'mb_viewer_ready_v1') {
-          send();
+          sendChunked();
           return;
         }
         if (d?.type === 'mb_chord_ack_v1') {
@@ -603,7 +625,7 @@
         }
         window.removeEventListener('message', onMsg);
       } catch {}
-      send();
+      sendChunked();
     }, 3500);
   }
 

@@ -1232,6 +1232,7 @@ function renderChordBlocks(blocks) {
     cell.appendChild(lyricEl);
     line.appendChild(cell);
   }
+}
 
 function expandCompactChordBlocks(blocks) {
   const b = blocks;
@@ -1273,6 +1274,70 @@ function expandCompactChordBlocks(blocks) {
     out.push({ chord: '', lyric_raw: '\n', lyric_kr: '\n' });
   }
   return out;
+}
+
+function renderChordCompact(compact) {
+  const wrap = document.getElementById('cwContent');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+
+  const fmt = String(compact?.format || '');
+  const lines = Array.isArray(compact?.lines) ? compact.lines : [];
+  if (!lines.length) {
+    setCwError('파싱 결과가 비었습니다.');
+    return;
+  }
+  setCwError('');
+
+  // compact는 per-cell DOM을 만들지 않고 <pre> 한 번으로 렌더(대용량에서도 안전)
+  const pre = document.createElement('pre');
+  pre.className = 'cwPre';
+  pre.style.whiteSpace = 'pre';
+  pre.style.margin = '0';
+  pre.style.padding = '12px';
+  pre.style.fontFamily =
+    "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace";
+  pre.style.fontSize = '14px';
+  pre.style.lineHeight = '1.45';
+
+  const rleDecode = (arr) => {
+    if (!Array.isArray(arr)) return '';
+    let s = '';
+    for (const it of arr) {
+      if (!Array.isArray(it) || it.length < 2) continue;
+      if (it[0] === 0) s += ' '.repeat(Number(it[1] || 0));
+      else s += String(it[1] || '');
+    }
+    return s;
+  };
+
+  const decodeLineText = (ln) => {
+    if (fmt === 'mb_chord_compact_v2') return rleDecode(ln?.krRle) || rleDecode(ln?.rawRle) || '';
+    return String(ln?.kr || ln?.raw || '');
+  };
+
+  const buildChordLine = (len, chordArr) => {
+    const arr = Array.from({ length: Math.max(0, len) }, () => ' ');
+    const chords = Array.isArray(chordArr) ? chordArr : [];
+    for (const c of chords) {
+      const col = Number(c?.col);
+      const tok = String(c?.token || '');
+      if (!Number.isFinite(col) || col < 0 || !tok) continue;
+      const need = col + tok.length;
+      while (arr.length < need) arr.push(' ');
+      for (let i = 0; i < tok.length; i += 1) arr[col + i] = tok[i];
+    }
+    return arr.join('');
+  };
+
+  let out = '';
+  for (const ln of lines) {
+    const lyric = decodeLineText(ln);
+    const chordLine = buildChordLine(lyric.length, ln?.chords);
+    out += chordLine + '\n' + lyric + '\n';
+  }
+  pre.textContent = out.trimEnd();
+  wrap.appendChild(pre);
 }
 
 function isAllowedChordWikiOrigin(origin) {
@@ -1415,10 +1480,6 @@ function setupChordPostMessageReceiver() {
   }
 }
 
-  // Phase2-4: chord mode annotation layer (Fabric) - 1 page canvas matching scrollHeight
-  setupChordAnnoAfterRender();
-}
-
 function setupChordAnnoAfterRender() {
   const host = document.getElementById('cwAnnoHost');
   const inner = document.getElementById('cwInner');
@@ -1521,7 +1582,11 @@ async function openChordByDocId(docId, { broadcast } = { broadcast: true }) {
 
     state.chordDocId = id;
     state.chordSourceUrl = String(r?.meta?.sourceUrl || '');
-    state.chordBlocks = expandCompactChordBlocks(r.blocks || []);
+    const blocksObj = r.blocks || [];
+    const isCompact =
+      blocksObj && typeof blocksObj === 'object' && !Array.isArray(blocksObj) && String(blocksObj.format || '').startsWith('mb_chord_compact_');
+    // 대용량 array도 per-cell DOM 렌더는 터질 수 있으니 compact 저장이 오면 그대로 렌더한다.
+    state.chordBlocks = isCompact ? null : expandCompactChordBlocks(blocksObj);
     state.fileId = id;
     state.annoStore = {};
     state.undoStack = {};
@@ -1533,9 +1598,15 @@ async function openChordByDocId(docId, { broadcast } = { broadcast: true }) {
     }
 
     setCwError('');
-    renderChordBlocks(state.chordBlocks);
+    if (isCompact) renderChordCompact(blocksObj);
+    else renderChordBlocks(state.chordBlocks);
   } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error('[viewer] render_error', e);
     setCwError(`불러오기 실패: RENDER_ERROR`);
+    try {
+      setCwMeta(String(e?.message || e).slice(0, 180));
+    } catch {}
   }
 }
 

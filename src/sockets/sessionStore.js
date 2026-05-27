@@ -18,6 +18,10 @@ class SessionStore {
       createdAt: Date.now(),
       pageTurnerSocketId: null,
       currentFileId: null,
+      currentFileRev: 0,
+      currentOriginalLink: '',
+      currentScrollRatio: 0,
+      viewerSettings: null,
       currentPageNo: 1,
       members: new Map(), // socketId -> { nickname, role, displayName, profilePhoto }
       toolAuthorizedSocketIds: new Set(), // socketIds allowed to use tools (besides pageTurner)
@@ -35,6 +39,10 @@ class SessionStore {
         createdAt: Date.now(),
         pageTurnerSocketId: null,
         currentFileId: null,
+        currentFileRev: 0,
+        currentOriginalLink: '',
+        currentScrollRatio: 0,
+        viewerSettings: null,
         currentPageNo: 1,
         members: new Map(),
         toolAuthorizedSocketIds: new Set(),

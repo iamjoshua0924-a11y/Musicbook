@@ -10,7 +10,7 @@ try {
   const u0 = new URL(window.location.href);
   const rn0 = String(u0.searchParams.get('room') || '').trim().toUpperCase();
   if (rn0) window.name = `mb_viewer_room_${rn0}`;
-  else if (!window.name) window.name = 'mb_viewer_main';
+  else window.name = 'mb_viewer_main';
 } catch {}
 
 function extractDriveFileIdFromAny(input) {
@@ -769,6 +769,11 @@ const state = {
   chordBlocks: null,
   // compact blocks object(대용량) 보관용
   chordBlocksRaw: null,
+  // 마지막으로 "실제로 렌더 완료"된 fileId (동기화/리커버리 판단용)
+  renderedFileId: '',
+  // follow 이벤트(곡 전환) 시퀀스
+  lastFileRev: 0,
+  _lastFollowAt: 0,
   chordPendingAuthUrl: '',
   pageNo: 1,
   totalPages: 1,
@@ -1682,6 +1687,7 @@ async function openChordByDocId(docId, { broadcast } = { broadcast: true }) {
     setCwError('');
     if (isCompact) renderChordCompact(blocksObj);
     else renderChordBlocks(state.chordBlocks);
+    state.renderedFileId = id;
 
     // chord 탭 활성화(코드<->PDF 전환 지원)
     const chordBtn = document.getElementById('chordModeBtn');
@@ -2809,10 +2815,13 @@ async function renderSpread(leftPageNo) {
   // preview slice mode: PDF 파싱이 안 되더라도 "보기"는 가능해야 한다.
   if (state.previewMode) {
     renderSpread._seq = (renderSpread._seq || 0) + 1;
-    els.pdfPreview.classList.add('hidden');
-    els.canvasStack.style.display = 'flex';
+    // 기존 slice mode는 브라우저/Drive 조건에 따라 빈 화면이 되는 케이스가 있어,
+    // preview 모드에서는 "단일 iframe"을 우선 보여준다(보기 전용).
     try {
-      renderPreviewSpread(leftPageNo);
+      els.canvasStack.style.display = 'none';
+      els.pdfPreview.classList.remove('hidden');
+      const src = String(state.previewEmbedSrc || '').trim();
+      if (src) els.pdfPreview.src = src;
       updatePageLabels();
     } catch {}
     return;
@@ -2905,6 +2914,7 @@ async function loadPdf(fileId) {
     state.pdfDoc = pdf;
     state.totalPages = pdf.numPages;
     state.isPdfReady = true;
+    state.renderedFileId = String(fileId);
     updatePageLabels();
     await renderSpread(state.pageNo);
 
@@ -2927,8 +2937,7 @@ async function loadPdf(fileId) {
         if (pr?.ok && pr.previewUrl) state.previewEmbedSrc = String(pr.previewUrl);
       } catch {}
 
-      els.pdfPreview.classList.add('hidden');
-      els.canvasStack.style.display = 'flex';
+      state.renderedFileId = String(fileId);
       await renderSpread(state.pageNo);
       setHidden('pageHud', false);
       setText('pageHud', '스트리밍이 제한되어 미리보기(슬라이스) 모드로 열었습니다(보기 전용)');
@@ -3478,7 +3487,16 @@ socket.on('session:state', (p) => {
   if (p?.roomCode && String(p.roomCode).toUpperCase() !== String(state.roomCode || '').toUpperCase()) return;
   const fileId = String(p?.currentFileId || '').trim();
   const pageNo = Number(p?.currentPageNo || 0);
-  if (fileId && String(fileId) !== String(state.fileId || '')) {
+  // rev 동기화(있으면)
+  const rev = Number(p?.currentFileRev || 0);
+  if (Number.isFinite(rev) && rev > Number(state.lastFileRev || 0)) state.lastFileRev = rev;
+
+  const needFileAlign =
+    fileId &&
+    (String(fileId) !== String(state.fileId || '') ||
+      (state.renderedFileId && String(fileId) !== String(state.renderedFileId || '')));
+
+  if (needFileAlign) {
     const originalLink = String(p?.currentOriginalLink || '').trim();
     if (fileId.startsWith('chord:')) {
       openChordByDocId(fileId, { broadcast: false }).catch(() => {});
@@ -3661,8 +3679,17 @@ socket.on('session:follow:file', (p) => {
   if (!state.isInSession) return;
   const fileId = p?.fileId;
   if (!fileId) return;
-  // 무한 리부팅 방지: 이미 같은 파일이면 아무것도 하지 않음
-  if (String(fileId) === String(state.fileId || '')) return;
+  // rev가 있으면, 더 최신 rev만 적용 (일부 클라이언트가 이벤트를 놓치는 케이스 복구)
+  const rev = Number(p?.rev || 0);
+  if (Number.isFinite(rev) && rev > 0) {
+    if (rev <= Number(state.lastFileRev || 0)) return;
+    state.lastFileRev = rev;
+  }
+  // 같은 파일이라도 "실제 렌더"가 안 된 상태일 수 있어(네트워크/권한/preview 등),
+  // follow 이벤트가 오면 일정 간격으로는 강제로 재로딩해 준다.
+  const now = Date.now();
+  if (String(fileId) === String(state.fileId || '') && now - Number(state._lastFollowAt || 0) < 800) return;
+  state._lastFollowAt = now;
 
   // originalLink가 있어도 재-broadcast 되지 않도록 "추출→로컬에서 로드"만 수행
   const originalLink = String(p?.originalLink || '').trim();

@@ -95,6 +95,7 @@ function emitRoomState(io, room) {
   io.to(toSessionRoomName(room.roomCode)).emit('session:state', {
     roomCode: room.roomCode,
     currentFileId: room.currentFileId,
+    currentFileRev: Number(room.currentFileRev || 0),
     currentPageNo: room.currentPageNo,
     currentOriginalLink: room.currentOriginalLink || '',
     currentScrollRatio: Number(room.currentScrollRatio || 0)
@@ -192,7 +193,11 @@ function attachSockets(io) {
 
       // If room has a current file, auto-follow for late joiners.
       if (room.currentFileId) {
-        socket.emit('session:follow:file', { fileId: room.currentFileId, originalLink: room.currentOriginalLink || '' });
+        socket.emit('session:follow:file', {
+          fileId: room.currentFileId,
+          originalLink: room.currentOriginalLink || '',
+          rev: Number(room.currentFileRev || 0)
+        });
         socket.emit('viewer:page_change', { fileId: room.currentFileId, pageNo: room.currentPageNo });
         if (room.viewerSettings)
           socket.emit('viewer:settings', { fileId: room.currentFileId, reason: 'init', settings: room.viewerSettings });
@@ -214,6 +219,7 @@ function attachSockets(io) {
       socket.emit('session:state', {
         roomCode,
         currentFileId: room.currentFileId,
+        currentFileRev: Number(room.currentFileRev || 0),
         currentPageNo: room.currentPageNo,
         currentOriginalLink: room.currentOriginalLink || '',
         currentScrollRatio: Number(room.currentScrollRatio || 0)
@@ -332,6 +338,7 @@ function attachSockets(io) {
       io.to(toSessionRoomName(roomCode)).emit('session:state', {
         roomCode,
         currentFileId: fileId,
+        currentFileRev: Number(room.currentFileRev || 0),
         currentPageNo: pageNo,
         currentOriginalLink: room.currentOriginalLink || '',
         currentScrollRatio: Number(room.currentScrollRatio || 0)
@@ -414,7 +421,8 @@ function attachSockets(io) {
       const fileId = String(payload?.fileId || '').trim();
       const room = store.rooms.get(roomCode);
       if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
-      if (room.pageTurnerSocketId !== socket.id) return ack?.({ ok: false, error: 'FORBIDDEN' });
+      // 커서공유는 "가벼운 표시"이므로 세션 참여자면 누구나 송신 가능
+      if (!room.members.has(socket.id)) return ack?.({ ok: false, error: 'NOT_IN_ROOM' });
       if (!fileId) return ack?.({ ok: false, error: 'FILE_REQUIRED' });
 
       const hide = Boolean(payload?.hide);
@@ -459,14 +467,16 @@ function attachSockets(io) {
       if (!fileId) return ack?.({ ok: false, error: 'FILE_REQUIRED' });
 
       room.currentFileId = fileId;
+      room.currentFileRev = Number(room.currentFileRev || 0) + 1;
       room.currentOriginalLink = originalLink;
       room.currentPageNo = 1;
 
-      io.to(toSessionRoomName(roomCode)).emit('session:follow:file', { fileId, originalLink });
+      io.to(toSessionRoomName(roomCode)).emit('session:follow:file', { fileId, originalLink, rev: Number(room.currentFileRev || 0) });
       io.to(toSessionRoomName(roomCode)).emit('viewer:page_change', { fileId, pageNo: 1 });
       io.to(toSessionRoomName(roomCode)).emit('session:state', {
         roomCode,
         currentFileId: fileId,
+        currentFileRev: Number(room.currentFileRev || 0),
         currentPageNo: 1,
         currentOriginalLink: room.currentOriginalLink || '',
         currentScrollRatio: Number(room.currentScrollRatio || 0)

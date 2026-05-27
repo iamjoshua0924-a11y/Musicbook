@@ -1,6 +1,16 @@
 /* global io */
 const $ = (id) => document.getElementById(id);
 
+// TODO: Render 백엔드 배포 후 발급받은 새 주소를 여기에 입력할 예정
+// (또는 public/config.js에서 window.API_URL을 설정)
+const API_URL = String(window.API_URL || window.location.origin || '').replace(/\/$/, '');
+const apiUrl = (path) => {
+  const p = String(path || '');
+  if (!p) return API_URL;
+  if (/^https?:\/\//i.test(p)) return p;
+  return `${API_URL}${p.startsWith('/') ? '' : '/'}${p}`;
+};
+
 const statusLabel = (s) => {
   const v = String(s || '').toLowerCase();
   if (v === 'accepted') return '수락';
@@ -10,7 +20,7 @@ const statusLabel = (s) => {
 };
 
 async function apiGet(url) {
-  const res = await fetch(url, { credentials: 'include' });
+  const res = await fetch(apiUrl(url), { credentials: 'include' });
   return res.json();
 }
 
@@ -62,7 +72,7 @@ function boot() {
   loadOnce().catch(() => {});
 
   try {
-    const socket = io();
+    const socket = io(API_URL, { withCredentials: true });
     socket.on('requests:updated', (p) => {
       if (Array.isArray(p?.items)) render(p.items);
     });

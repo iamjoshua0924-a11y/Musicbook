@@ -2,12 +2,22 @@ const $ = (id) => document.getElementById(id);
 let syncRunning = false;
 let syncPoller = null;
 
+// TODO: Render 백엔드 배포 후 발급받은 새 주소를 여기에 입력할 예정
+// (또는 public/config.js에서 window.API_URL을 설정)
+const API_URL = String(window.API_URL || window.location.origin || '').replace(/\/$/, '');
+const apiUrl = (path) => {
+  const p = String(path || '');
+  if (!p) return API_URL;
+  if (/^https?:\/\//i.test(p)) return p;
+  return `${API_URL}${p.startsWith('/') ? '' : '/'}${p}`;
+};
+
 async function apiGet(url) {
-  const res = await fetch(url, { credentials: 'include' });
+  const res = await fetch(apiUrl(url), { credentials: 'include' });
   return res.json();
 }
 async function apiJson(url, method, body) {
-  const res = await fetch(url, {
+  const res = await fetch(apiUrl(url), {
     method,
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },

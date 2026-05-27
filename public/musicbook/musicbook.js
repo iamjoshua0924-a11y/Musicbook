@@ -1,6 +1,16 @@
 /* global io */
 
 // ---- State -----------------------------------------------------------------------
+// TODO: Render 백엔드 배포 후 발급받은 새 주소를 여기에 입력할 예정
+// (또는 public/config.js에서 window.API_URL을 설정)
+const API_URL = String(window.API_URL || window.location.origin || '').replace(/\/$/, '');
+const apiUrl = (path) => {
+  const p = String(path || '');
+  if (!p) return API_URL;
+  if (/^https?:\/\//i.test(p)) return p;
+  return `${API_URL}${p.startsWith('/') ? '' : '/'}${p}`;
+};
+
 const state = {
   role: 'viewer', // viewer | session | admin
   displayName: '방문자',
@@ -139,11 +149,11 @@ function switchPage(page) {
 
 // ---- API -------------------------------------------------------------------------
 async function apiGet(url) {
-  const res = await fetch(url, { credentials: 'include' });
+  const res = await fetch(apiUrl(url), { credentials: 'include' });
   return res.json();
 }
 async function apiJson(url, method, body) {
-  const res = await fetch(url, {
+  const res = await fetch(apiUrl(url), {
     method,
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
@@ -1282,7 +1292,7 @@ async function refreshSession() {
 async function refreshSocketMetaAndReconnect() {
   // 로그인/로그아웃으로 metaToken(=role/displayName)이 바뀌면 socket.data가 갱신되도록 reconnect가 필요함
   try {
-    const meta = await fetch('/api/socket/meta', { credentials: 'include' }).then((r) => r.json());
+    const meta = await fetch(apiUrl('/api/socket/meta'), { credentials: 'include' }).then((r) => r.json());
     if (meta?.ok) state.metaToken = meta.token;
   } catch {}
   const socket = state._socket;
@@ -1683,7 +1693,7 @@ function wireEvents() {
 function attachSockets() {
   const nickname = getOrCreatePresenceNickname();
   const metaToken = state.metaToken || '';
-  const socket = io({ auth: { nickname, metaToken } });
+  const socket = io(API_URL, { withCredentials: true, auth: { nickname, metaToken } });
   socket.on('requests:updated', (p) => {
     if (Array.isArray(p?.items)) {
       state.requests = p.items;
@@ -1943,7 +1953,7 @@ async function bootstrap() {
     wireEvents();
     // socket meta for role hardening
     try {
-      const meta = await fetch('/api/socket/meta', { credentials: 'include' }).then((r) => r.json());
+      const meta = await fetch(apiUrl('/api/socket/meta'), { credentials: 'include' }).then((r) => r.json());
       if (meta?.ok) state.metaToken = meta.token;
     } catch {}
     attachSockets();

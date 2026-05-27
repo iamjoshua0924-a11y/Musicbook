@@ -13,11 +13,20 @@ function optional(name, fallback = undefined) {
   return v === undefined ? fallback : v;
 }
 
+function requiredAny(names) {
+  for (const n of names) {
+    const v = process.env[n];
+    if (v) return v;
+  }
+  throw new Error(`Missing required env: one of [${names.join(', ')}]`);
+}
+
 module.exports = {
   env: optional('NODE_ENV', 'development'),
   port: Number(optional('PORT', '3000')),
 
-  mongoUri: required('MONGODB_URI'),
+  // Render/호스팅 환경에 따라 변수명이 다를 수 있어 둘 다 지원
+  mongoUri: requiredAny(['MONGODB_URI', 'MONGO_URI']),
   sessionSecret: required('SESSION_SECRET'),
 
   // Service account key is ALWAYS provided as base64 to avoid Render escaping issues.

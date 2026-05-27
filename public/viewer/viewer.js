@@ -13,6 +13,17 @@ try {
   else window.name = 'mb_viewer_main';
 } catch {}
 
+// ---- API URL (frontend 분리 대응) --------------------------------------------------
+// TODO: Render 백엔드 배포 후 발급받은 새 주소를 여기에 입력할 예정
+// (또는 public/config.js에서 window.API_URL을 설정)
+const API_URL = String(window.API_URL || window.location.origin || '').replace(/\/$/, '');
+const apiUrl = (path) => {
+  const p = String(path || '');
+  if (!p) return API_URL;
+  if (/^https?:\/\//i.test(p)) return p;
+  return `${API_URL}${p.startsWith('/') ? '' : '/'}${p}`;
+};
+
 // ---- Chord view preferences -------------------------------------------------------
 const CW_PREF_KEY = 'mb_cw_view_prefs_v1';
 const CW_PREF_DEFAULTS = {
@@ -403,7 +414,7 @@ function toggleParticipantsPanel() {
 }
 
 async function apiGet(url) {
-  const res = await fetch(url, { credentials: 'include' });
+  const res = await fetch(apiUrl(url), { credentials: 'include' });
   return res.json();
 }
 
@@ -938,7 +949,7 @@ const authState = { role: 'viewer', displayName: state.nickname, profilePhoto: '
 
 async function loadMe() {
   try {
-    const me = await fetch('/api/admin/me', { credentials: 'include' }).then((r) => r.json());
+    const me = await fetch(apiUrl('/api/admin/me'), { credentials: 'include' }).then((r) => r.json());
     if (me?.ok) {
       authState.role = me.user.role;
       authState.displayName = me.user.displayName || me.user.userId;
@@ -949,7 +960,7 @@ async function loadMe() {
 // Fetch signed meta token (role hardening)
 async function getSocketMetaToken() {
   try {
-    const r = await fetch('/api/socket/meta', { credentials: 'include' }).then((x) => x.json());
+    const r = await fetch(apiUrl('/api/socket/meta'), { credentials: 'include' }).then((x) => x.json());
     return r?.token || '';
   } catch {
     return '';
@@ -957,7 +968,8 @@ async function getSocketMetaToken() {
 }
 
 // ---- Socket -----------------------------------------------------------------------
-const socket = io({
+const socket = io(API_URL, {
+  withCredentials: true,
   auth: { nickname: state.nickname || '익명', metaToken: '' }
 });
 
@@ -2113,7 +2125,7 @@ async function openChordByDocId(docId, { broadcast } = { broadcast: true }) {
       const cur = String(el?.textContent || '').trim();
       if (cur === '불러오는 중...') setCwError('불러오기 실패: TIMEOUT');
     }, 9000);
-    r = await fetch(`/api/chord-doc?docId=${encodeURIComponent(id)}`, { signal: controller.signal }).then((x) => x.json());
+    r = await fetch(apiUrl(`/api/chord-doc?docId=${encodeURIComponent(id)}`), { signal: controller.signal }).then((x) => x.json());
     clearTimeout(t);
   } catch (e) {
     r = { ok: false, error: `NETWORK_ERROR: ${String(e?.message || e)}` };
@@ -2414,7 +2426,7 @@ function openByInput(input) {
     if (isUrl) {
       setHidden('pageHud', false);
       setText('pageHud', '외부 악보 가져오는 중...');
-      fetch('/api/drive/import', {
+      fetch(apiUrl('/api/drive/import'), {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -2843,7 +2855,7 @@ function renderPreviewSpread(leftPageNo) {
   const step = getPreviewStep();
   const s = PREVIEW_SCALE;
   const roomParam = state.isInSession && state.roomCode ? `?room=${encodeURIComponent(state.roomCode)}` : '';
-  const src = String(state.previewEmbedSrc || '').trim() || `/api/drive/embed/${encodeURIComponent(state.fileId)}${roomParam}`;
+  const src = String(state.previewEmbedSrc || '').trim() || apiUrl(`/api/drive/embed/${encodeURIComponent(state.fileId)}${roomParam}`);
 
   clearPreviewViews();
   const gap = 12;
@@ -3355,7 +3367,7 @@ async function loadPdf(fileId) {
   updatePageLabels();
 
   const roomParam = state.isInSession && state.roomCode ? `?room=${encodeURIComponent(state.roomCode)}` : '';
-  const url = `${window.location.origin}/api/drive/pdf/${fileId}${roomParam}`;
+  const url = apiUrl(`/api/drive/pdf/${fileId}${roomParam}`);
   setHidden('pageHud', false);
   setText('pageHud', 'PDF 로딩 중...');
 
@@ -3393,9 +3405,9 @@ async function loadPdf(fileId) {
       state.pageNo = Math.max(1, Number(state.pageNo) || 1);
 
       // 미리보기는 1) same-origin embed 스트림을 우선, 2) 실패 시 drive preview URL을 사용한다.
-      state.previewEmbedSrc = `/api/drive/embed/${encodeURIComponent(fileId)}${roomParam}`;
+      state.previewEmbedSrc = apiUrl(`/api/drive/embed/${encodeURIComponent(fileId)}${roomParam}`);
       try {
-        const pr = await fetch(`/api/drive/preview/${encodeURIComponent(fileId)}`).then((r) => r.json());
+        const pr = await fetch(apiUrl(`/api/drive/preview/${encodeURIComponent(fileId)}`)).then((r) => r.json());
         if (pr?.ok && pr.previewUrl) state.previewEmbedSrc = String(pr.previewUrl);
       } catch {}
 

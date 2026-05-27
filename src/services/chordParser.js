@@ -26,7 +26,8 @@ function looksLikeChordToken(s) {
   // 엄격한 코드 토큰 패턴(메타 텍스트(BPM 등) 오탐 방지)
   // - /B /A 같은 "베이스만" 표기 허용 (선행 '/' 허용)
   // - /Bb >== 같은 케이스는 토큰 스캐너가 '>'에서 끊어주므로 token은 /Bb 로 들어온다.
-  return /^\/?[A-G](?:#|b)?(?:maj|min|m|dim|aug|sus|add)?\d*(?:\/[A-G](?:#|b)?)?$/i.test(t);
+  // NOTE: i flag 제거(영문 가사 오탐 방지) + 케이스는 명시적으로 허용
+  return /^\/?[A-G](?:#|b)?(?:maj|MAJ|min|MIN|m|M|dim|DIM|aug|AUG|sus|SUS|add|ADD)?\d*(?:\([^)]*\))?(?:\/[A-G](?:#|b)?)?$/.test(t);
 }
 
 function hasKanaKanjiOrHangul(s) {
@@ -279,9 +280,10 @@ function isFuriganaChar(ch) {
 
 let _tokenizerPromise = null;
 function getTokenizer() {
-  // kuromoji는 사전 로딩 비용이 매우 커서 기본은 OFF.
-  // 필요할 때만 켠다: ENABLE_KUROMOJI=1
-  if (String(process.env.ENABLE_KUROMOJI || '') !== '1') return Promise.resolve(null);
+  // kuromoji는 사전 로딩 비용이 크지만,
+  // kanji 독음(예: 夢→ゆめ)이 없으면 kr 라인이 공백으로 깨져 UX가 매우 나빠진다.
+  // => 기본 ON, 필요 시 DISABLE_KUROMOJI=1 로 끌 수 있다.
+  if (String(process.env.DISABLE_KUROMOJI || '') === '1') return Promise.resolve(null);
   if (_tokenizerPromise) return _tokenizerPromise;
   _tokenizerPromise = (async () => {
     try {
@@ -298,6 +300,198 @@ function getTokenizer() {
     }
   })();
   return _tokenizerPromise;
+}
+
+function hasKanji(s) {
+  return /[\u3400-\u9fff]/.test(String(s || ''));
+}
+
+async function toKrReadingWithKanjiFallback(text) {
+  const src = String(text ?? '');
+  if (!src) return '';
+  if (!hasKanji(src)) return toKoreanReadingMvp(src);
+  const tokenizer = await getTokenizer();
+  if (!tokenizer) {
+    // 최소 안전: kanji를 공백으로 두지 말고 원문을 그대로 보여준다.
+    return src;
+  }
+  try {
+    const tokens = tokenizer.tokenize(src);
+    const reading = tokens
+      .map((t) => String(t?.reading || t?.surface_form || ''))
+      .join('');
+    // reading은 보통 katakana로 오므로 hira로 변환 후 KR로
+    return toKoreanReadingMvp(kataToHira(reading));
+  } catch {
+    return src;
+  }
+}
+
+function isRhythmChar(ch) {
+  return ch === '-' || ch === '>' || ch === '=';
+}
+
+function isBarChar(ch) {
+  return ch === '|';
+}
+
+function splitChars(str) {
+  return Array.from(String(str ?? ''));
+}
+
+function isMetaLine(line) {
+  const t = String(line || '').trim();
+  if (!t) return false;
+  if (/^\s*(?:key|capo|bpm)\s*[:=]/i.test(t)) return true;
+  if (t.includes('拍子')) return true;
+  if (t.includes('アクセント')) return true;
+  // 범례/설명 형식
+  if (/^-\s*[:：]/.test(t)) return true;
+  return false;
+}
+
+/**
+ * 인라인 혼합 라인(코드+가사+리듬) 토크나이즈
+ * @param {string} line
+ * @returns {Array<any>}
+ */
+function tokenizeInlineLine(line) {
+  const s = normalizeTabs(String(line ?? ''));
+  /** @type {Array<any>} */
+  const out = [];
+  let i = 0;
+
+  const push = (tok) => {
+    if (!tok) return;
+    const last = out[out.length - 1];
+    // 동일 타입/키면 병합(토큰 수 폭발 방지)
+    if (last && last.type === tok.type && tok.type !== 'chord' && tok.type !== 'furigana') {
+      last.text = String(last.text || '') + String(tok.text || '');
+      return;
+    }
+    out.push(tok);
+  };
+
+  while (i < s.length) {
+    const ch = s[i];
+    if (ch === '\t') {
+      push({ type: 'lyric', text: '  ' });
+      i += 1;
+      continue;
+    }
+
+    // 1) furigana: 漢字(かな)
+    const f = tryParseFuriganaToken(s, i);
+    if (f) {
+      push({ type: 'furigana', base: f.base, readingKana: f.readingKana });
+      i = f.end;
+      continue;
+    }
+
+    // 2) bar
+    if (isBarChar(ch)) {
+      push({ type: 'bar', text: '|' });
+      i += 1;
+      continue;
+    }
+
+    // 3) rhythm run
+    if (isRhythmChar(ch)) {
+      let j = i + 1;
+      while (j < s.length && isRhythmChar(s[j])) j += 1;
+      push({ type: 'rhythm', text: s.slice(i, j) });
+      i = j;
+      continue;
+    }
+
+    // 4) chord token attempt
+    if (/[A-GN/]/.test(ch)) {
+      let j = i + 1;
+      while (j < s.length && isChordTokenChar(s[j])) j += 1;
+      const cand = s.slice(i, j);
+      if (looksLikeChordToken(cand)) {
+        push({ type: 'chord', text: cand });
+        i = j;
+        continue;
+      }
+    }
+
+    // 5) lyric (default)
+    push({ type: 'lyric', text: ch });
+    i += 1;
+  }
+
+  return out;
+}
+
+async function emitInlineTokensAsBlocks(tokens, out) {
+  /** @type {Array<{chord:string, raw:string, kr:string}>} */
+  const cells = [];
+  let pendingChord = '';
+
+  const ensureCell = (idx) => {
+    while (cells.length <= idx) cells.push({ chord: '', raw: ' ', kr: ' ' });
+  };
+  const putChordIfPending = (idx) => {
+    if (!pendingChord) return;
+    ensureCell(idx);
+    if (!cells[idx].chord) cells[idx].chord = pendingChord;
+    pendingChord = '';
+  };
+
+  let col = 0;
+  for (const tok of tokens) {
+    if (!tok) continue;
+    if (tok.type === 'chord') {
+      pendingChord = String(tok.text || '').trim();
+      continue;
+    }
+
+    if (tok.type === 'furigana') {
+      const base = String(tok.base || '');
+      const readingKana = String(tok.readingKana || '');
+      const baseChars = splitChars(base);
+      const krStr = toKoreanReadingMvp(readingKana);
+      const krPieces = distributeText(krStr, baseChars.length);
+      putChordIfPending(col);
+      for (let k = 0; k < baseChars.length; k += 1) {
+        ensureCell(col);
+        cells[col].raw = baseChars[k];
+        cells[col].kr = String(krPieces[k] ?? '');
+        col += 1;
+      }
+      continue;
+    }
+
+    const txt = String(tok.text || '');
+    if (!txt) continue;
+
+    // lyric/rhythm/bar 모두 "가사 영역"으로 처리
+    const rawChars = splitChars(txt);
+    // kanji 포함 시 tokenizer 독음을 사용해 KR 문자열 생성 후 폭에 분배
+    const krStr = await toKrReadingWithKanjiFallback(txt);
+    const krPieces = hasKanji(txt) ? distributeText(krStr, rawChars.length) : rawChars.map((c) => toKoreanReadingMvp(c));
+
+    putChordIfPending(col);
+    for (let k = 0; k < rawChars.length; k += 1) {
+      ensureCell(col);
+      cells[col].raw = rawChars[k];
+      cells[col].kr = String(krPieces[k] ?? '');
+      col += 1;
+    }
+  }
+
+  // line end pending chord
+  if (pendingChord) {
+    ensureCell(col);
+    cells[col].chord = pendingChord;
+    cells[col].raw = ' ';
+    cells[col].kr = ' ';
+  }
+
+  for (const c of cells) {
+    out.push({ chord: c.chord || '', lyric_raw: c.raw, lyric_kr: c.kr });
+  }
 }
 
 function normalizeTabs(line) {
@@ -407,7 +601,13 @@ async function buildLyricCellsStrict(line) {
   if (!needsKuro) return cells;
 
   const tokenizer = await getTokenizer();
-  if (!tokenizer) return cells;
+  if (!tokenizer) {
+    // 최소 안전: kr이 비어있는(kanji) 셀은 raw를 그대로 채운다.
+    for (const c of cells) {
+      if (c && (!String(c.kr || '').trim())) c.kr = c.raw;
+    }
+    return cells;
+  }
 
   const cleanLine = cells.map((c) => c.raw).join('');
   try {
@@ -497,7 +697,12 @@ async function buildLyricCellsStrictWithMap(line) {
   const needsKuro = cells.some((c) => isKanji(c.raw) && !String(c.kr || '').trim());
   if (!needsKuro) return { cells, rawToCol };
   const tokenizer = await getTokenizer();
-  if (!tokenizer) return { cells, rawToCol };
+  if (!tokenizer) {
+    for (let x = 0; x < cells.length; x += 1) {
+      if (!String(cells[x].kr || '').trim()) cells[x].kr = cells[x].raw;
+    }
+    return { cells, rawToCol };
+  }
 
   const cleanLine = cells.map((c) => c.raw).join('');
   try {
@@ -610,10 +815,27 @@ async function parseRawTextToBlocks(rawText) {
   const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
   /** @type {LogBlock[]} */
   const out = [];
+  let blankStreak = 0;
 
   for (let i = 0; i < lines.length; i += 1) {
     const line = normalizeTabs(lines[i] ?? '');
     const next = normalizeTabs(lines[i + 1] ?? '');
+
+    // 0) 빈 줄 압축(빈 줄 폭발 방지)
+    if (!String(line || '').trim()) {
+      blankStreak += 1;
+      if (blankStreak <= 1) out.push({ chord: '', lyric_raw: '\n', lyric_kr: '\n' });
+      continue;
+    }
+    blankStreak = 0;
+
+    // 0-1) meta line 우선 처리
+    if (isMetaLine(line)) {
+      const chars = splitChars(String(line));
+      for (const ch of chars) out.push({ chord: '', lyric_raw: ch, lyric_kr: ch });
+      out.push({ chord: '', lyric_raw: '\n', lyric_kr: '\n' });
+      continue;
+    }
 
     // 0) 줄바꿈이 깨져 "코드라인 + 가사라인"이 한 줄로 붙어온 케이스를 우선 복구한다.
     const merged = splitMergedChordLyricLine(line);
@@ -634,12 +856,15 @@ async function parseRawTextToBlocks(rawText) {
     const isChord = isChordLine(line);
     const isNextChord = isChordLine(next);
 
-    // 1.5) 코드/가사가 한 줄로 섞인 경우: 한 줄 안에서 코드 토큰을 상단(Chord)으로 분리
-    // (DOM/복붙으로 줄바꿈이 망가졌을 때 최후 방어)
-    if (!isChord && isMixedChordLyricLine(line)) {
-      await emitMixedChordLyricLine(line, out);
-      out.push({ chord: '', lyric_raw: '\n', lyric_kr: '\n' });
-      continue;
+    // 1.5) 인라인 혼합(코드+가사+리듬) 라인: tokenize → pendingChord 배치 규칙으로 렌더
+    if (!isChord) {
+      const tokens = tokenizeInlineLine(line);
+      const hasChord = tokens.some((t) => t?.type === 'chord');
+      if (hasChord) {
+        await emitInlineTokensAsBlocks(tokens, out);
+        out.push({ chord: '', lyric_raw: '\n', lyric_kr: '\n' });
+        continue;
+      }
     }
 
     // 2단계: chord 라인 + 바로 다음 lyric 라인이면 수직 매핑

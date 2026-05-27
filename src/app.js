@@ -35,7 +35,8 @@ function createApp() {
       saveUninitialized: false,
       cookie: {
         httpOnly: true,
-        sameSite: 'lax',
+        // 프론트(깃헙페이지) ↔ 백엔드(Render) 분리 시 cross-site 쿠키 전송을 위해 필요
+        sameSite: env === 'production' ? 'none' : 'lax',
         secure: env === 'production'
       }
     })

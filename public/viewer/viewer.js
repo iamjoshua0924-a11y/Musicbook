@@ -88,9 +88,13 @@ function initCwControls() {
   const layoutSel = document.getElementById('cwLayoutSelect');
   const stdSel = document.getElementById('cwMeasureStdSelect');
   const maxCols = document.getElementById('cwMaxCols');
+  const maxColsLabel = document.getElementById('cwMaxColsLabel');
   const lineHeight = document.getElementById('cwLineHeight');
+  const lineHeightLabel = document.getElementById('cwLineHeightLabel');
   const letter = document.getElementById('cwLetterSpacing');
+  const letterLabel = document.getElementById('cwLetterSpacingLabel');
   const gap = document.getElementById('cwGapLines');
+  const gapLabel = document.getElementById('cwGapLinesLabel');
   if (!layoutSel || !stdSel || !maxCols || !lineHeight || !letter || !gap) return;
 
   const p = loadCwPrefs();
@@ -102,6 +106,16 @@ function initCwControls() {
     letter.value = String(Number(p.letterSpacing || 0));
     gap.value = String(Number(p.gapLines ?? 1));
   } catch {}
+
+  const updateLabels = (pp) => {
+    try {
+      if (maxColsLabel) maxColsLabel.textContent = String(Math.round(Number(pp.maxLineCols || 120)));
+      if (lineHeightLabel) lineHeightLabel.textContent = String((Number(pp.lineHeight || 1.55)).toFixed(2));
+      if (letterLabel) letterLabel.textContent = String(Number(pp.letterSpacing || 0));
+      if (gapLabel) gapLabel.textContent = String(Number(pp.gapLines ?? 1));
+    } catch {}
+  };
+  updateLabels(p);
 
   const apply = () => {
     const next = saveCwPrefs({
@@ -119,6 +133,7 @@ function initCwControls() {
       letter.value = String(Number(next.letterSpacing || 0));
       gap.value = String(Number(next.gapLines ?? 1));
     } catch {}
+    updateLabels(next);
     rerenderChordNow();
   };
 
@@ -1517,6 +1532,16 @@ function renderChordBlocks(blocks) {
     while (chordCols.length < lyricCols.length) chordCols.push(' ');
     while (lyricCols.length < chordCols.length) lyricCols.push(' ');
 
+    // 공백만 있는 좌/우 여백은 줄 전체 폭을 불필요하게 키워 "의미없는 여백 구간"을 만든다.
+    // (특히 코드위키 추출 시 라인 시작/끝에 인덴트가 과도하게 들어오는 케이스)
+    let left = 0;
+    while (left < lyricCols.length && lyricCols[left] === ' ' && chordCols[left] === ' ') left += 1;
+    let right = lyricCols.length - 1;
+    while (right >= left && lyricCols[right] === ' ' && chordCols[right] === ' ') right -= 1;
+    if (right < left) return { lyricCols: [' '], chordCols: [' '] };
+    if (left > 0 || right < lyricCols.length - 1) {
+      return { lyricCols: lyricCols.slice(left, right + 1), chordCols: chordCols.slice(left, right + 1) };
+    }
     return { lyricCols, chordCols };
   };
 
@@ -1804,6 +1829,21 @@ function renderChordCompact(compact) {
     }
     while (chordCols.length < lyricCols.length) chordCols.push(' ');
     while (lyricCols.length < chordCols.length) lyricCols.push(' ');
+
+    // 의미없는 좌/우 공백 트림(폭 폭발 방지)
+    let left = 0;
+    while (left < lyricCols.length && lyricCols[left] === ' ' && chordCols[left] === ' ') left += 1;
+    let right = lyricCols.length - 1;
+    while (right >= left && lyricCols[right] === ' ' && chordCols[right] === ' ') right -= 1;
+    if (right < left) {
+      lyricCols.splice(0, lyricCols.length, ' ');
+      chordCols.splice(0, chordCols.length, ' ');
+    } else if (left > 0 || right < lyricCols.length - 1) {
+      const ly2 = lyricCols.slice(left, right + 1);
+      const ch2 = chordCols.slice(left, right + 1);
+      lyricCols.splice(0, lyricCols.length, ...ly2);
+      chordCols.splice(0, chordCols.length, ...ch2);
+    }
 
     // measure split
     /** @type {Array<{ly:string[], ch:string[]}>} */

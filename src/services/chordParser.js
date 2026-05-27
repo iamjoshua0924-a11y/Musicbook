@@ -44,6 +44,13 @@ function looksLikeChordToken(s) {
   // 악보 다이나믹/볼륨 표기: V/W/X + 숫자 (예: EmV30, EmW30)
   // => 코드 토큰으로 취급하지 않는다.
   if (/^[A-G](?:#|b)?(?:maj|MAJ|min|MIN|m|M)?[VWXvwx]\d+/.test(t)) return false;
+  // C30, E2024 같은 "알파벳+큰 숫자"는 코드가 아니라 가사/메모로 들어오는 케이스가 많다.
+  // 일반적인 코드 확장 번호는 13 이하만 허용한다.
+  const nums = t.match(/\d+/g) || [];
+  for (const n of nums) {
+    const v = Number.parseInt(n, 10);
+    if (Number.isFinite(v) && v > 13) return false;
+  }
   // 엄격한 코드 토큰 패턴(메타 텍스트(BPM 등) 오탐 방지)
   // - /B /A 같은 "베이스만" 표기 허용 (선행 '/' 허용)
   // - /Bb >== 같은 케이스는 토큰 스캐너가 '>'에서 끊어주므로 token은 /Bb 로 들어온다.

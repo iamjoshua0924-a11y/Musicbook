@@ -9,6 +9,13 @@ const { setTempDoc } = require('../services/chordDocTempStore');
 
 const router = express.Router();
 
+// Express 4는 async handler의 throw/reject를 자동으로 처리하지 않는다.
+// => 반드시 wrapper로 감싸서 예외가 프로세스를 죽이거나(Render 502) 응답이 유실되지 않게 한다.
+const asyncHandler =
+  (fn) =>
+  (req, res, next) =>
+    Promise.resolve(fn(req, res, next)).catch((err) => next(err));
+
 // 안전을 위해 allowlist로만 허용(SSRF 방지의 핵심)
 const ALLOWED_HOSTS = new Set([
   'ja.chordwiki.org',
@@ -240,47 +247,16 @@ async function createChordDoc({ blocks, meta }) {
   let toStore = blocks || [];
   if (shouldCompactBlocks(toStore)) toStore = compactBlocksV2(toStore);
 
-  try {
-    // DB write timeout: 너무 오래 걸리면 Render가 502를 띄울 수 있으므로 빠르게 fallback 한다.
-    const writePromise = ChordDoc.create({
-      _id: docId,
-      meta: meta || {},
-      blocks: toStore
-    });
-    await Promise.race([
-      writePromise,
-      new Promise((_, reject) => setTimeout(() => reject(new Error('MONGO_WRITE_TIMEOUT')), 2500))
-    ]);
-  } catch (e) {
-    // Mongo 16MB 제한 등으로 실패하면 compact로 한 번 더 시도
-    try {
-      if (Array.isArray(toStore)) {
-        const writePromise = ChordDoc.create({
-          _id: docId,
-          meta: meta || {},
-          blocks: compactBlocksV2(toStore)
-        });
-        await Promise.race([
-          writePromise,
-          new Promise((_, reject) => setTimeout(() => reject(new Error('MONGO_WRITE_TIMEOUT')), 2500))
-        ]);
-      } else {
-        throw e;
-      }
-    } catch (e2) {
-      // 최후 fallback: 메모리 저장으로라도 docId를 발급한다.
-      const tempId = `chordtmp:${nanoid(12)}`;
-      setTempDoc(tempId, { meta: meta || {}, blocks: toStore }, 2 * 60 * 60 * 1000); // 2h
-      // eslint-disable-next-line no-console
-      console.error('[proxy-chord] fallback to temp store', {
-        tempId,
-        name: e2?.name,
-        message: e2?.message,
-        code: e2?.code
-      });
-      return tempId;
-    }
-  }
+  // 1) ALWAYS: 메모리 저장(즉시 응답 보장) - 2시간 TTL
+  // => DB 상태/지연과 무관하게 docId 발급이 된다.
+  setTempDoc(docId, { meta: meta || {}, blocks: toStore }, 2 * 60 * 60 * 1000);
+
+  // 2) BEST-EFFORT: DB 저장은 백그라운드로 시도하고, 실패는 절대 요청을 망치지 않게 삼킨다.
+  // (중요) await 하지 않는다 + catch로 unhandled rejection 방지
+  Promise.resolve()
+    .then(() => ChordDoc.create({ _id: docId, meta: meta || {}, blocks: toStore }))
+    .catch(() => {});
+
   return docId;
 }
 
@@ -304,7 +280,9 @@ function shouldTryPuppeteer({ status, text, errorCode }) {
   return false;
 }
 
-router.get('/proxy-chord', async (req, res) => {
+router.get(
+  '/proxy-chord',
+  asyncHandler(async (req, res) => {
   const schema = z.object({ url: z.string().url() });
   const parsed = schema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
@@ -409,9 +387,12 @@ router.get('/proxy-chord', async (req, res) => {
   }
   cacheSet(key, value, 2 * 60 * 1000);
   return res.json({ ok: true, ...value });
-});
+  })
+);
 
-router.post('/proxy-chord', async (req, res) => {
+router.post(
+  '/proxy-chord',
+  asyncHandler(async (req, res) => {
   const schema = z
     .union([
       z.object({
@@ -474,6 +455,7 @@ router.post('/proxy-chord', async (req, res) => {
   }
   // blocks는 크기가 매우 커질 수 있으므로, 뷰어는 docId로 /api/chord-doc 를 다시 호출한다.
   return res.json({ ok: true, docId, meta, blocksCount: Array.isArray(blocks) ? blocks.length : 0 });
-});
+  })
+);
 
 module.exports = router;

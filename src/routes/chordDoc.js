@@ -13,11 +13,9 @@ router.get('/chord-doc', async (req, res) => {
   if (!parsed.success) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
 
   const docId = String(parsed.data.docId);
-  if (docId.startsWith('chordtmp:')) {
-    const v = getTempDoc(docId);
-    if (!v) return res.status(404).json({ ok: false, error: 'DOC_NOT_FOUND' });
-    return res.json({ ok: true, docId, meta: v.meta || {}, blocks: v.blocks || [] });
-  }
+  // 메모리 임시 저장소를 1순위로 조회(502/DB 장애 시에도 chord 문서 열기 보장)
+  const v = getTempDoc(docId);
+  if (v) return res.json({ ok: true, docId, meta: v.meta || {}, blocks: v.blocks || [] });
   try {
     const doc = await ChordDoc.findById(docId).lean();
     if (!doc) return res.status(404).json({ ok: false, error: 'DOC_NOT_FOUND' });

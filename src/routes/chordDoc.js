@@ -6,8 +6,15 @@ const { getTempDoc } = require('../services/chordDocTempStore');
 
 const router = express.Router();
 
+const asyncHandler =
+  (fn) =>
+  (req, res, next) =>
+    Promise.resolve(fn(req, res, next)).catch((err) => next(err));
+
 // GET /api/chord-doc?docId=...
-router.get('/chord-doc', async (req, res) => {
+router.get(
+  '/chord-doc',
+  asyncHandler(async (req, res) => {
   const schema = z.object({ docId: z.string().min(1).max(200) });
   const parsed = schema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
@@ -28,6 +35,7 @@ router.get('/chord-doc', async (req, res) => {
     if (msg === 'MONGO_READ_TIMEOUT') return res.status(504).json({ ok: false, error: 'DOC_LOAD_TIMEOUT' });
     return res.status(502).json({ ok: false, error: 'DOC_LOAD_FAILED' });
   }
-});
+  })
+);
 
 module.exports = router;

@@ -1493,35 +1493,50 @@ async function openChordByDocId(docId, { broadcast } = { broadcast: true }) {
   setCwError('불러오는 중...');
   setCwMeta('');
 
+  // 강제 종결 토큰(무한 로딩 방지)
+  openChordByDocId._seq = (openChordByDocId._seq || 0) + 1;
+  const seq = openChordByDocId._seq;
+
   let r;
   try {
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), 8000);
+    // AbortController가 브라우저/환경에 따라 100% 동작하지 않는 케이스를 대비해,
+    // 9초가 지나면 UI를 실패로 강제 전환한다.
+    setTimeout(() => {
+      if (seq !== openChordByDocId._seq) return;
+      setCwError('불러오기 실패: TIMEOUT');
+    }, 9000);
     r = await fetch(`/api/chord-doc?docId=${encodeURIComponent(id)}`, { signal: controller.signal }).then((x) => x.json());
     clearTimeout(t);
   } catch (e) {
     r = { ok: false, error: `NETWORK_ERROR: ${String(e?.message || e)}` };
   }
-  if (!r?.ok) {
-    setCwError(`불러오기 실패: ${r?.error || ''}`);
-    return;
+  try {
+    if (seq !== openChordByDocId._seq) return;
+    if (!r?.ok) {
+      setCwError(`불러오기 실패: ${r?.error || ''}`);
+      return;
+    }
+
+    state.chordDocId = id;
+    state.chordSourceUrl = String(r?.meta?.sourceUrl || '');
+    state.chordBlocks = expandCompactChordBlocks(r.blocks || []);
+    state.fileId = id;
+    state.annoStore = {};
+    state.undoStack = {};
+    state.redoStack = {};
+    if (state.isInSession && state.roomCode) socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId: state.fileId });
+
+    if (broadcast && state.isInSession && state.isPageTurner && state.roomCode) {
+      socket.emit('session:follow:file', { roomCode: state.roomCode, fileId: id, originalLink: state.chordSourceUrl || '' }, () => {});
+    }
+
+    setCwError('');
+    renderChordBlocks(state.chordBlocks);
+  } catch (e) {
+    setCwError(`불러오기 실패: RENDER_ERROR`);
   }
-
-  state.chordDocId = id;
-  state.chordSourceUrl = String(r?.meta?.sourceUrl || '');
-  state.chordBlocks = expandCompactChordBlocks(r.blocks || []);
-  state.fileId = id;
-  state.annoStore = {};
-  state.undoStack = {};
-  state.redoStack = {};
-  if (state.isInSession && state.roomCode) socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId: state.fileId });
-
-  if (broadcast && state.isInSession && state.isPageTurner && state.roomCode) {
-    socket.emit('session:follow:file', { roomCode: state.roomCode, fileId: id, originalLink: state.chordSourceUrl || '' }, () => {});
-  }
-
-  setCwError('');
-  renderChordBlocks(state.chordBlocks);
 }
 
 // ---- CodeWiki scroll sync (Phase2-3) ---------------------------------------------

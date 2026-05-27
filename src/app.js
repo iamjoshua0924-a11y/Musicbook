@@ -71,6 +71,24 @@ function createApp() {
   // API routes
   app.use(require('./routes'));
 
+  // Global error handler — 반드시 JSON으로 응답 (HTML 에러 페이지 차단)
+  // eslint-disable-next-line no-unused-vars
+  app.use((err, req, res, next) => {
+    // eslint-disable-next-line no-console
+    console.error('[app] unhandled error:', {
+      method: req.method,
+      path: req.path,
+      name: err?.name,
+      message: err?.message,
+      stack: String(err?.stack || '').split('\n').slice(0, 6).join('\n')
+    });
+    if (res.headersSent) return;
+    res.status(err?.status || err?.statusCode || 500).json({
+      ok: false,
+      error: err?.code || err?.message || 'INTERNAL_SERVER_ERROR'
+    });
+  });
+
   return app;
 }
 

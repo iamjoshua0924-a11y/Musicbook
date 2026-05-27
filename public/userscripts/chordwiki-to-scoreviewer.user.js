@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChordWiki → ScoreViewer Exporter (docId)
 // @namespace    musicbook
-// @version      0.5.1
+// @version      0.5.2
 // @description  ChordWiki 페이지에서 악보 텍스트를 DOM에서 추출해 ScoreViewer로 전송하고 docId로 엽니다.
 // @match        *://*.chordwiki.org/wiki/*
 // @match        *://*.chordwiki.jp/wiki/*
@@ -560,9 +560,12 @@
       blocks
     };
 
-    // 안정화: viewer가 로드/초기화되기 전에 메시지가 날아가서 누락되는 케이스가 있어
-    // viewer -> opener "ready" 신호를 기다렸다가 payload를 보낸다(그래도 안전을 위해 재전송도 유지).
+    // 안정화:
+    // - viewer가 로드/초기화되기 전에 메시지가 날아가서 누락되는 케이스가 있어
+    //   viewer -> opener "ready" 신호를 기다렸다가 payload를 보낸다.
+    // - 또한 viewer가 실제로 payload를 수신했는지 ack로 확인한다.
     let sent = false;
+    let acked = false;
     const send = () => {
       if (sent) return;
       sent = true;
@@ -580,19 +583,28 @@
       try {
         if (String(ev.origin || '') !== SCORE_VIEWER_ORIGIN) return;
         const d = ev.data || {};
-        if (d?.type !== 'mb_viewer_ready_v1') return;
-        window.removeEventListener('message', onMsg);
-        send();
+        if (d?.type === 'mb_viewer_ready_v1') {
+          send();
+          return;
+        }
+        if (d?.type === 'mb_chord_ack_v1') {
+          acked = true;
+          window.removeEventListener('message', onMsg);
+        }
       } catch {}
     };
     window.addEventListener('message', onMsg);
     // timeout fallback
     setTimeout(() => {
       try {
+        if (!acked) {
+          // viewer가 안 받았으면 안내
+          alert('코드위키 데이터 전달이 완료되지 않았습니다. (뷰어가 payload를 받지 못함)\n새 탭이 완전히 열린 뒤 다시 시도해 주세요.');
+        }
         window.removeEventListener('message', onMsg);
       } catch {}
       send();
-    }, 2500);
+    }, 3500);
   }
 
   function chordHitCount(text) {
@@ -782,6 +794,7 @@
         const root = getScoreRoot();
         // 1) 모든 페이지에 적용: "좌표 기반 라인 복원"을 1순위로 시도한다.
         let rawText = extractTextByLayout(root);
+        let debugSrc = 'layout';
 
         // 2) source/edit 원문(가능한 경우)로 보정
         const src = await fetchWikiSourceText();
@@ -792,13 +805,17 @@
             srcLines >= 10 ||
             (srcLines >= rawLines + 4) ||
             (src.length > 800 && srcLines >= 6 && chordHitCount(src) >= Math.max(6, chordHitCount(rawText)));
-          if (srcSeemsBetter) rawText = trimToChordArea(src);
+          if (srcSeemsBetter) {
+            rawText = trimToChordArea(src);
+            debugSrc = 'cmd=edit/source';
+          }
         }
 
         // 3) 최후: 기존 후보 선택
         if (!rawText || rawText.split('\n').length < 4 || chordHitCount(rawText) < 6) {
           const candidates = collectCandidates();
           rawText = rawText && rawText.length > 20 ? rawText : selectBestCandidate(candidates);
+          if (rawText) debugSrc = 'dom-candidates';
         }
 
         // 최종 방어: 그래도 너무 약하면 실패 처리
@@ -808,8 +825,10 @@
           rawText.split('\n').length < 4 ||
           (rawText.length > 2000 && rawText.split('\n').length < 6) ||
           chordHitCount(rawText) < 6;
-        if (!rawText || rawText.length < 20) {
-          alert('악보 본문 텍스트를 찾지 못했습니다. (source/edit에서도 원문을 찾지 못함)');
+        if (weak) {
+          const info = `src=${debugSrc}, lines=${String(rawText || '').split('\n').length}, hits=${chordHitCount(rawText)}, len=${String(rawText || '').length}`;
+          const head = String(rawText || '').slice(0, 220);
+          alert('악보 본문 추출/복원에 실패했습니다.\n' + info + '\n\n' + head);
           return;
         }
 

@@ -1311,6 +1311,13 @@ function setupChordPostMessageReceiver() {
       state.chordBlocks = expandCompactChordBlocks(blocks);
       state.fileId = state.chordSourceUrl ? `chordmsg:${hashString(state.chordSourceUrl)}` : `chordmsg:${Date.now()}`;
       renderChordBlocks(state.chordBlocks);
+      // opener에 수신 완료 ack (payload 유실 디버깅)
+      try {
+        ev.source?.postMessage?.(
+          { type: 'mb_chord_ack_v1', ok: true, lines: Array.isArray(blocks?.lines) ? blocks.lines.length : 0 },
+          ev.origin
+        );
+      } catch {}
       // reload 대비: sessionStorage에 저장(최대용량 제한 있으니 실패는 무시)
       try {
         sessionStorage.setItem('mb_lastChordMsg', JSON.stringify({ sourceUrl: state.chordSourceUrl, blocks }));

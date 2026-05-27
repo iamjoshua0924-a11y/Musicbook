@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChordWiki → ScoreViewer Exporter (docId)
 // @namespace    musicbook
-// @version      0.6.1
+// @version      0.6.2
 // @description  ChordWiki 페이지에서 악보 텍스트를 DOM에서 추출해 ScoreViewer로 전송하고 docId로 엽니다.
 // @match        *://*.chordwiki.org/wiki/*
 // @match        *://*.chordwiki.jp/wiki/*
@@ -17,7 +17,8 @@
 
   // 배포 도메인에 맞게 수정 가능
   const SCORE_VIEWER_ORIGIN = 'https://scoreviewer.onrender.com';
-  const API_ENDPOINT = `${SCORE_VIEWER_ORIGIN}/api/proxy-chord`;
+  // 안정적인 업로드 전용 엔드포인트(크롤/DB/puppeteer 경로 우회)
+  const API_ENDPOINT = `${SCORE_VIEWER_ORIGIN}/api/chord/upload`;
 
   function pickText(s) {
     // NBSP(웹에서 흔함) -> 일반 스페이스로 정규화해서 "공백 인덱스"가 보존되게 한다.

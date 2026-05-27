@@ -11,6 +11,7 @@ router.use('/api', require('./mainPage'));
 router.use('/api', require('./availability'));
 router.use('/api', require('./socketMeta'));
 router.use('/api', require('./proxyChord'));
+router.use('/api', require('./chordUpload'));
 router.use('/api', require('./chordDoc'));
 
 module.exports = router;

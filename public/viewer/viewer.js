@@ -3651,4 +3651,19 @@ async function init() {
   await loadPdf(state.fileId);
 }
 
-init().catch(() => {});
+init().catch((e) => {
+  // 기존에는 init 에러를 조용히 삼켜서(빈 화면) 원인 파악이 어려웠다.
+  // chord/doc 링크로 직접 들어온 경우엔 init 실패해도 chord는 열어준다.
+  // eslint-disable-next-line no-console
+  console.error('[viewer] init failed:', e);
+  try {
+    const qsMode = String(qs('mode') || '').toLowerCase();
+    const qsDocId = String(qs('docId') || '').trim();
+    if (qsMode === 'chord' && qsDocId) {
+      openChordByDocId(qsDocId, { broadcast: false }).catch(() => {});
+      return;
+    }
+    setHidden('pageHud', false);
+    setText('pageHud', `초기화 실패: ${String(e?.message || e).slice(0, 80)}`);
+  } catch {}
+});

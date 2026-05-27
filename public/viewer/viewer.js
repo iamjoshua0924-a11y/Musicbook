@@ -1559,14 +1559,18 @@ async function openChordByDocId(docId, { broadcast } = { broadcast: true }) {
   const seq = openChordByDocId._seq;
 
   let r;
+  let forceTimeout = null;
   try {
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), 8000);
     // AbortController가 브라우저/환경에 따라 100% 동작하지 않는 케이스를 대비해,
     // 9초가 지나면 UI를 실패로 강제 전환한다.
-    setTimeout(() => {
+    forceTimeout = setTimeout(() => {
       if (seq !== openChordByDocId._seq) return;
-      setCwError('불러오기 실패: TIMEOUT');
+      // "불러오는 중..." 상태에서만 강제 TIMEOUT을 표시(성공/실패로 종결된 경우 덮어쓰지 않기)
+      const el = document.getElementById('cwError');
+      const cur = String(el?.textContent || '').trim();
+      if (cur === '불러오는 중...') setCwError('불러오기 실패: TIMEOUT');
     }, 9000);
     r = await fetch(`/api/chord-doc?docId=${encodeURIComponent(id)}`, { signal: controller.signal }).then((x) => x.json());
     clearTimeout(t);
@@ -1574,6 +1578,7 @@ async function openChordByDocId(docId, { broadcast } = { broadcast: true }) {
     r = { ok: false, error: `NETWORK_ERROR: ${String(e?.message || e)}` };
   }
   try {
+    if (forceTimeout) clearTimeout(forceTimeout);
     if (seq !== openChordByDocId._seq) return;
     if (!r?.ok) {
       setCwError(`불러오기 실패: ${r?.error || ''}`);
@@ -1607,6 +1612,8 @@ async function openChordByDocId(docId, { broadcast } = { broadcast: true }) {
     try {
       setCwMeta(String(e?.message || e).slice(0, 180));
     } catch {}
+  } finally {
+    if (forceTimeout) clearTimeout(forceTimeout);
   }
 }
 

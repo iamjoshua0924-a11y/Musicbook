@@ -331,19 +331,63 @@ function openInputModalRequired({ title, placeholder = '', value = '', minLen = 
 function openChordEditModal({ value = '' } = {}) {
   const overlay = document.getElementById('chordEditModal');
   const field = document.getElementById('chordEditField');
+  const pre = document.getElementById('chordEditOverlay');
+  const info = document.getElementById('chordEditDocInfo');
   const okBtn = document.getElementById('chordEditSaveBtn');
   const cancelBtn = document.getElementById('chordEditCancelBtn');
-  if (!overlay || !field || !okBtn || !cancelBtn) return Promise.resolve(null);
+  if (!overlay || !field || !pre || !okBtn || !cancelBtn) return Promise.resolve(null);
+
+  const escHtml = (s) =>
+    String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  const getCaretLine = () => {
+    try {
+      const pos = Number(field.selectionStart || 0);
+      const t = String(field.value || '');
+      let line = 0;
+      for (let i = 0; i < t.length && i < pos; i += 1) if (t[i] === '\n') line += 1;
+      return line;
+    } catch {
+      return 0;
+    }
+  };
+
+  const renderOverlay = () => {
+    const t = String(field.value || '').replace(/\r\n/g, '\n');
+    // 마지막 줄도 유지(스크롤/커서 동기화)
+    const lines = t.split('\n');
+    const caretLine = getCaretLine();
+    let html = '';
+    for (let i = 0; i < lines.length; i += 1) {
+      const ln = lines[i];
+      const isChordLine = i % 2 === 0 && String(ln || '').trim() !== '';
+      const cls = `edLine${i === caretLine ? ' cur' : ''}${isChordLine ? ' chord' : ''}`;
+      const safe = escHtml(ln) || '&nbsp;';
+      html += `<div class="${cls}"><span class="edNo">${i + 1}</span><span class="edTx">${safe}</span></div>`;
+    }
+    pre.innerHTML = html;
+    // scroll sync
+    pre.scrollTop = field.scrollTop;
+    pre.scrollLeft = field.scrollLeft;
+  };
 
   field.value = String(value || '');
+  if (info) info.textContent = state?.chordDocId ? `docId: ${String(state.chordDocId)}` : '';
   overlay.classList.remove('hidden');
-  setTimeout(() => field.focus(), 0);
+  setTimeout(() => {
+    field.focus();
+    renderOverlay();
+  }, 0);
 
   return new Promise((resolve) => {
     const cleanup = (result) => {
       overlay.classList.add('hidden');
       okBtn.onclick = null;
       cancelBtn.onclick = null;
+      field.removeEventListener('input', renderOverlay);
+      field.removeEventListener('scroll', renderOverlay);
+      field.removeEventListener('keyup', renderOverlay);
+      field.removeEventListener('click', renderOverlay);
       resolve(result);
     };
     okBtn.onclick = () => cleanup(field.value);
@@ -351,6 +395,12 @@ function openChordEditModal({ value = '' } = {}) {
     field.onkeydown = (e) => {
       if (e.key === 'Escape') cleanup(null);
     };
+
+    // live overlay 업데이트(라인번호/하이라이트/가시성)
+    field.addEventListener('input', renderOverlay);
+    field.addEventListener('scroll', renderOverlay);
+    field.addEventListener('keyup', renderOverlay);
+    field.addEventListener('click', renderOverlay);
   });
 }
 
@@ -3585,6 +3635,7 @@ document.getElementById('chordEditBtn')?.addEventListener('click', async () => {
   if (next == null) return;
   const rawText = String(next || '');
   if (!rawText.trim()) return flashHud('비어있습니다', 1000);
+  if (!confirm(`저장하면 기존 코드위키 데이터가 덮어씌워집니다.\n(docId: ${state.chordDocId})\n저장할까요?`)) return;
 
   flashHud('저장 중...', 900);
   try {

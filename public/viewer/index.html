@@ -291,12 +291,16 @@
 
     <!-- 코드뷰어 편집(페이지터너/관리자): 통텍스트 편집 -->
     <div class="modalOverlay hidden" id="chordEditModal">
-      <div class="modalBox" style="max-width:min(920px, 94vw);">
+      <div class="modalBox chordEditModalBox">
         <div class="modalTitle">코드뷰어 편집</div>
         <div class="muted" style="margin-top:6px; line-height:1.35;">
-          1) 위: 코드행 / 아래: 가사행 형식으로 수정하세요. 저장하면 이 docId에 덮어씌워집니다.
+          1) 위: 코드행 / 아래: 가사행 형식으로 수정하세요. 저장하면 덮어씌워집니다.
         </div>
-        <textarea id="chordEditField" class="modalTextarea" spellcheck="false"></textarea>
+        <div class="muted" id="chordEditDocInfo" style="margin-top:6px;"></div>
+        <div class="chordEditEditor" id="chordEditEditor">
+          <pre id="chordEditOverlay" class="chordEditOverlay" aria-hidden="true"></pre>
+          <textarea id="chordEditField" class="chordEditField" spellcheck="false"></textarea>
+        </div>
         <div class="modalActions">
           <button id="chordEditCancelBtn" type="button">취소</button>
           <button id="chordEditSaveBtn" type="button" class="primary">저장</button>
@@ -310,6 +314,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
     <script src="../config.js"></script>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
-    <script src="viewer.js?v=20260527_22"></script>
+    <script src="viewer.js?v=20260527_23"></script>
   </body>
 </html>

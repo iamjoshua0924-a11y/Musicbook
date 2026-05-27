@@ -541,6 +541,87 @@ body.light .modalTextarea{
   color: var(--text);
 }
 
+/* ===== 코드뷰어 편집 모달(UI 개선) ===== */
+.chordEditModalBox{
+  width: min(1100px, 96vw);
+  max-height: min(92vh, 900px);
+}
+.chordEditEditor{
+  --gutter: 54px;
+  position: relative;
+  margin-top: 10px;
+  width: min(1040px, 92vw);
+  height: min(72vh, 660px);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(0,0,0,0.22);
+  overflow: hidden;
+}
+body.light .chordEditEditor{
+  background: rgba(255,255,255,0.92);
+}
+.chordEditOverlay{
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 10px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre;
+  color: var(--text);
+  overflow: auto;
+  pointer-events: none;
+  scrollbar-width: none;
+}
+.chordEditOverlay::-webkit-scrollbar{ display:none; }
+.chordEditOverlay .edLine{
+  display: flex;
+  gap: 10px;
+}
+.chordEditOverlay .edNo{
+  flex: 0 0 var(--gutter);
+  width: var(--gutter);
+  text-align: right;
+  opacity: 0.45;
+  user-select: none;
+}
+.chordEditOverlay .edTx{
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.chordEditOverlay .edLine.cur{
+  background: rgba(122,162,255,0.14);
+  border-radius: 8px;
+}
+.chordEditOverlay .edLine.chord .edTx{
+  color: #6bb6ff;
+  font-weight: 900;
+}
+
+.chordEditField{
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px 10px calc(12px + var(--gutter) + 10px);
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.45;
+  color: transparent;                 /* overlay가 텍스트를 렌더 */
+  caret-color: var(--text);
+  overflow: auto;
+  white-space: pre;
+}
+.chordEditField::selection{
+  background: rgba(122,162,255,0.28);
+}
+
 /* ===== 노래책에서 고르기 ===== */
 .songPickList{
   margin-top:10px;

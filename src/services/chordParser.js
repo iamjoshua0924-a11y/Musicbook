@@ -113,6 +113,10 @@ function isChordLine(line) {
   // 리듬/구분자만 있는 라인도 "가사 없는 섹션"이므로 chord 라인으로 본다.
   if (/^[\s|=:_\-–—~.*+\\/]+$/.test(s)) return true;
 
+  // 베이스 코드("/B /Bb /A") 전용줄 허용
+  // - 줄 전체가 "/코드 /코드 ..." 패턴이면 chord line으로 인정
+  if (/^(\s*\/[A-G][#b]?\s*)+$/.test(s)) return true;
+
   // 허용 문자(ASCII) 외가 있으면 chord 라인이 아니다.
   // (괄호는 일부 표기에서 등장할 수 있어 허용)
   if (!/^[A-Za-z0-9#b/|().+\-_\s]+$/.test(s)) return false;
@@ -342,11 +346,70 @@ function splitChars(str) {
 function isMetaLine(line) {
   const t = String(line || '').trim();
   if (!t) return false;
+  // ── 기존 유지 ──────────────────────────────────────────
   if (/^\s*(?:key|capo|bpm)\s*[:=]/i.test(t)) return true;
   if (t.includes('拍子')) return true;
   if (t.includes('アクセント')) return true;
-  // 범례/설명 형식
   if (/^-\s*[:：]/.test(t)) return true;
+
+  // ── 추가 ───────────────────────────────────────────────
+  // 1) 특수 음표/박자 범례: =:, >:, -:
+  if (/^[=>\-]\s*[:：]/.test(t)) return true;
+
+  // 2) 보컬 표기: ♥/♠/♦ 등 + 임의 텍스트
+  if (/^[♥♠♦♣○●◎★☆▲▼■□▶◀]+\s*[:：]/.test(t)) return true;
+  // 기호 단독 줄
+  if (/^[♥♠♦♣○●◎★☆▲▼■□▶◀\s]+$/.test(t)) return true;
+
+  // 3) 영문 섹션 제목(보수적으로):
+  // - 영문 가사를 meta로 오인하지 않도록, '섹션/악기/비트' 힌트가 있을 때만 meta로 분류한다.
+  if (/^[A-Za-z0-9\s\.\&\(\)\-_\/]+$/.test(t) && t.length < 60 && !isChordLine(t)) {
+    const lower = t.toLowerCase();
+    const looksLikeSectionTitle =
+      // 숫자+섹션명(예: 4 Kick beat)
+      /^\d+\s+[a-z]/.test(lower) ||
+      // 악기 편성/섹션 힌트
+      /\b(?:intro|interlude|outro|chorus|verse|bridge|solo|beat)\b/.test(lower) ||
+      // 악기 약어/기호
+      /\b(?:e\.gt|e\.ba|gt|gtr|ba|bass|dr|drum|keys|kb|vo|vocal)\b/.test(lower) ||
+      // & 포함(편성 표기에서 자주 등장)
+      t.includes('&');
+    if (looksLikeSectionTitle) return true;
+  }
+
+  // 4) 괄호 섹션 지시어: (E.Gt solo) / (Interlude) 등
+  if (/^\([A-Za-z0-9\s\.\-_&]+\)$/.test(t)) return true;
+
+  // 5) 숫자/4 박자 변환 표기가 줄 전체인 경우: "4/4" "3/4" 단독
+  if (/^\d+\/\d+$/.test(t)) return true;
+
+  return false;
+}
+
+/**
+ * 단독 대문자 1글자 코드/가사 판별
+ * @param {string} cand
+ * @param {string} prev
+ * @param {string} next
+ * @param {string} line
+ * @param {number} pos
+ */
+function isSingleLetterChordInContext(cand, prev, next, line, pos) {
+  if (cand.length > 1) return true;
+  const isAloneUpperLetter = /^[A-G]$/.test(cand);
+  if (!isAloneUpperLetter) return true;
+
+  // ── 코드로 판정하는 경우 ──
+  if (hasKanaKanjiOrHangul(prev)) return true;
+  if ((prev === ' ' || prev === '\t' || prev === '|' || prev === '') && hasKanaKanjiOrHangul(next)) return true;
+  if (isRhythmChar(next)) return true;
+
+  // ── lyric로 판정하는 경우 ──
+  if (/[a-zA-Z]/.test(prev)) return false;
+  if (/[a-zA-Z]/.test(next)) return false;
+  const afterSpace = String(line || '').slice(pos + cand.length).trimStart();
+  if (/^[a-z]/.test(afterSpace)) return false;
+
   return false;
 }
 
@@ -380,6 +443,30 @@ function tokenizeInlineLine(line) {
       continue;
     }
 
+    // 0.5) 섹션 지시어 전체 소비: |(bass) |(All) |(4/4) (2/4) ...
+    if (ch === '|' || ch === '(') {
+      const directiveMatch = s
+        .slice(i)
+        .match(/^(?:\|)?\([A-Za-z0-9\/\s]+\)/);
+      if (directiveMatch?.[0]) {
+        push({ type: 'lyric', text: directiveMatch[0] });
+        i += directiveMatch[0].length;
+        continue;
+      }
+    }
+
+    // 0.9) N.C. 전용 처리(가사 혼합 케이스 보호)
+    if (ch === 'N' && s.slice(i, i + 4) === 'N.C.') {
+      push({ type: 'chord', text: 'N.C.' });
+      i += 4;
+      continue;
+    }
+    if (ch === 'N' && s.slice(i, i + 3) === 'N.C') {
+      push({ type: 'chord', text: 'N.C.' });
+      i += 3;
+      continue;
+    }
+
     // 1) furigana: 漢字(かな)
     const f = tryParseFuriganaToken(s, i);
     if (f) {
@@ -410,9 +497,13 @@ function tokenizeInlineLine(line) {
       while (j < s.length && isChordTokenChar(s[j])) j += 1;
       const cand = s.slice(i, j);
       if (looksLikeChordToken(cand)) {
-        push({ type: 'chord', text: cand });
-        i = j;
-        continue;
+        const prevCh = i > 0 ? s[i - 1] : '';
+        const nextCh = s[j] || '';
+        if (isSingleLetterChordInContext(cand, prevCh, nextCh, s, i)) {
+          push({ type: 'chord', text: cand });
+          i = j;
+          continue;
+        }
       }
     }
 
@@ -817,6 +908,12 @@ async function parseRawTextToBlocks(rawText) {
   const out = [];
   let blankStreak = 0;
 
+  function lastBlockIsNewline() {
+    if (!out.length) return false;
+    const last = out[out.length - 1];
+    return Boolean(last && last.lyric_raw === '\n');
+  }
+
   for (let i = 0; i < lines.length; i += 1) {
     const line = normalizeTabs(lines[i] ?? '');
     const next = normalizeTabs(lines[i + 1] ?? '');
@@ -824,13 +921,15 @@ async function parseRawTextToBlocks(rawText) {
     // 0) 빈 줄 압축(빈 줄 폭발 방지)
     if (!String(line || '').trim()) {
       blankStreak += 1;
-      if (blankStreak <= 1) out.push({ chord: '', lyric_raw: '\n', lyric_kr: '\n' });
+      if (blankStreak <= 1 && !lastBlockIsNewline()) out.push({ chord: '', lyric_raw: '\n', lyric_kr: '\n' });
       continue;
     }
     blankStreak = 0;
 
     // 0-1) meta line 우선 처리
     if (isMetaLine(line)) {
+      // 메타 앞 줄바꿈(직전이 이미 \n이면 생략)
+      if (out.length && !lastBlockIsNewline()) out.push({ chord: '', lyric_raw: '\n', lyric_kr: '\n' });
       const chars = splitChars(String(line));
       for (const ch of chars) out.push({ chord: '', lyric_raw: ch, lyric_kr: ch });
       out.push({ chord: '', lyric_raw: '\n', lyric_kr: '\n' });
@@ -840,16 +939,14 @@ async function parseRawTextToBlocks(rawText) {
     // 0) 줄바꿈이 깨져 "코드라인 + 가사라인"이 한 줄로 붙어온 케이스를 우선 복구한다.
     const merged = splitMergedChordLyricLine(line);
     if (merged?.chordLine && merged?.lyricLine) {
-      const chordMap = buildChordStartMap(merged.chordLine);
-      const lyricCells = await buildLyricCellsStrict(merged.lyricLine);
-      const maxLen = Math.max(String(merged.chordLine).length, lyricCells.length);
-      for (let col = 0; col < maxLen; col += 1) {
-        const chord = chordMap.get(col) || '';
-        const cell = lyricCells[col] || { raw: ' ', kr: ' ' };
-        out.push({ chord, lyric_raw: cell.raw, lyric_kr: cell.kr });
+      // merged 케이스는 인라인 혼합과 동일한 성격이므로 tokenize 경로로 통일
+      const tokens = tokenizeInlineLine(line);
+      const hasChord = tokens.some((t) => t?.type === 'chord');
+      if (hasChord) {
+        await emitInlineTokensAsBlocks(tokens, out);
+        out.push({ chord: '', lyric_raw: '\n', lyric_kr: '\n' });
+        continue;
       }
-      out.push({ chord: '', lyric_raw: '\n', lyric_kr: '\n' });
-      continue;
     }
 
     // 1단계: 줄 성격 판별(Chord vs Lyric)
@@ -869,6 +966,15 @@ async function parseRawTextToBlocks(rawText) {
 
     // 2단계: chord 라인 + 바로 다음 lyric 라인이면 수직 매핑
     if (isChord && next && !isNextChord && next.trim() !== '') {
+      // next가 "실제 가사 라인"인지 검증 (연속 chord 보호)
+      const nextHasLyric = hasKanaKanjiOrHangul(next);
+      const nextIsLyricOnly = nextHasLyric && !isChordLine(next);
+      if (!nextIsLyricOnly) {
+        const chordMap = buildChordStartMap(line);
+        emitChordOnly(line, chordMap, out);
+        out.push({ chord: '', lyric_raw: '\n', lyric_kr: '\n' });
+        continue;
+      }
       const chordMap = buildChordStartMap(line);
       const lyricCells = await buildLyricCellsStrict(next);
       const maxLen = Math.max(String(line).length, lyricCells.length);

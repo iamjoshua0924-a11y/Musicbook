@@ -433,28 +433,227 @@ function openInputModalRequired({ title, placeholder = '', value = '', minLen = 
 
 function openChordEditModal({ value = '' } = {}) {
   const overlay = document.getElementById('chordEditModal');
-  const field = document.getElementById('chordEditField');
+  const tbody = document.getElementById('chordEditTbody');
   const okBtn = document.getElementById('chordEditSaveBtn');
   const cancelBtn = document.getElementById('chordEditCancelBtn');
-  if (!overlay || !field || !okBtn || !cancelBtn) return Promise.resolve(null);
+  const addBtn = document.getElementById('chordEditAddRowBtn');
+  if (!overlay || !tbody || !okBtn || !cancelBtn || !addBtn) return Promise.resolve(null);
 
-  field.value = String(value || '');
+  const splitToPairs = (text) => {
+    const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+    /** @type {Array<{ch:string, ly:string}>} */
+    const pairs = [];
+    let i = 0;
+    while (i < lines.length) {
+      const ch = lines[i] ?? '';
+      const ly = lines[i + 1] ?? '';
+      pairs.push({ ch, ly });
+      i += 2;
+      // 세트 공백(빈 줄)은 전역 gapLines로 다시 생성하므로 여기서는 흡수
+      while (i < lines.length && String(lines[i] || '').trim() === '') i += 1;
+    }
+    if (!pairs.length) pairs.push({ ch: '', ly: '' });
+    return pairs;
+  };
+
+  const esc = (s) => String(s ?? '');
+  const applyMirrorEdit = (otherEl, prev, next) => {
+    // 공통 prefix/suffix 기반의 "삽입/삭제"를 감지하고, 다른 라인에는 동일 길이만큼 공백 삽입/삭제
+    const a = esc(prev);
+    const b = esc(next);
+    let p = 0;
+    while (p < a.length && p < b.length && a[p] === b[p]) p += 1;
+    let sa = a.length - 1;
+    let sb = b.length - 1;
+    while (sa >= p && sb >= p && a[sa] === b[sb]) {
+      sa -= 1;
+      sb -= 1;
+    }
+    const removedLen = Math.max(0, sa - p + 1);
+    const addedLen = Math.max(0, sb - p + 1);
+
+    // other string
+    const other = esc(otherEl.value);
+    if (addedLen > 0) {
+      otherEl.value = other.slice(0, p) + ' '.repeat(addedLen) + other.slice(p);
+    } else if (removedLen > 0) {
+      otherEl.value = other.slice(0, p) + other.slice(p + removedLen);
+    }
+  };
+
+  const pairs = splitToPairs(value);
+
+  const renderRow = ({ ch = '', ly = '' } = {}) => {
+    const tr = document.createElement('tr');
+    const tdCh = document.createElement('td');
+    const tdLy = document.createElement('td');
+    const chEl = document.createElement('input');
+    const lyEl = document.createElement('input');
+    chEl.className = 'chordEditInput';
+    lyEl.className = 'chordEditInput';
+    chEl.spellcheck = false;
+    lyEl.spellcheck = false;
+    chEl.value = esc(ch);
+    lyEl.value = esc(ly);
+
+    let lock = false;
+    let prevCh = chEl.value;
+    let prevLy = lyEl.value;
+
+    chEl.addEventListener('input', () => {
+      if (lock) return;
+      lock = true;
+      applyMirrorEdit(lyEl, prevCh, chEl.value);
+      prevCh = chEl.value;
+      prevLy = lyEl.value;
+      lock = false;
+    });
+    lyEl.addEventListener('input', () => {
+      if (lock) return;
+      lock = true;
+      applyMirrorEdit(chEl, prevLy, lyEl.value);
+      prevLy = lyEl.value;
+      prevCh = chEl.value;
+      lock = false;
+    });
+
+    tdCh.appendChild(chEl);
+    tdLy.appendChild(lyEl);
+    tr.appendChild(tdCh);
+    tr.appendChild(tdLy);
+    return tr;
+  };
+
+  tbody.innerHTML = '';
+  for (const p of pairs) tbody.appendChild(renderRow(p));
+
   overlay.classList.remove('hidden');
-  setTimeout(() => field.focus(), 0);
+  setTimeout(() => {
+    const first = tbody.querySelector('input');
+    first?.focus?.();
+  }, 0);
+
+  const buildText = () => {
+    const pref = loadCwPrefs();
+    const gapLines = clamp(Number(pref?.gapLines ?? 1), 0, 3);
+    /** @type {string[]} */
+    const lines = [];
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    for (const r of rows) {
+      const ins = Array.from(r.querySelectorAll('input'));
+      const ch = String(ins[0]?.value ?? '');
+      const ly = String(ins[1]?.value ?? '');
+      // 완전 빈 줄은 스킵
+      if (!ch.trim() && !ly.trim()) continue;
+      lines.push(ch);
+      lines.push(ly);
+      for (let k = 0; k < gapLines; k += 1) lines.push('');
+    }
+    return lines.join('\n').trimEnd();
+  };
 
   return new Promise((resolve) => {
     const cleanup = (result) => {
       overlay.classList.add('hidden');
       okBtn.onclick = null;
       cancelBtn.onclick = null;
-      field.onkeydown = null;
+      addBtn.onclick = null;
       resolve(result);
     };
-    okBtn.onclick = () => cleanup(field.value);
+    okBtn.onclick = () => cleanup(buildText());
     cancelBtn.onclick = () => cleanup(null);
-    field.onkeydown = (e) => {
+    addBtn.onclick = () => {
+      tbody.appendChild(renderRow({ ch: '', ly: '' }));
+      const inputs = tbody.lastChild?.querySelectorAll?.('input');
+      inputs?.[0]?.focus?.();
+    };
+  });
+}
+
+function openChordListModal() {
+  const overlay = document.getElementById('chordListModal');
+  const search = document.getElementById('chordListSearch');
+  const searchBtn = document.getElementById('chordListSearchBtn');
+  const metaEl = document.getElementById('chordListMeta');
+  const itemsEl = document.getElementById('chordListItems');
+  const prevBtn = document.getElementById('chordListPrevBtn');
+  const nextBtn = document.getElementById('chordListNextBtn');
+  const closeBtn = document.getElementById('chordListCloseBtn');
+  if (!overlay || !search || !searchBtn || !metaEl || !itemsEl || !prevBtn || !nextBtn || !closeBtn) return Promise.resolve(null);
+
+  let page = 1;
+  const limit = 30;
+
+  const render = (r) => {
+    const total = Number(r?.total || 0);
+    metaEl.textContent = `총 ${total}개 · ${page}p`;
+    itemsEl.innerHTML = '';
+    const items = Array.isArray(r?.items) ? r.items : [];
+    for (const it of items) {
+      const div = document.createElement('div');
+      div.className = 'chordListItem';
+      const docId = String(it?.docId || '');
+      const url = String(it?.meta?.sourceUrl || '');
+      const title = url ? url.replace(/^https?:\/\//, '') : docId;
+      div.innerHTML = `<div class="title">${docId}</div><div class="sub">${title}</div>`;
+      div.onclick = () => {
+        overlay.classList.add('hidden');
+        // 클릭 즉시 로드
+        openChordByDocId(docId, { broadcast: false }).catch(() => {});
+      };
+      itemsEl.appendChild(div);
+    }
+    prevBtn.disabled = page <= 1;
+    nextBtn.disabled = items.length < limit;
+  };
+
+  const load = async () => {
+    const q = String(search.value || '').trim();
+    metaEl.textContent = '불러오는 중...';
+    itemsEl.innerHTML = '';
+    try {
+      const r = await apiGet(`/api/chord-doc/list?q=${encodeURIComponent(q)}&page=${page}&limit=${limit}`);
+      if (!r?.ok) throw new Error(r?.error || 'LOAD_FAILED');
+      render(r);
+    } catch (e) {
+      metaEl.textContent = `불러오기 실패: ${e?.message || 'ERROR'}`;
+    }
+  };
+
+  overlay.classList.remove('hidden');
+  setTimeout(() => search.focus(), 0);
+  load().catch(() => {});
+
+  return new Promise((resolve) => {
+    const cleanup = (v) => {
+      overlay.classList.add('hidden');
+      searchBtn.onclick = null;
+      prevBtn.onclick = null;
+      nextBtn.onclick = null;
+      closeBtn.onclick = null;
+      search.onkeydown = null;
+      resolve(v);
+    };
+    searchBtn.onclick = () => {
+      page = 1;
+      load().catch(() => {});
+    };
+    prevBtn.onclick = () => {
+      if (page <= 1) return;
+      page -= 1;
+      load().catch(() => {});
+    };
+    nextBtn.onclick = () => {
+      page += 1;
+      load().catch(() => {});
+    };
+    closeBtn.onclick = () => cleanup(null);
+    search.onkeydown = (e) => {
+      if (e.key === 'Enter') {
+        page = 1;
+        load().catch(() => {});
+      }
       if (e.key === 'Escape') cleanup(null);
-      // textarea라서 Enter는 그대로 입력(저장은 버튼)
     };
   });
 }
@@ -1406,6 +1605,8 @@ function setMode(mode) {
 
   setHidden('pdf-container', mode !== 'pdf');
   setHidden('chordwikiPane', mode !== 'chord');
+  // 코드위키 보기옵션은 chord 모드에서만 노출
+  setHidden('cwViewGroup', mode !== 'chord');
 
   if (mode === 'pdf') {
     document.getElementById('linkInput')?.setAttribute('placeholder', '구글드라이브 PDF 링크 또는 fileId');
@@ -3613,6 +3814,11 @@ function updateToolActiveUI() {
   on('lineBtn', state.tool === 'shape' && state.shape === 'line');
   on('rectBtn', state.tool === 'shape' && state.shape === 'rect');
   on('circleBtn', state.tool === 'shape' && state.shape === 'circle');
+  // 코드위키 목록 버튼(코드모드에서만)
+  try {
+    const listBtn = document.getElementById('chordListBtn');
+    if (listBtn) listBtn.classList.toggle('hidden', state.mode !== 'chord');
+  } catch {}
   // 코드뷰어 편집 버튼(페이지터너/관리자)
   try {
     const btn = document.getElementById('chordEditBtn');
@@ -3706,6 +3912,11 @@ document.getElementById('chordEditBtn')?.addEventListener('click', async () => {
   } catch (e) {
     flashHud(`저장 실패: ${e?.message || 'ERROR'}`, 1400);
   }
+});
+
+document.getElementById('chordListBtn')?.addEventListener('click', async () => {
+  if (state.mode !== 'chord') return;
+  await openChordListModal();
 });
 
 // Brush / color / text size controls

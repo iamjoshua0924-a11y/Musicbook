@@ -39,6 +39,55 @@ router.get(
   })
 );
 
+// GET /api/chord-doc/list?q=&page=&limit=
+router.get(
+  '/chord-doc/list',
+  asyncHandler(async (req, res) => {
+    const schema = z.object({
+      q: z.string().max(200).optional().default(''),
+      page: z.coerce.number().int().min(1).max(10_000).optional().default(1),
+      limit: z.coerce.number().int().min(1).max(50).optional().default(30)
+    });
+    const parsed = schema.safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+
+    const q = String(parsed.data.q || '').trim();
+    const page = Number(parsed.data.page || 1);
+    const limit = Number(parsed.data.limit || 30);
+    const skip = (page - 1) * limit;
+
+    /** @type {any} */
+    const cond = {};
+    if (q) {
+      const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      cond.$or = [{ _id: rx }, { 'meta.sourceUrl': rx }, { 'meta.editedBy': rx }, { 'meta.source': rx }];
+    }
+
+    // count + list
+    const [total, docs] = await Promise.all([
+      ChordDoc.countDocuments(cond),
+      ChordDoc.find(cond, { _id: 1, meta: 1, createdAt: 1 })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean()
+    ]);
+
+    return res.json({
+      ok: true,
+      q,
+      page,
+      limit,
+      total,
+      items: (docs || []).map((d) => ({
+        docId: String(d._id),
+        createdAt: d.createdAt,
+        meta: d.meta || {}
+      }))
+    });
+  })
+);
+
 function shouldCompactBlocks(blocks) {
   return Array.isArray(blocks) && blocks.length > 50_000;
 }

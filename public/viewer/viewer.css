@@ -541,6 +541,70 @@ body.light .modalTextarea{
   color: var(--text);
 }
 
+.chordEditTableWrap{
+  margin-top: 10px;
+  width: min(920px, 90vw);
+  max-height: min(64vh, 560px);
+  overflow:auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(0,0,0,0.18);
+}
+body.light .chordEditTableWrap{ background: rgba(255,255,255,0.92); }
+.chordEditTable{
+  width: 100%;
+  border-collapse: collapse;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 13px;
+}
+.chordEditTable th, .chordEditTable td{
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  padding: 6px 8px;
+  vertical-align: top;
+}
+body.light .chordEditTable th, body.light .chordEditTable td{ border-bottom: 1px solid rgba(0,0,0,0.10); }
+.chordEditTable th{
+  position: sticky;
+  top: 0;
+  background: rgba(17,18,20,0.86);
+  backdrop-filter: blur(8px);
+  z-index: 1;
+  font-weight: 900;
+}
+body.light .chordEditTable th{ background: rgba(255,255,255,0.96); }
+.chordEditInput{
+  width: 100%;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 10px;
+  padding: 7px 10px;
+  background: rgba(0,0,0,0.18);
+  color: var(--text);
+  outline: none;
+  white-space: pre;
+}
+body.light .chordEditInput{
+  background: rgba(255,255,255,0.90);
+  border-color: rgba(0,0,0,0.14);
+}
+.chordListItems{
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: auto;
+  max-height: min(56vh, 520px);
+  background: rgba(0,0,0,0.16);
+}
+body.light .chordListItems{ background: rgba(255,255,255,0.92); }
+.chordListItem{
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  cursor: pointer;
+}
+body.light .chordListItem{ border-bottom: 1px solid rgba(0,0,0,0.10); }
+.chordListItem:hover{ background: rgba(122,162,255,0.10); }
+.chordListItem .title{ font-weight: 900; }
+.chordListItem .sub{ font-size: 12px; opacity: 0.8; margin-top: 4px; word-break: break-all; }
+
 /* ===== 노래책에서 고르기 ===== */
 .songPickList{
   margin-top:10px;

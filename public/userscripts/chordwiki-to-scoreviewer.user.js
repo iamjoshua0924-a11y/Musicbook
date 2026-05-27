@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChordWiki → ScoreViewer Exporter (docId)
 // @namespace    musicbook
-// @version      0.6.0
+// @version      0.6.1
 // @description  ChordWiki 페이지에서 악보 텍스트를 DOM에서 추출해 ScoreViewer로 전송하고 docId로 엽니다.
 // @match        *://*.chordwiki.org/wiki/*
 // @match        *://*.chordwiki.jp/wiki/*
@@ -543,93 +543,15 @@
     return { format: 'mb_chord_compact_v2', lines: outLines };
   }
 
-  function openViewerAndPost(blocks, room) {
+  // Rollback: 안정적인 docId 방식(서버 저장)으로 복귀한다.
+  // - postMessage 직송은 브라우저별로 payload 유실이 발생해 불안정.
+  function openViewerByDocId(docId, room) {
     const qs = new URLSearchParams();
     qs.set('mode', 'chord');
-    qs.set('from', 'postmessage');
+    qs.set('docId', String(docId));
     if (String(room || '').trim()) qs.set('room', String(room || '').trim().toUpperCase());
     const wn = String(room || '').trim() ? `mb_viewer_room_${String(room || '').trim().toUpperCase()}` : '_blank';
-    const w = window.open(`${SCORE_VIEWER_ORIGIN}/viewer?${qs.toString()}`, wn);
-    if (!w) {
-      alert('팝업이 차단되었습니다. ScoreViewer 도메인 팝업 허용 후 다시 시도해 주세요.');
-      return;
-    }
-    const msg = {
-      type: 'mb_chord_payload_v1',
-      sourceUrl: location.href,
-      blocks
-    };
-
-    // 안정화:
-    // - viewer가 로드/초기화되기 전에 메시지가 날아가서 누락되는 케이스가 있어
-    //   viewer -> opener "ready" 신호를 기다렸다가 payload를 보낸다.
-    // - 또한 viewer가 실제로 payload를 수신했는지 ack로 확인한다.
-    let sent = false;
-    let acked = false;
-
-    // postMessage payload가 크면 브라우저가 조용히 실패하거나(DataCloneError) 유실될 수 있어,
-    // 기본은 "chunk 전송"을 사용한다.
-    const transferId = `mbx_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-    const chunkSize = 180_000; // safe-ish for most browsers
-    let json = '';
-    try {
-      json = JSON.stringify({ sourceUrl: location.href, blocks });
-    } catch {
-      json = '';
-    }
-    const totalChunks = Math.max(1, Math.ceil(json.length / chunkSize));
-
-    const sendChunked = () => {
-      if (sent) return;
-      sent = true;
-      try {
-        w.postMessage(
-          { type: 'mb_chord_init_v1', transferId, sourceUrl: location.href, totalChunks, chunkSize },
-          SCORE_VIEWER_ORIGIN
-        );
-      } catch {}
-      for (let i = 0; i < totalChunks; i += 1) {
-        const chunk = json.slice(i * chunkSize, (i + 1) * chunkSize);
-        const delays = [0, 200, 900, 2200, 4200]; // retry a few times (best-effort)
-        delays.forEach((dly) => {
-          setTimeout(() => {
-            try {
-              w.postMessage({ type: 'mb_chord_chunk_v1', transferId, idx: i, chunk }, SCORE_VIEWER_ORIGIN);
-            } catch {}
-          }, dly + i * 2); // tiny stagger
-        });
-      }
-    };
-
-    const onMsg = (ev) => {
-      try {
-        if (String(ev.origin || '') !== SCORE_VIEWER_ORIGIN) return;
-        const d = ev.data || {};
-        if (d?.type === 'mb_viewer_ready_v1') {
-          sendChunked();
-          return;
-        }
-        if (d?.type === 'mb_chord_ack_v1') {
-          acked = true;
-          window.removeEventListener('message', onMsg);
-        }
-      } catch {}
-    };
-    window.addEventListener('message', onMsg);
-    // timeout fallback (리스너는 유지해서 늦게 오는 ack도 받는다)
-    setTimeout(() => {
-      if (!acked) sendChunked();
-    }, 2500);
-    setTimeout(() => {
-      if (!acked) {
-        alert('코드위키 데이터 전달이 완료되지 않았습니다. (뷰어가 payload를 받지 못함)\n새 탭이 완전히 열린 뒤 다시 시도해 주세요.');
-      }
-    }, 8000);
-    setTimeout(() => {
-      try {
-        window.removeEventListener('message', onMsg);
-      } catch {}
-    }, 20000);
+    window.open(`${SCORE_VIEWER_ORIGIN}/viewer?${qs.toString()}`, wn);
   }
 
   function chordHitCount(text) {
@@ -866,11 +788,32 @@
         if (!room) {
           room = (prompt('세션 코드(선택): 세션에서 바로 따라오게 하려면 입력', '') || '').trim().toUpperCase();
         }
-        // (근본 해결) 서버 저장/DB 없이 바로 뷰어로 전달한다.
-        // - Render 502(게이트웨이/DB 이슈)를 원천 제거
-        // - payload는 compact v2로 전달(공백 RLE 압축)
-        const blocks = buildCompactV2FromRawText(rawText);
-        openViewerAndPost(blocks, room);
+        // Rollback: 서버에 rawText를 전송해 docId를 발급받는다.
+        // (payload/브라우저 postMessage 유실 문제 제거)
+        const payload = JSON.stringify({ rawText, sourceUrl: location.href });
+        GM_xmlhttpRequest({
+          method: 'POST',
+          url: API_ENDPOINT,
+          headers: { 'Content-Type': 'application/json' },
+          data: payload,
+          onload: function (resp) {
+            try {
+              const status = Number(resp.status || 0);
+              const txt = String(resp.responseText || '');
+              const data = txt ? JSON.parse(txt) : {};
+              if (!data?.ok || !data?.docId) {
+                alert(`전송 실패 (status=${status}): ${data?.error || 'UNKNOWN'}\n${txt.slice(0, 500)}`);
+                return;
+              }
+              openViewerByDocId(String(data.docId), room);
+            } catch (e) {
+              alert('응답 처리 실패: ' + String(e?.message || e));
+            }
+          },
+          onerror: function (err) {
+            alert('전송 실패(onerror): ' + JSON.stringify(err));
+          }
+        });
       } finally {
         btn.disabled = false;
         btn.textContent = '🎵 ScoreViewer로 열기';

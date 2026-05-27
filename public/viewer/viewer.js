@@ -3363,11 +3363,13 @@ async function loadPdf(fileId) {
     const loadingTask = pdfjsLib.getDocument({
       url,
       withCredentials: true,
-      // 외부/공개 Drive의 Range 요청이 종종 막혀 로딩이 깨지는 케이스가 있어,
-      // 서버 스트리밍(전체 파일) 기반으로 안정성을 우선한다.
-      disableRange: true,
+      // 트래픽 절감:
+      // - Range ON: 필요한 부분만 내려받도록(페이지 단위)
+      // - autoFetch OFF: 안 보는 페이지까지 미리 받지 않도록
+      // ※ 일부 Drive 케이스에서 Range가 막히면 catch -> previewMode fallback.
+      disableRange: false,
       disableStream: false,
-      disableAutoFetch: false
+      disableAutoFetch: true
     });
     const pdf = await loadingTask.promise;
     state.previewMode = false;

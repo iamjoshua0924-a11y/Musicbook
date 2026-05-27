@@ -66,6 +66,9 @@ router.get('/drive/embed/:fileId', async (req, res) => {
   const { fileId } = req.params;
   const range = req.headers.range;
   try {
+    // iframe로 반복 접근되는 경우가 많아 캐시 허용(세션 파일 포함이므로 private)
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+
     // reuse the pdf streaming route logic by calling handlers inline:
     // 1) Drive API stream
     const drive = getDriveClient();
@@ -74,6 +77,8 @@ router.get('/drive/embed/:fileId', async (req, res) => {
       { responseType: 'stream', headers: range ? { Range: range } : undefined }
     );
     res.setHeader('Content-Type', driveRes.headers?.['content-type'] || 'application/pdf');
+    if (driveRes.headers?.etag) res.setHeader('ETag', driveRes.headers.etag);
+    if (driveRes.headers?.['last-modified']) res.setHeader('Last-Modified', driveRes.headers['last-modified']);
     if (driveRes.headers?.['content-length']) res.setHeader('Content-Length', driveRes.headers['content-length']);
     if (driveRes.headers?.['content-range']) res.setHeader('Content-Range', driveRes.headers['content-range']);
     res.setHeader('Accept-Ranges', 'bytes');
@@ -150,6 +155,11 @@ router.get('/drive/pdf/:fileId', allowSessionOrPublicFile, async (req, res) => {
   const range = req.headers.range;
 
   try {
+    // 트래픽 절감: 클라이언트 캐시 허용(파일이 자주 바뀌지 않는 전제)
+    // - 공개 캐시가 아니라 "private"로만 (세션 파일 포함)
+    // - Range 요청도 캐시될 수 있게 Accept-Ranges 유지
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+
     const drive = getDriveClient();
 
     // Prefer streaming bytes directly.
@@ -163,6 +173,8 @@ router.get('/drive/pdf/:fileId', allowSessionOrPublicFile, async (req, res) => {
 
     // Propagate important headers.
     res.setHeader('Content-Type', driveRes.headers?.['content-type'] || 'application/pdf');
+    if (driveRes.headers?.etag) res.setHeader('ETag', driveRes.headers.etag);
+    if (driveRes.headers?.['last-modified']) res.setHeader('Last-Modified', driveRes.headers['last-modified']);
     if (driveRes.headers?.['content-length']) res.setHeader('Content-Length', driveRes.headers['content-length']);
     if (driveRes.headers?.['content-range']) res.setHeader('Content-Range', driveRes.headers['content-range']);
     res.setHeader('Accept-Ranges', 'bytes');

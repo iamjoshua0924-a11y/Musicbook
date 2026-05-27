@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChordWiki → ScoreViewer Exporter (docId)
 // @namespace    musicbook
-// @version      0.5.3
+// @version      0.6.0
 // @description  ChordWiki 페이지에서 악보 텍스트를 DOM에서 추출해 ScoreViewer로 전송하고 docId로 엽니다.
 // @match        *://*.chordwiki.org/wiki/*
 // @match        *://*.chordwiki.jp/wiki/*
@@ -616,17 +616,20 @@
       } catch {}
     };
     window.addEventListener('message', onMsg);
-    // timeout fallback
+    // timeout fallback (리스너는 유지해서 늦게 오는 ack도 받는다)
+    setTimeout(() => {
+      if (!acked) sendChunked();
+    }, 2500);
+    setTimeout(() => {
+      if (!acked) {
+        alert('코드위키 데이터 전달이 완료되지 않았습니다. (뷰어가 payload를 받지 못함)\n새 탭이 완전히 열린 뒤 다시 시도해 주세요.');
+      }
+    }, 8000);
     setTimeout(() => {
       try {
-        if (!acked) {
-          // viewer가 안 받았으면 안내
-          alert('코드위키 데이터 전달이 완료되지 않았습니다. (뷰어가 payload를 받지 못함)\n새 탭이 완전히 열린 뒤 다시 시도해 주세요.');
-        }
         window.removeEventListener('message', onMsg);
       } catch {}
-      sendChunked();
-    }, 3500);
+    }, 20000);
   }
 
   function chordHitCount(text) {
@@ -813,9 +816,9 @@
       btn.disabled = true;
       btn.textContent = '전송 중...';
       try {
-        const root = getScoreRoot();
-        // 1) 모든 페이지에 적용: "좌표 기반 라인 복원"을 1순위로 시도한다.
-        let rawText = extractTextByLayout(root);
+        // (요청 반영) 좌표 기반 복원은 공백 폭발/용량 문제를 유발해 안정성이 떨어져,
+        // 기본 경로에서는 사용하지 않는다. (원문 source/edit 또는 DOM의 <br> 기반 텍스트를 우선)
+        let rawText = '';
         let debugSrc = 'layout';
 
         // 2) source/edit 원문(가능한 경우)로 보정
@@ -833,10 +836,10 @@
           }
         }
 
-        // 3) 최후: 기존 후보 선택
-        if (!rawText || rawText.split('\n').length < 4 || chordHitCount(rawText) < 6) {
+        // 3) DOM 후보 선택(pre/textarea/wikibody 등)
+        if (!rawText) {
           const candidates = collectCandidates();
-          rawText = rawText && rawText.length > 20 ? rawText : selectBestCandidate(candidates);
+          rawText = selectBestCandidate(candidates);
           if (rawText) debugSrc = 'dom-candidates';
         }
 

@@ -19,6 +19,22 @@ function isChordTokenChar(ch) {
   return /[A-Za-z0-9#b/.()+]/.test(ch);
 }
 
+function scanChordTokenEnd(s, start) {
+  const str = String(s || '');
+  const i = Math.max(0, Number(start) || 0);
+  let j = i;
+  let slashCount = 0;
+  while (j < str.length && isChordTokenChar(str[j])) {
+    if (str[j] === '/') {
+      slashCount += 1;
+      // 토큰 내부 슬래시는 1개까지만 허용(G/B). 그 이상이면 다음 토큰의 시작으로 본다.
+      if (slashCount >= 2) break;
+    }
+    j += 1;
+  }
+  return j;
+}
+
 function looksLikeChordToken(s) {
   if (!s) return false;
   const t = String(s).trim();
@@ -144,7 +160,7 @@ function buildChordStartMap(chordLine) {
       continue;
     }
     let j = idx;
-    while (j < s.length && isChordTokenChar(s[j])) j += 1;
+    j = scanChordTokenEnd(s, idx);
     const token = s.slice(idx, j).trim();
     if (looksLikeChordToken(token)) map.set(idx, token);
     idx = Math.max(j, idx + 1);
@@ -168,7 +184,7 @@ function buildChordTokenSpans(line) {
       continue;
     }
     let j = idx;
-    while (j < s.length && isChordTokenChar(s[j])) j += 1;
+    j = scanChordTokenEnd(s, idx);
     const token = s.slice(idx, j).trim();
     if (looksLikeChordToken(token)) spans.push({ start: idx, end: j, token });
     idx = Math.max(j, idx + 1);
@@ -194,6 +210,17 @@ function emitChordOnly(chordLine, _chordMap, out) {
       continue;
     }
     const ch = s[i];
+    // 코드 토큰 사이의 과도한 공백은 정렬을 망가뜨리므로 상한을 둔다.
+    if (ch === ' ' || ch === '\t') {
+      let runEnd = i;
+      while (runEnd < s.length && (s[runEnd] === ' ' || s[runEnd] === '\t')) runEnd += 1;
+      const rawCount = runEnd - i;
+      const nextIsSpan = spanByStart.has(runEnd);
+      const emitCount = nextIsSpan ? Math.min(rawCount, 2) : Math.min(rawCount, 4);
+      for (let k = 0; k < emitCount; k += 1) out.push({ chord: '', lyric_raw: ' ', lyric_kr: ' ' });
+      i = runEnd;
+      continue;
+    }
     out.push({ chord: '', lyric_raw: ch, lyric_kr: ch });
     i += 1;
   }
@@ -443,13 +470,34 @@ function tokenizeInlineLine(line) {
       continue;
     }
 
+    // 0) 보컬/파트 큐 기호: ♥♠ 등 (chord row로 올릴 수 있게 별도 토큰)
+    {
+      const cueM = s.slice(i).match(/^[♥♠♦♣♡○●◎★☆▲▼■□▶◀]+/);
+      if (cueM?.[0]) {
+        push({ type: 'cue', text: cueM[0] });
+        i += cueM[0].length;
+        continue;
+      }
+    }
+
     // 0.5) 섹션 지시어 전체 소비: |(bass) |(All) |(4/4) (2/4) ...
     if (ch === '|' || ch === '(') {
-      const directiveMatch = s
-        .slice(i)
-        .match(/^(?:\|)?\([A-Za-z0-9\/\s]+\)/);
+      // |(숫자/숫자) / (숫자/숫자) / |(bass) 등은 한 덩어리로 보존
+      const mTimeBar = s.slice(i).match(/^\|\s*\(\s*\d+\s*\/\s*\d+\s*\)/);
+      if (mTimeBar?.[0]) {
+        push({ type: 'directive', text: mTimeBar[0].replace(/\s+/g, '') });
+        i += mTimeBar[0].length;
+        continue;
+      }
+      const mTime = s.slice(i).match(/^\(\s*\d+\s*\/\s*\d+\s*\)/);
+      if (mTime?.[0]) {
+        push({ type: 'directive', text: mTime[0].replace(/\s+/g, '') });
+        i += mTime[0].length;
+        continue;
+      }
+      const directiveMatch = s.slice(i).match(/^(?:\|)?\([A-Za-z0-9\/\s]+\)/);
       if (directiveMatch?.[0]) {
-        push({ type: 'lyric', text: directiveMatch[0] });
+        push({ type: 'directive', text: directiveMatch[0] });
         i += directiveMatch[0].length;
         continue;
       }
@@ -493,15 +541,33 @@ function tokenizeInlineLine(line) {
 
     // 4) chord token attempt
     if (/[A-GN/]/.test(ch)) {
-      let j = i + 1;
-      while (j < s.length && isChordTokenChar(s[j])) j += 1;
-      const cand = s.slice(i, j);
-      if (looksLikeChordToken(cand)) {
+      // NOTE:
+      // 기존 방식(isChordTokenChar로 끝까지 스캔)은 "Em7Boys"처럼 코드+영문이 붙은 경우
+      // cand가 Em7Boys까지 커져 chord 판정이 실패 → lyric로 떨어지는 문제가 있었다.
+      // 해결: 제한 길이 내에서 "가장 긴 유효 chord 토큰 prefix"를 찾는다.
+      const maxLen = Math.min(s.length, i + 18);
+      const scanEnd = Math.min(scanChordTokenEnd(s, i), maxLen);
+      let best = '';
+      let bestEnd = i;
+      for (let j = i + 1; j <= scanEnd; j += 1) {
+        const cand = s.slice(i, j);
+        if (!looksLikeChordToken(cand)) continue;
+        best = cand;
+        bestEnd = j;
+      }
+      if (best) {
         const prevCh = i > 0 ? s[i - 1] : '';
-        const nextCh = s[j] || '';
-        if (isSingleLetterChordInContext(cand, prevCh, nextCh, s, i)) {
-          push({ type: 'chord', text: cand });
-          i = j;
+        const nextCh = s[bestEnd] || '';
+        // 복합 코드(길이>1)는 무조건 코드로 인정
+        if (best.length > 1) {
+          push({ type: 'chord', text: best });
+          i = bestEnd;
+          continue;
+        }
+        // 단독 1글자만 컨텍스트 판별
+        if (isSingleLetterChordInContext(best, prevCh, nextCh, s, i)) {
+          push({ type: 'chord', text: best });
+          i = bestEnd;
           continue;
         }
       }
@@ -535,6 +601,31 @@ async function emitInlineTokensAsBlocks(tokens, out) {
     if (!tok) continue;
     if (tok.type === 'chord') {
       pendingChord = String(tok.text || '').trim();
+      continue;
+    }
+
+    if (tok.type === 'cue') {
+      ensureCell(col);
+      // cue는 chord row로 올린다(가사는 공백 유지)
+      if (cells[col].chord) {
+        col += 1;
+        ensureCell(col);
+      }
+      cells[col].chord = String(tok.text || '').trim();
+      if (!cells[col].raw) cells[col].raw = ' ';
+      if (!cells[col].kr) cells[col].kr = ' ';
+      col += 1;
+      continue;
+    }
+
+    if (tok.type === 'directive') {
+      const txt = String(tok.text || '');
+      putChordIfPending(col);
+      ensureCell(col);
+      // "(4/4)" 같은 지시어는 한 셀에 보존
+      cells[col].raw = txt;
+      cells[col].kr = txt;
+      col += 1;
       continue;
     }
 
@@ -977,9 +1068,22 @@ async function parseRawTextToBlocks(rawText) {
       }
       const chordMap = buildChordStartMap(line);
       const lyricCells = await buildLyricCellsStrict(next);
-      const maxLen = Math.max(String(line).length, lyricCells.length);
+      // chordLine의 공백이 과도해 chord col이 lyric 범위를 넘어가면,
+      // chord 위치를 lyric 셀 범위로 근사(scale+clamp)해서 정렬을 회복한다.
+      const lineLen = Math.max(1, String(line).length);
+      const maxLyricCol = Math.max(0, lyricCells.length - 1);
+      const needsScale = [...chordMap.keys()].some((c) => Number(c) > maxLyricCol) || lineLen > lyricCells.length * 1.35;
+      const scaledMap = new Map();
+      if (needsScale) {
+        for (const [rawCol, token] of chordMap.entries()) {
+          const scaled = Math.round((Number(rawCol) / lineLen) * lyricCells.length);
+          const clamped = Math.max(0, Math.min(maxLyricCol, scaled));
+          if (!scaledMap.has(clamped)) scaledMap.set(clamped, token);
+        }
+      }
+      const maxLen = lyricCells.length;
       for (let col = 0; col < maxLen; col += 1) {
-        const chord = chordMap.get(col) || '';
+        const chord = (needsScale ? scaledMap.get(col) : chordMap.get(col)) || '';
         const cell = lyricCells[col] || { raw: ' ', kr: ' ' };
         out.push({ chord, lyric_raw: cell.raw, lyric_kr: cell.kr });
       }

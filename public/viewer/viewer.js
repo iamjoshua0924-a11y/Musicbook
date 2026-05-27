@@ -153,10 +153,34 @@ function normalizeProfilePhotoUrl(url, size = 80) {
 }
 
 function getFileIdFromPath() {
+  // GitHub Pages(/Musicbook/public/viewer/...) + 백엔드(/viewer/...) 모두 지원
+  const qp = qs('fileId');
+  if (qp) return String(qp || '').trim();
   const parts = window.location.pathname.split('/').filter(Boolean);
-  // supports /viewer or /viewer/:fileId
-  if (parts[0] !== 'viewer') return '';
-  return parts[1] || '';
+  // supports .../viewer or .../viewer/:fileId (viewer segment can be nested)
+  const idx = parts.indexOf('viewer');
+  if (idx < 0) return '';
+  return parts[idx + 1] || '';
+}
+
+function getViewerBaseUrl() {
+  // 현재 viewer 페이지의 "폴더" URL (.../viewer/)을 만들고, fileId를 path에 두지 않는다(정적 호스팅 호환).
+  const u = new URL(window.location.href);
+  const parts = u.pathname.split('/').filter(Boolean);
+  const idx = parts.indexOf('viewer');
+  if (idx < 0) return new URL('/viewer/', u.origin).toString();
+  const keep = parts.slice(0, idx + 1); // .../viewer
+  u.pathname = `/${keep.join('/')}/`;
+  u.search = '';
+  u.hash = '';
+  return u.toString();
+}
+
+function buildViewerUrl({ fileId = '', roomCode = '' } = {}) {
+  const u = new URL(getViewerBaseUrl());
+  if (fileId) u.searchParams.set('fileId', String(fileId));
+  if (roomCode) u.searchParams.set('room', safeRoomCode(roomCode));
+  return u.toString();
 }
 
 function safeRoomCode(v) {
@@ -1172,7 +1196,7 @@ function openFileInRoom(fileId, originalLink = '') {
       if (!ack?.ok) alert('세션 곡 전환 브로드캐스트 실패(권한 확인)');
     });
   } else {
-    window.location.href = `${window.location.origin}/viewer/${fileId}?room=${encodeURIComponent(roomCode)}`;
+    window.location.href = buildViewerUrl({ fileId, roomCode });
   }
 }
 
@@ -2340,7 +2364,7 @@ document.getElementById('createSessionFloatBtn')?.addEventListener('click', () =
     if (!ack?.ok) return alert('세션 생성 실패');
     const roomCode = ack.roomCode;
     // Auto join created room
-    const nextUrl = `${window.location.origin}/viewer/${state.fileId || ''}?room=${roomCode}`;
+    const nextUrl = buildViewerUrl({ fileId: state.fileId || '', roomCode });
     // NOTE: keep current fileId; if empty, user can still open via link input in future version
     window.history.replaceState(null, '', nextUrl);
     joinSession(roomCode);
@@ -2407,7 +2431,7 @@ function openByInput(input) {
         window.history.replaceState(
           null,
           '',
-          `${window.location.origin}/viewer/${encodeURIComponent(state.fileId)}?room=${encodeURIComponent(roomCode)}`
+          buildViewerUrl({ fileId: state.fileId, roomCode })
         );
       } catch {}
       state.annoStore = {};
@@ -2451,7 +2475,7 @@ function openByInput(input) {
     applyLocal(fileId);
   } else {
     const roomParam = state.isInSession && roomCode ? `?room=${roomCode}` : '';
-    window.location.href = `${window.location.origin}/viewer/${fileId}${roomParam}`;
+    window.location.href = buildViewerUrl({ fileId, roomCode: roomParam ? roomCode : '' });
   }
 }
 
@@ -4188,7 +4212,7 @@ socket.on('session:follow:file', (p) => {
   state.fileId = String(targetId);
   try {
     setLastRoomForFile(state.fileId, state.roomCode);
-    const nextUrl = `${window.location.origin}/viewer/${encodeURIComponent(state.fileId)}?room=${encodeURIComponent(state.roomCode)}`;
+    const nextUrl = buildViewerUrl({ fileId: state.fileId, roomCode: state.roomCode });
     window.history.replaceState(null, '', nextUrl);
   } catch {}
 

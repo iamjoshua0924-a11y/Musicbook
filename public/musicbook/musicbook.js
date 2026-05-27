@@ -11,6 +11,16 @@ const apiUrl = (path) => {
   return `${API_URL}${p.startsWith('/') ? '' : '/'}${p}`;
 };
 
+// 프론트(정적 페이지) 내 이동용: GitHub Pages 경로(/Musicbook/public/...)를 유지해야 한다.
+// 송북(/public/musicbook/)에서 보면 ../viewer/ 가 뷰어 엔트리다.
+const VIEWER_BASE_URL = new URL('../viewer/', window.location.href).toString();
+const viewerUrl = ({ fileId = '', roomCode = '' } = {}) => {
+  const u = new URL(VIEWER_BASE_URL);
+  if (fileId) u.searchParams.set('fileId', String(fileId));
+  if (roomCode) u.searchParams.set('room', String(roomCode).trim().toUpperCase());
+  return u.toString();
+};
+
 const state = {
   role: 'viewer', // viewer | session | admin
   displayName: '방문자',
@@ -840,7 +850,7 @@ async function openInViewer() {
   const v = state._pendingVariant;
   if (!v?.googleFileId) return;
   const roomCode = state.sessionRoomCode;
-  const targetUrl = roomCode ? `/viewer/${encodeURIComponent(v.googleFileId)}?room=${encodeURIComponent(roomCode)}` : `/viewer/${encodeURIComponent(v.googleFileId)}`;
+  const targetUrl = viewerUrl({ fileId: v.googleFileId, roomCode });
   if (roomCode && state.isPageTurner) {
     state._socket?.emit?.('session:follow:file', { roomCode, fileId: v.googleFileId, originalLink: v.driveUrl || '' }, () => {
       window.location.href = targetUrl;
@@ -1645,14 +1655,14 @@ function wireEvents() {
     socket.emit('session:create', {}, (ack) => {
       if (!ack?.ok) return toast('세션 생성 실패');
       // 세션 생성/참여는 바로 viewer로 이동
-      window.location.href = `/viewer?room=${encodeURIComponent(String(ack.roomCode || '').trim().toUpperCase())}`;
+      window.location.href = viewerUrl({ roomCode: String(ack.roomCode || '') });
     });
   };
   $('sessionJoinBtn').onclick = () => {
     if (state.role === 'viewer') return toast('로그인된 멤버만 세션에 참여할 수 있습니다.');
     const code = (prompt('Room Code를 입력하세요:', state.sessionRoomCode || '') || '').trim().toUpperCase();
     if (!code) return;
-    window.location.href = `/viewer?room=${encodeURIComponent(code)}`;
+    window.location.href = viewerUrl({ roomCode: code });
   };
   $('sessionLeaveBtn').onclick = () => leaveLiveSession();
   $('sessionMembersBtn').onclick = () => {
@@ -1664,7 +1674,8 @@ function wireEvents() {
   };
   $('sessionCopyBtn').onclick = async () => {
     if (!state.sessionRoomCode) return;
-    const url = `${window.location.origin}/?room=${encodeURIComponent(state.sessionRoomCode)}`;
+    // 공유 링크는 "송북"으로 보내고, 들어가서 room이 있으면 viewer로 이동하는 구조가 가장 자연스럽다.
+    const url = new URL('./?room=' + encodeURIComponent(state.sessionRoomCode), window.location.href).toString();
     try {
       await navigator.clipboard.writeText(url);
       toast('세션 링크 복사됨');

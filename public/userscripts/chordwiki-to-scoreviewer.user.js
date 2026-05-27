@@ -6,19 +6,20 @@
 // @match        *://*.chordwiki.org/wiki/*
 // @match        *://*.chordwiki.jp/wiki/*
 // @grant        GM_xmlhttpRequest
-// @connect      scoreviewer.onrender.com
+// @connect      musicbook-ahpz.onrender.com
 // @connect      *
-// @downloadURL  https://scoreviewer.onrender.com/public/userscripts/chordwiki-to-scoreviewer.user.js
-// @updateURL    https://scoreviewer.onrender.com/public/userscripts/chordwiki-to-scoreviewer.user.js
+// @downloadURL  https://iamjoshua0924-a11y.github.io/Musicbook/public/userscripts/chordwiki-to-scoreviewer.user.js
+// @updateURL    https://iamjoshua0924-a11y.github.io/Musicbook/public/userscripts/chordwiki-to-scoreviewer.user.js
 // ==/UserScript==
 
 (function () {
   'use strict';
 
-  // 배포 도메인에 맞게 수정 가능
-  const SCORE_VIEWER_ORIGIN = 'https://scoreviewer.onrender.com';
+  // 백엔드(API) / 프론트(뷰어) 분리 배포
+  const BACKEND_ORIGIN = 'https://musicbook-ahpz.onrender.com';
+  const VIEWER_ORIGIN = 'https://iamjoshua0924-a11y.github.io/Musicbook/public/viewer/';
   // 안정적인 업로드 전용 엔드포인트(크롤/DB/puppeteer 경로 우회)
-  const API_ENDPOINT = `${SCORE_VIEWER_ORIGIN}/api/chord/upload`;
+  const API_ENDPOINT = `${BACKEND_ORIGIN}/api/chord/upload`;
 
   function pickText(s) {
     // NBSP(웹에서 흔함) -> 일반 스페이스로 정규화해서 "공백 인덱스"가 보존되게 한다.
@@ -553,7 +554,7 @@
     if (String(room || '').trim()) qs.set('room', String(room || '').trim().toUpperCase());
     // room이 없더라도 "메인 뷰어 탭"을 재사용해서 빈 탭이 남지 않게 한다.
     const wn = String(room || '').trim() ? `mb_viewer_room_${String(room || '').trim().toUpperCase()}` : 'mb_viewer_main';
-    window.open(`${SCORE_VIEWER_ORIGIN}/viewer?${qs.toString()}`, wn);
+    window.open(`${VIEWER_ORIGIN}?${qs.toString()}`, wn);
   }
 
   function chordHitCount(text) {

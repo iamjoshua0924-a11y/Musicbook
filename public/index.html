@@ -10,13 +10,13 @@
     </style>
   </head>
   <body>
-    <h1>MusicBook</h1>
-    <p>바로가기</p>
-    <ul>
-      <li><a href="./musicbook/">송북</a></li>
-      <li><a href="./viewer/">뷰어</a></li>
-      <li><a href="./admin/">관리자</a></li>
-      <li><a href="./requests/">신청곡 현황</a></li>
-    </ul>
+    <script>
+      // public/로 접근해도 송북부터 열기(레퍼런스 동작 맞춤)
+      location.replace('./musicbook/');
+    </script>
+    <noscript>
+      <h1>MusicBook</h1>
+      <p><a href="./musicbook/">송북 열기</a></p>
+    </noscript>
   </body>
 </html>

@@ -4331,6 +4331,11 @@ socket.on('wb:sync', (p) => {
 
 socket.on('wb:page:update', async (p) => {
   if (!p?.pageNo || !p?.pageSnapshot) return;
+  // 서버는 같은 방 전체에 브로드캐스트(송신자 포함)하므로,
+  // self-echo는 무시해야 Fabric IText 편집 중 loadFromJSON으로 튕기지 않는다.
+  try {
+    if (p.senderId && socket?.id && String(p.senderId) === String(socket.id)) return;
+  } catch {}
   const pageNo = Number(p.pageNo);
   state.annoStore[pageNo] = p.pageSnapshot;
   // 모바일 viewer는 "주석이 업데이트된 페이지"를 따라가서 항상 읽을 수 있게 한다.

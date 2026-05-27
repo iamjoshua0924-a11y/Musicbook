@@ -521,7 +521,8 @@ function attachSockets(io) {
       fileAnno.pages[pageNo] = pageSnapshot;
       fileAnno.updatedAt = Date.now();
 
-      io.to(toSessionRoomName(roomCode)).emit('wb:page:update', { fileId, pageNo, pageSnapshot });
+      // senderId 포함: 클라이언트가 self-echo를 무시해서 텍스트 편집 중 튕김을 방지
+      io.to(toSessionRoomName(roomCode)).emit('wb:page:update', { fileId, pageNo, pageSnapshot, senderId: socket.id });
       ack?.({ ok: true });
     });
 

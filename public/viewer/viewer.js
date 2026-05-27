@@ -3557,15 +3557,24 @@ async function init() {
 
   await loadMe();
 
-  // 방문자(익명)로 /viewer 접속 시: 무조건 닉네임을 설정하도록 강제
+  // 방문자(익명)로 /viewer 접속 시:
+  // - 기존에는 "무조건 닉네임 모달"을 띄워서 chord/doc 로딩까지 막았는데,
+  //   이 때문에 코드위키 버튼으로 열린 탭이 '빈 화면'처럼 보이는 문제가 생김.
+  // - 예방: 기본 닉네임('익명')으로 즉시 진행하고,
+  //   사용자가 세션 참여를 눌렀을 때만 닉네임/룸 모달을 띄운다.
   if (authState.role === 'viewer') {
-    const nick = await ensureNicknameForVisitorAlways();
+    const saved = localStorage.getItem('mb_presence_nick') || localStorage.getItem('mb_nickname') || '';
+    const nick = String(saved || '익명').trim() || '익명';
     state.nickname = nick;
     authState.displayName = nick;
+    if (!saved) {
+      try {
+        localStorage.setItem('mb_presence_nick', nick);
+        localStorage.setItem('mb_nickname', nick);
+      } catch {}
+    }
     try {
       socket.auth = { ...(socket.auth || {}), nickname: nick };
-      socket.disconnect();
-      socket.connect();
     } catch {}
   }
   // 로그인 사용자면 displayName 우선, 아니면 닉네임(공유키) 사용

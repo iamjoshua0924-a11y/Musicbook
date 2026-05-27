@@ -4,6 +4,14 @@
 function qs(name) {
   return new URLSearchParams(window.location.search).get(name);
 }
+// window.open 재사용(탭 2개 생성 방지)을 위해, 가능한 한 빨리 window.name을 확정한다.
+// - 기존에는 init() 끝부분에서 설정되어, 다른 탭에서 window.open(targetName)이 먼저 호출되면 새 탭이 생길 수 있었다.
+try {
+  const u0 = new URL(window.location.href);
+  const rn0 = String(u0.searchParams.get('room') || '').trim().toUpperCase();
+  if (rn0) window.name = `mb_viewer_room_${rn0}`;
+  else if (!window.name) window.name = 'mb_viewer_main';
+} catch {}
 
 function extractDriveFileIdFromAny(input) {
   const s = String(input || '').trim();
@@ -504,7 +512,7 @@ function findPageAtPoint(clientX, clientY) {
 function updateCursorShareUI() {
   const btn = document.getElementById('cursorShareBtn');
   if (!btn) return;
-  const canUse = state.isInSession ? Boolean(state.isPageTurner) : false;
+  const canUse = Boolean(state.isInSession);
   btn.disabled = !canUse;
   btn.classList.toggle('disabled', !canUse);
   btn.classList.toggle('active', Boolean(state.cursorShareOn));
@@ -519,19 +527,19 @@ function stopCursorShare(sendHide = false) {
   ensureCursorEls();
   if (localCursorEl) localCursorEl.style.display = 'none';
   if (cursorMoveHandler) {
-    const c = state.mode === 'chord' ? document.getElementById('cwScroll') : document.getElementById('pdf-container');
+    const c = state.mode === 'chord' ? document.getElementById('cwInner') : document.getElementById('pdf-container');
     c?.removeEventListener('pointermove', cursorMoveHandler);
     c?.removeEventListener('mousemove', cursorMoveHandler);
     c?.removeEventListener('touchmove', cursorMoveHandler);
   }
   if (cursorDownHandler) {
-    const c = state.mode === 'chord' ? document.getElementById('cwScroll') : document.getElementById('pdf-container');
+    const c = state.mode === 'chord' ? document.getElementById('cwInner') : document.getElementById('pdf-container');
     c?.removeEventListener('pointerdown', cursorDownHandler);
     c?.removeEventListener('mousedown', cursorDownHandler);
     c?.removeEventListener('touchstart', cursorDownHandler);
   }
   if (cursorUpHandler) {
-    const c = state.mode === 'chord' ? document.getElementById('cwScroll') : document.getElementById('pdf-container');
+    const c = state.mode === 'chord' ? document.getElementById('cwInner') : document.getElementById('pdf-container');
     c?.removeEventListener('pointerup', cursorUpHandler);
     c?.removeEventListener('pointercancel', cursorUpHandler);
     c?.removeEventListener('mouseup', cursorUpHandler);
@@ -545,27 +553,30 @@ function stopCursorShare(sendHide = false) {
   cursorDragLock = null;
   updateCursorShareUI();
   updateToolActiveUI();
-  if (sendHide && state.isInSession && state.isPageTurner && state.roomCode && state.fileId) {
+  if (sendHide && state.isInSession && state.roomCode && state.fileId) {
     socket.emit('viewer:cursor', { roomCode: state.roomCode, fileId: state.fileId, hide: true });
   }
 }
 
 function startCursorShare() {
-  if (!state.isInSession || !state.isPageTurner) {
-    flashHud('커서공유는 페이지터너만 사용 가능합니다', 1400);
+  if (!state.isInSession || !state.roomCode || !state.fileId) {
+    flashHud('커서공유는 세션 참여 중에만 사용 가능합니다', 1400);
     return;
   }
   ensureCursorEls();
   state.cursorShareOn = true;
+  // 커서공유는 "표시"가 핵심이므로 chord 모드에서는 select로 강제(스크롤/포인터 안정)
+  if (state.mode === 'chord') setTool('select');
   updateCursorShareUI();
   updateToolActiveUI();
 
-  const container = state.mode === 'chord' ? document.getElementById('cwScroll') : document.getElementById('pdf-container');
+  // chord 모드는 캔버스가 위를 덮기 때문에, cwScroll이 아니라 상위 컨테이너(cwInner)에 걸어야 이벤트가 잡힌다.
+  const container = state.mode === 'chord' ? document.getElementById('cwInner') : document.getElementById('pdf-container');
   if (!container) return;
 
   cursorDownHandler = (e) => {
     if (!state.cursorShareOn) return;
-    if (!state.isInSession || !state.isPageTurner || !state.roomCode || !state.fileId) return;
+    if (!state.isInSession || !state.roomCode || !state.fileId) return;
     if ((state.cursorShareMode || 'line') !== 'row') return;
     const t = e.touches && e.touches[0] ? e.touches[0] : null;
     const clientX = t ? t.clientX : e.clientX;
@@ -592,7 +603,7 @@ function startCursorShare() {
 
   cursorMoveHandler = (e) => {
     if (!state.cursorShareOn) return;
-    if (!state.isInSession || !state.isPageTurner || !state.roomCode || !state.fileId) return;
+    if (!state.isInSession || !state.roomCode || !state.fileId) return;
     const now = Date.now();
     if (now - lastCursorEmitAt < 33) return; // ~30fps throttle
     lastCursorEmitAt = now;
@@ -756,6 +767,8 @@ const state = {
   chordDocId: '',
   chordSourceUrl: '',
   chordBlocks: null,
+  // compact blocks object(대용량) 보관용
+  chordBlocksRaw: null,
   chordPendingAuthUrl: '',
   pageNo: 1,
   totalPages: 1,
@@ -773,6 +786,8 @@ const state = {
   isPdfReady: false,
   // preview slice mode: iframe(임베드) + transform으로 "페이지처럼" 보여주기(보기 전용)
   previewMode: false,
+  // preview iframe src (same-origin stream or drive preview url)
+  previewEmbedSrc: '',
 
   // pageNo -> { json, w, h }
   annoStore: {},
@@ -1166,11 +1181,14 @@ function setCwMeta(msg) {
   el.textContent = m;
 }
 
-function clearChordPaneState({ keepMode = false } = {}) {
+function clearChordPaneState({ keepMode = false, keepData = true } = {}) {
   try {
-    state.chordDocId = '';
-    state.chordSourceUrl = '';
-    state.chordBlocks = null;
+    if (!keepData) {
+      state.chordDocId = '';
+      state.chordSourceUrl = '';
+      state.chordBlocks = null;
+      state.chordBlocksRaw = null;
+    }
   } catch {}
   try {
     const wrap = document.getElementById('cwContent');
@@ -1192,6 +1210,7 @@ function clearChordPaneState({ keepMode = false } = {}) {
 function setMode(mode) {
   state.mode = mode;
   document.getElementById('pdfModeBtn')?.classList.toggle('active', mode === 'pdf');
+  document.getElementById('chordModeBtn')?.classList.toggle('active', mode === 'chord');
 
   setHidden('pdf-container', mode !== 'pdf');
   setHidden('chordwikiPane', mode !== 'chord');
@@ -1199,7 +1218,8 @@ function setMode(mode) {
   if (mode === 'pdf') {
     document.getElementById('linkInput')?.setAttribute('placeholder', '구글드라이브 PDF 링크 또는 fileId');
     // chord 모드에서 PDF로 넘어갈 때는 chord UI/캔버스를 확실히 정리한다.
-    clearChordPaneState({ keepMode: true });
+    // 단, 다시 "코드" 탭으로 돌아올 수 있어야 하므로 데이터(state.chordDocId 등)는 유지한다.
+    clearChordPaneState({ keepMode: true, keepData: true });
     // restore pdf fileId for viewer internals
     if (state.pdfFileId) {
       state.fileId = state.pdfFileId;
@@ -1218,6 +1238,30 @@ function setMode(mode) {
 }
 
 document.getElementById('pdfModeBtn')?.addEventListener('click', () => setMode('pdf'));
+document.getElementById('chordModeBtn')?.addEventListener('click', async () => {
+  // chord 데이터가 없으면 아무 것도 하지 않는다.
+  if (!state.chordDocId && !state.chordBlocks && !state.chordBlocksRaw) return;
+  setMode('chord');
+  try {
+    // 이미 렌더된 경우는 패스
+    const wrap = document.getElementById('cwContent');
+    const hasDom = Boolean(wrap && wrap.children && wrap.children.length);
+    if (hasDom) return;
+  } catch {}
+  try {
+    if (state.chordBlocksRaw && typeof state.chordBlocksRaw === 'object' && !Array.isArray(state.chordBlocksRaw)) {
+      renderChordCompact(state.chordBlocksRaw);
+      return;
+    }
+    if (Array.isArray(state.chordBlocks) && state.chordBlocks.length) {
+      renderChordBlocks(state.chordBlocks);
+      return;
+    }
+    if (state.chordDocId) {
+      await openChordByDocId(state.chordDocId, { broadcast: false });
+    }
+  } catch {}
+});
 
 function renderChordBlocks(blocks) {
   const wrap = document.getElementById('cwContent');
@@ -1624,6 +1668,7 @@ async function openChordByDocId(docId, { broadcast } = { broadcast: true }) {
       blocksObj && typeof blocksObj === 'object' && !Array.isArray(blocksObj) && String(blocksObj.format || '').startsWith('mb_chord_compact_');
     // 대용량 array도 per-cell DOM 렌더는 터질 수 있으니 compact 저장이 오면 그대로 렌더한다.
     state.chordBlocks = isCompact ? null : expandCompactChordBlocks(blocksObj);
+    state.chordBlocksRaw = isCompact ? blocksObj : null;
     state.fileId = id;
     state.annoStore = {};
     state.undoStack = {};
@@ -1637,6 +1682,12 @@ async function openChordByDocId(docId, { broadcast } = { broadcast: true }) {
     setCwError('');
     if (isCompact) renderChordCompact(blocksObj);
     else renderChordBlocks(state.chordBlocks);
+
+    // chord 탭 활성화(코드<->PDF 전환 지원)
+    const chordBtn = document.getElementById('chordModeBtn');
+    if (chordBtn) chordBtn.classList.remove('hidden');
+    document.getElementById('pdfModeBtn')?.classList.remove('active');
+    chordBtn?.classList.add('active');
   } catch (e) {
     // eslint-disable-next-line no-console
     console.error('[viewer] render_error', e);
@@ -2326,7 +2377,7 @@ function renderPreviewSpread(leftPageNo) {
   const step = getPreviewStep();
   const s = PREVIEW_SCALE;
   const roomParam = state.isInSession && state.roomCode ? `?room=${encodeURIComponent(state.roomCode)}` : '';
-  const src = `/api/drive/embed/${encodeURIComponent(state.fileId)}${roomParam}`;
+  const src = String(state.previewEmbedSrc || '').trim() || `/api/drive/embed/${encodeURIComponent(state.fileId)}${roomParam}`;
 
   clearPreviewViews();
   const gap = 12;
@@ -2868,6 +2919,13 @@ async function loadPdf(fileId) {
       state.isPdfReady = true;
       state.totalPages = 9999;
       state.pageNo = Math.max(1, Number(state.pageNo) || 1);
+
+      // 미리보기는 1) same-origin embed 스트림을 우선, 2) 실패 시 drive preview URL을 사용한다.
+      state.previewEmbedSrc = `/api/drive/embed/${encodeURIComponent(fileId)}${roomParam}`;
+      try {
+        const pr = await fetch(`/api/drive/preview/${encodeURIComponent(fileId)}`).then((r) => r.json());
+        if (pr?.ok && pr.previewUrl) state.previewEmbedSrc = String(pr.previewUrl);
+      } catch {}
 
       els.pdfPreview.classList.add('hidden');
       els.canvasStack.style.display = 'flex';

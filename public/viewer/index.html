@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes" />
     <title>Score Viewer</title>
     <!-- cache-bust for mobile browsers -->
-    <link rel="stylesheet" href="/public/viewer/viewer.css?v=20260527_07" />
+    <link rel="stylesheet" href="/public/viewer/viewer.css?v=20260527_08" />
   </head>
   <body>
     <div id="viewer-wrapper">
@@ -15,6 +15,7 @@
           <div class="inputRow">
             <div class="modeTabs" id="modeTabs">
               <button id="pdfModeBtn" type="button" class="tab active">구글 PDF</button>
+              <button id="chordModeBtn" type="button" class="tab hidden">코드</button>
             </div>
             <input id="linkInput" type="text" placeholder="구글드라이브 PDF 링크 또는 fileId" />
             <button id="openBtn" type="button" class="primary">열기</button>
@@ -287,6 +288,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
-    <script src="/public/viewer/viewer.js?v=20260527_07"></script>
+    <script src="/public/viewer/viewer.js?v=20260527_08"></script>
   </body>
 </html>

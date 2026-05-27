@@ -1495,7 +1495,10 @@ async function openChordByDocId(docId, { broadcast } = { broadcast: true }) {
 
   let r;
   try {
-    r = await fetch(`/api/chord-doc?docId=${encodeURIComponent(id)}`).then((x) => x.json());
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), 8000);
+    r = await fetch(`/api/chord-doc?docId=${encodeURIComponent(id)}`, { signal: controller.signal }).then((x) => x.json());
+    clearTimeout(t);
   } catch (e) {
     r = { ok: false, error: `NETWORK_ERROR: ${String(e?.message || e)}` };
   }

@@ -4,6 +4,7 @@ const { nanoid } = require('nanoid');
 
 const { parseRawTextToBlocks } = require('../services/chordParser');
 const { setTempDoc } = require('../services/chordDocTempStore');
+const ChordDoc = require('../models/ChordDoc');
 
 const router = express.Router();
 
@@ -35,9 +36,13 @@ router.post(
     const docId = `chord:${nanoid(12)}`;
     setTempDoc(docId, { meta, blocks }, 2 * 60 * 60 * 1000); // 2h
 
+    // Cross-instance 대비: DB에도 best-effort로 저장한다.
+    // - 단, DB가 느리면 여기서 기다리다 Render 502가 날 수 있으니 짧게만 기다리고 빠져나간다.
+    const writePromise = ChordDoc.create({ _id: docId, meta, blocks }).catch(() => null);
+    await Promise.race([writePromise, new Promise((resolve) => setTimeout(resolve, 900))]);
+
     return res.json({ ok: true, docId, meta, blocksCount: Array.isArray(blocks) ? blocks.length : 0 });
   })
 );
 
 module.exports = router;
-

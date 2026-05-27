@@ -17,10 +17,15 @@ router.get('/chord-doc', async (req, res) => {
   const v = getTempDoc(docId);
   if (v) return res.json({ ok: true, docId, meta: v.meta || {}, blocks: v.blocks || [] });
   try {
-    const doc = await ChordDoc.findById(docId).lean();
+    const doc = await Promise.race([
+      ChordDoc.findById(docId).lean(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('MONGO_READ_TIMEOUT')), 2500))
+    ]);
     if (!doc) return res.status(404).json({ ok: false, error: 'DOC_NOT_FOUND' });
     return res.json({ ok: true, docId, meta: doc.meta || {}, blocks: doc.blocks || [] });
   } catch (e) {
+    const msg = String(e?.message || e);
+    if (msg === 'MONGO_READ_TIMEOUT') return res.status(504).json({ ok: false, error: 'DOC_LOAD_TIMEOUT' });
     return res.status(502).json({ ok: false, error: 'DOC_LOAD_FAILED' });
   }
 });

@@ -786,17 +786,55 @@ async function emitInlineTokensAsBlocks(tokens, out) {
     if (!txt) continue;
 
     // lyric/rhythm/bar 모두 "가사 영역"으로 처리
-    const rawChars = splitChars(txt);
-    // kanji 포함 시 tokenizer 독음을 사용해 KR 문자열 생성 후 폭에 분배
-    const krStr = await toKrReadingWithKanjiFallback(txt);
-    const krPieces = hasKanji(txt) ? distributeText(krStr, rawChars.length) : rawChars.map((c) => toKoreanReadingMvp(c));
+    // - 하지만 kr(독음)은 "낱자 단위"로 뿌리면 화면에서 과도하게 띄어져 보이므로,
+    //   단어(공백/전각공백 기준) 단위로 묶어 "첫 칸에만" 넣고 나머지 칸은 비운다.
+    //   => 정렬 폭은 유지하면서도 "테 레" 같은 과분리 느낌을 줄인다.
+    const parts = [];
+    let buf = '';
+    let bufIsSpace = null;
+    for (const ch of splitChars(txt)) {
+      const isSpace = ch === ' ' || ch === '\u3000' || ch === '\t';
+      if (bufIsSpace === null) {
+        buf = ch;
+        bufIsSpace = isSpace;
+        continue;
+      }
+      if (Boolean(bufIsSpace) === Boolean(isSpace)) {
+        buf += ch;
+      } else {
+        parts.push({ text: buf, isSpace: Boolean(bufIsSpace) });
+        buf = ch;
+        bufIsSpace = isSpace;
+      }
+    }
+    if (buf) parts.push({ text: buf, isSpace: Boolean(bufIsSpace) });
 
     putChordIfPending(col);
-    for (let k = 0; k < rawChars.length; k += 1) {
-      ensureCell(col);
-      cells[col].raw = rawChars[k];
-      cells[col].kr = String(krPieces[k] ?? '');
-      col += 1;
+    for (const p of parts) {
+      const rawChars = splitChars(p.text);
+      if (p.isSpace) {
+        for (const rc of rawChars) {
+          ensureCell(col);
+          cells[col].raw = rc === '\u3000' ? ' ' : rc; // 전각 공백은 화면에서는 일반 공백으로
+          cells[col].kr = cells[col].raw;
+          col += 1;
+        }
+        continue;
+      }
+
+      const krStr = await toKrReadingWithKanjiFallback(p.text);
+      /** @type {string[]} */
+      const krPieces = Array.from({ length: rawChars.length }, () => '');
+      // 길이가 1이면 기존처럼 1:1 매핑
+      if (rawChars.length <= 1) krPieces[0] = String(krStr || '');
+      else krPieces[0] = String(krStr || '');
+
+      for (let k = 0; k < rawChars.length; k += 1) {
+        ensureCell(col);
+        cells[col].raw = rawChars[k];
+        cells[col].kr = String(krPieces[k] ?? '');
+        col += 1;
+      }
     }
   }
 

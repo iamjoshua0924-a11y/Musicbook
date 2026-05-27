@@ -284,7 +284,7 @@ const KANA_TO_KR = new Map(
     ま: '마', み: '미', む: '무', め: '메', も: '모',
     や: '야', ゆ: '유', よ: '요',
     ら: '라', り: '리', る: '루', れ: '레', ろ: '로',
-    わ: '와', を: '오', ん: '응',
+    わ: '와', を: '오',
     が: '가', ぎ: '기', ぐ: '구', げ: '게', ご: '고',
     ざ: '자', じ: '지', ず: '즈', ぜ: '제', ぞ: '조',
     だ: '다', ぢ: '지', づ: '즈', で: '데', ど: '도',
@@ -319,6 +319,72 @@ function toKoreanReadingMvp(input) {
   if (!hasKana) return s;
   const hira = kataToHira(s);
   let out = '';
+
+  const isHangulSyllable = (ch) => {
+    const code = String(ch || '').codePointAt(0) || 0;
+    return code >= 0xac00 && code <= 0xd7a3;
+  };
+  const JONG = {
+    'ㄱ': 1,
+    'ㄲ': 2,
+    'ㄳ': 3,
+    'ㄴ': 4,
+    'ㄵ': 5,
+    'ㄶ': 6,
+    'ㄷ': 7,
+    'ㄹ': 8,
+    'ㄺ': 9,
+    'ㄻ': 10,
+    'ㄼ': 11,
+    'ㄽ': 12,
+    'ㄾ': 13,
+    'ㄿ': 14,
+    'ㅀ': 15,
+    'ㅁ': 16,
+    'ㅂ': 17,
+    'ㅄ': 18,
+    'ㅅ': 19,
+    'ㅆ': 20,
+    'ㅇ': 21,
+    'ㅈ': 22,
+    'ㅊ': 23,
+    'ㅋ': 24,
+    'ㅌ': 25,
+    'ㅍ': 26,
+    'ㅎ': 27
+  };
+  const addJong = (jongChar) => {
+    if (!out) {
+      out = jongChar;
+      return;
+    }
+    const last = out[out.length - 1];
+    if (!isHangulSyllable(last)) {
+      out += jongChar;
+      return;
+    }
+    const code = last.codePointAt(0);
+    const idx = code - 0xac00;
+    const jong = idx % 28;
+    // 이미 종성이 있으면 덮어쓰지 않음
+    if (jong !== 0) return;
+    const jongIdx = JONG[jongChar];
+    if (!jongIdx) return;
+    const nextCode = code + jongIdx;
+    out = out.slice(0, -1) + String.fromCharCode(nextCode);
+  };
+  const guessSokuonJong = (nextTwo, nextOne) => {
+    const nx = nextTwo || nextOne || '';
+    if (/^(?:か|き|く|け|こ|きゃ|きゅ|きょ|が|ぎ|ぐ|げ|ご|ぎゃ|ぎゅ|ぎょ)/.test(nx)) return 'ㄱ';
+    if (/^(?:さ|し|す|せ|そ|しゃ|しゅ|しょ|ざ|じ|ず|ぜ|ぞ|じゃ|じゅ|じょ)/.test(nx)) return 'ㅅ';
+    if (/^(?:た|ち|つ|て|と|ちゃ|ちゅ|ちょ|だ|ぢ|づ|で|ど)/.test(nx)) return 'ㄷ';
+    if (/^(?:ぱ|ぴ|ぷ|ぺ|ぽ|ぴゃ|ぴゅ|ぴょ|ば|び|ぶ|べ|ぼ|びゃ|びゅ|びょ)/.test(nx)) return 'ㅂ';
+    if (/^(?:ま|み|む|め|も|みゃ|みゅ|みょ)/.test(nx)) return 'ㅁ';
+    if (/^(?:な|に|ぬ|ね|の|にゃ|にゅ|にょ)/.test(nx)) return 'ㄴ';
+    if (/^(?:ら|り|る|れ|ろ|りゃ|りゅ|りょ)/.test(nx)) return 'ㄹ';
+    return 'ㅅ';
+  };
+
   for (let i = 0; i < hira.length; i += 1) {
     const two = hira.slice(i, i + 2);
     if (YOON.has(two)) {
@@ -327,9 +393,21 @@ function toKoreanReadingMvp(input) {
       continue;
     }
     const ch = hira[i];
-    // 장음/촉음은 한글 표기에서 그대로 두면 어색해서 기본은 제거한다.
-    // (정밀 로마자-한글 변환은 차후 필요 시 별도 엔진으로 교체)
-    if (ch === 'ー' || ch === 'っ') {
+    // 장음: '-'로 보존(요구사항)
+    if (ch === 'ー') {
+      out += '-';
+      continue;
+    }
+    // 촉음(っ): 다음 음절 자음에 따라 종성 부여(간이)
+    if (ch === 'っ') {
+      const nextTwo = hira.slice(i + 1, i + 3);
+      const nextOne = hira[i + 1] || '';
+      addJong(guessSokuonJong(nextTwo, nextOne));
+      continue;
+    }
+    // ん: 기본은 ㄴ 받침(간이). (정교한 ㅇ/ㅁ 분기는 추후 필요 시 확장)
+    if (ch === 'ん') {
+      addJong('ㄴ');
       continue;
     }
     out += KANA_TO_KR.get(ch) || ch;

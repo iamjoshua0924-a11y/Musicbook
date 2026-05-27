@@ -1278,67 +1278,165 @@ function renderChordBlocks(blocks) {
   }
   setCwError('');
 
-  const isWideChar = (ch) => {
-    const s = String(ch || '');
-    if (!s) return false;
-    // CJK + punctuation + fullwidth forms
-    return /[\u3040-\u30ff\u3400-\u9fff\uAC00-\uD7AF\u3000-\u303F\uFF00-\uFFEF]/.test(s);
-  };
-  const displayCols = (text) => {
+  const isWideChar = (ch) => /[\u3040-\u30ff\u3400-\u9fff\uAC00-\uD7AF\u3000-\u303F\uFF00-\uFFEF]/.test(String(ch || ''));
+  const textToCols = (text) => {
+    const cols = [];
     const s = String(text ?? '');
-    let w = 0;
-    for (const ch of Array.from(s)) w += isWideChar(ch) ? 2 : 1;
-    return Math.max(1, w);
+    for (const ch of Array.from(s)) {
+      cols.push(ch);
+      if (isWideChar(ch)) cols.push(' ');
+    }
+    return cols;
   };
 
-  let line = document.createElement('div');
-  line.className = 'chord-line';
-  wrap.appendChild(line);
-
-  for (const b of blocks) {
-    if (b?.lyric_raw === '\n') {
-      line = document.createElement('div');
-      line.className = 'chord-line';
-      wrap.appendChild(line);
-      continue;
+  const blocksToLines = (arr) => {
+    /** @type {Array<Array<any>>} */
+    const lines = [];
+    let cur = [];
+    for (const b of arr) {
+      if (b?.lyric_raw === '\n') {
+        lines.push(cur);
+        cur = [];
+        continue;
+      }
+      cur.push(b);
     }
-    const cell = document.createElement('div');
-    cell.className = 'chord-lyric-cell';
+    if (cur.length) lines.push(cur);
+    return lines;
+  };
 
-    const chordEl = document.createElement('div');
-    chordEl.className = 'cwChord';
-    const chordTok = String(b?.chord || '');
-    chordEl.textContent = chordTok;
-
-    const lyricEl = document.createElement('div');
-    lyricEl.className = 'cwLyric';
-    const lyricText = String(b?.lyric_kr ?? b?.lyric_raw ?? '');
-    lyricEl.textContent = lyricText;
-
-    // --- width hints -------------------------------------------------------------
-    // 1) 전각(2ch) 글자: data-wide
-    // 2) 멀티문자 토큰(예: "(4/4)" directive): data-span + --span
-    if (lyricText.length === 1 && isWideChar(lyricText)) {
-      cell.dataset.wide = '1';
-    } else if (lyricText.length > 1) {
-      const span = displayCols(lyricText);
-      cell.dataset.span = String(span);
-      cell.style.setProperty('--span', String(span));
-      // 전각만으로 2칸인 경우는 wide로도 표시(디버깅/호환)
-      if (span === 2) cell.dataset.wide = '1';
+  // 5) BPM 위쪽 텍스트/저작권 라인 제거(표시 단에서 컷)
+  // - copyright 포함 라인은 항상 제거
+  // - BPM 라인이 있으면, BPM 이전 라인은 모두 제거(헤더로 간주)
+  const rawLines = blocksToLines(blocks);
+  const lineTextRaw = rawLines.map((ln) => ln.map((b) => String(b?.lyric_raw ?? '')).join(''));
+  let bpmIdx = -1;
+  for (let i = 0; i < lineTextRaw.length; i += 1) {
+    if (/\bbpm\b/i.test(lineTextRaw[i] || '')) {
+      bpmIdx = i;
+      break;
     }
-
-    // 긴 코드 토큰은 chord row에서 폭을 확장해 가사가 가려지는 것을 줄인다.
-    const chordLen = chordTok.length;
-    if (chordLen > 1) {
-      cell.dataset.chordSpan = String(chordLen);
-      cell.style.setProperty('--chSpan', String(chordLen));
-    }
-
-    cell.appendChild(chordEl);
-    cell.appendChild(lyricEl);
-    line.appendChild(cell);
   }
+  let linesFiltered = rawLines;
+  if (bpmIdx > 0) linesFiltered = rawLines.slice(bpmIdx);
+  linesFiltered = linesFiltered.filter((ln) => {
+    const t = ln.map((b) => String(b?.lyric_raw ?? '')).join('');
+    if (!t.trim()) return false;
+    if (/copyright/i.test(t) || /©/.test(t)) return false;
+    return true;
+  });
+
+  /** @type {Array<{lyricCols:string[], chordCols:string[]}>} */
+  const renderedLines = [];
+
+  // 2) 코드 토큰이 '-' 위에서 겹치는 문제 해결:
+  // - chord token 길이를 고려해서, 다음 코드 시작점이 겹치면 그 사이를 "공백 삽입"으로 늘린다.
+  for (const ln of linesFiltered) {
+    /** @type {Array<{baseCol:number, token:string}>} */
+    const chordEvents = [];
+    /** @type {string[]} */
+    const lyricCols = [];
+    let col = 0;
+    for (const b of ln) {
+      const chordTok = String(b?.chord || '').trim();
+      const lyricText = String(b?.lyric_kr ?? b?.lyric_raw ?? '');
+      if (chordTok) chordEvents.push({ baseCol: col, token: chordTok });
+      const cols = textToCols(lyricText || ' ');
+      lyricCols.push(...cols);
+      col += cols.length;
+    }
+    /** @type {string[]} */
+    const chordCols = Array.from({ length: lyricCols.length }, () => ' ');
+
+    chordEvents.sort((a, b) => a.baseCol - b.baseCol);
+    let shift = 0;
+    let lastEnd = -1;
+    for (const ev of chordEvents) {
+      const base = Math.max(0, Number(ev.baseCol) + shift);
+      let start = Math.max(base, lastEnd + 1);
+      if (start > base) {
+        const insert = start - base;
+        lyricCols.splice(base, 0, ...Array.from({ length: insert }, () => ' '));
+        chordCols.splice(base, 0, ...Array.from({ length: insert }, () => ' '));
+        shift += insert;
+      }
+      // ensure capacity
+      while (chordCols.length < start + ev.token.length) {
+        chordCols.push(' ');
+        lyricCols.push(' ');
+      }
+      for (let k = 0; k < ev.token.length; k += 1) chordCols[start + k] = ev.token[k];
+      lastEnd = start + ev.token.length - 1;
+    }
+    // align lengths
+    while (chordCols.length < lyricCols.length) chordCols.push(' ');
+    while (lyricCols.length < chordCols.length) lyricCols.push(' ');
+
+    renderedLines.push({ lyricCols, chordCols });
+  }
+
+  // 4) 마디 길이 표준화: 전체 라인에서 "가장 긴 마디"를 기준으로 모든 마디 폭을 동일하게 패딩
+  let maxMeasure = 0;
+  renderedLines.forEach((ln) => {
+    let cur = 0;
+    let hasBar = false;
+    for (const ch of ln.lyricCols) {
+      if (ch === '|') {
+        maxMeasure = Math.max(maxMeasure, cur);
+        cur = 0;
+        hasBar = true;
+      } else cur += 1;
+    }
+    if (hasBar) maxMeasure = Math.max(maxMeasure, cur);
+  });
+  if (maxMeasure > 0) {
+    for (const ln of renderedLines) {
+      const nextLyric = [];
+      const nextChord = [];
+      let bufLy = [];
+      let bufCh = [];
+      const flushMeasure = () => {
+        const pad = Math.max(0, maxMeasure - bufLy.length);
+        nextLyric.push(...bufLy, ...Array.from({ length: pad }, () => ' '));
+        nextChord.push(...bufCh, ...Array.from({ length: pad }, () => ' '));
+        bufLy = [];
+        bufCh = [];
+      };
+      for (let i = 0; i < ln.lyricCols.length; i += 1) {
+        const ly = ln.lyricCols[i];
+        const ch = ln.chordCols[i];
+        if (ly === '|') {
+          flushMeasure();
+          nextLyric.push('|');
+          nextChord.push(ch || ' ');
+        } else {
+          bufLy.push(ly);
+          bufCh.push(ch || ' ');
+        }
+      }
+      flushMeasure();
+      ln.lyricCols = nextLyric;
+      ln.chordCols = nextChord;
+    }
+  }
+
+  // 3) 코드-가사 세트 간 간격 확보: 출력에 빈 줄을 추가(가독성)
+  const pre = document.createElement('pre');
+  pre.className = 'cwPre';
+  pre.style.whiteSpace = 'pre';
+  pre.style.margin = '0';
+  pre.style.padding = '12px';
+  pre.style.fontFamily =
+    "'D2Coding','D2 Coding', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace";
+  pre.style.fontSize = '14px';
+  pre.style.lineHeight = '1.55';
+
+  let out = '';
+  for (const ln of renderedLines) {
+    out += ln.chordCols.join('') + '\n' + ln.lyricCols.join('') + '\n\n';
+  }
+  pre.textContent = out.trimEnd();
+  wrap.appendChild(pre);
   try {
     // 텍스트 렌더 후 캔버스(주석) 레이어를 덮는다.
     setupChordAnnoAfterRender();
@@ -1409,7 +1507,7 @@ function renderChordCompact(compact) {
   pre.style.fontFamily =
     "'D2Coding','D2 Coding', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace";
   pre.style.fontSize = '14px';
-  pre.style.lineHeight = '1.45';
+  pre.style.lineHeight = '1.55';
 
   const isWideChar = (ch) => /[\u3040-\u30ff\u3400-\u9fff\uAC00-\uD7AF\u3000-\u303F\uFF00-\uFFEF]/.test(String(ch || ''));
   const buildCharToCol = (text) => {
@@ -1422,6 +1520,15 @@ function renderChordCompact(compact) {
       col += isWideChar(chars[i]) ? 2 : 1;
     }
     return { chars, map, totalCols: col };
+  };
+  const textToCols = (text) => {
+    const cols = [];
+    const s = String(text ?? '');
+    for (const ch of Array.from(s)) {
+      cols.push(ch);
+      if (isWideChar(ch)) cols.push(' ');
+    }
+    return cols;
   };
 
   const rleDecode = (arr) => {
@@ -1440,32 +1547,100 @@ function renderChordCompact(compact) {
     return String(ln?.kr || ln?.raw || '');
   };
 
-  const buildChordLine = (lyricText, chordArr) => {
-    const { chars, map, totalCols } = buildCharToCol(lyricText);
-    const arr = Array.from({ length: Math.max(0, totalCols) }, () => ' ');
-    const chords = Array.isArray(chordArr) ? chordArr : [];
-    const maxCol = chords.reduce((m, c) => Math.max(m, Number(c?.col) || 0), 0);
-    // 구버전 compact( widePad=false ) + CJK 포함 라인은 col이 "문자 인덱스"였고,
-    // <pre> 렌더에서는 전각폭 때문에 chord가 왼쪽으로 밀린다.
-    // => 이 경우에만 charIndex → displayCol로 변환한다.
-    const needCharIndexToDisplayCol = !compact?.widePad && totalCols > chars.length && maxCol <= chars.length;
-    for (const c of chords) {
-      const rawCol = Number(c?.col);
-      const tok = String(c?.token || '');
-      if (!Number.isFinite(rawCol) || rawCol < 0 || !tok) continue;
-      const col = needCharIndexToDisplayCol ? Number(map[rawCol] ?? rawCol) : rawCol;
-      const need = col + tok.length;
-      while (arr.length < need) arr.push(' ');
-      for (let i = 0; i < tok.length; i += 1) arr[col + i] = tok[i];
-    }
-    return arr.join('');
-  };
-
-  let out = '';
+  /** @type {Array<{lyricCols:string[], chordCols:string[]}>} */
+  const renderedLines = [];
   for (const ln of lines) {
     const lyric = decodeLineText(ln);
-    const chordLine = buildChordLine(lyric, ln?.chords);
-    out += chordLine + '\n' + lyric + '\n';
+    const { chars, map, totalCols } = buildCharToCol(lyric);
+    const lyricCols = textToCols(lyric);
+    const chordCols = Array.from({ length: lyricCols.length }, () => ' ');
+    const chords = Array.isArray(ln?.chords) ? ln.chords : [];
+    const maxCol = chords.reduce((m, c) => Math.max(m, Number(c?.col) || 0), 0);
+    const needCharIndexToDisplayCol = !compact?.widePad && totalCols > chars.length && maxCol <= chars.length;
+
+    /** @type {Array<{baseCol:number, token:string}>} */
+    const events = [];
+    chords.forEach((c) => {
+      const rawCol = Number(c?.col);
+      const tok = String(c?.token || '');
+      if (!Number.isFinite(rawCol) || rawCol < 0 || !tok) return;
+      const baseCol = needCharIndexToDisplayCol ? Number(map[rawCol] ?? rawCol) : rawCol;
+      events.push({ baseCol, token: tok });
+    });
+    events.sort((a, b) => a.baseCol - b.baseCol);
+
+    // 코드 겹침 방지: 필요한 만큼 "공백 삽입"으로 늘려서 코드가 안 겹치게 만든다.
+    let shift = 0;
+    let lastEnd = -1;
+    for (const ev of events) {
+      const base = Math.max(0, Number(ev.baseCol) + shift);
+      let start = Math.max(base, lastEnd + 1);
+      if (start > base) {
+        const ins = start - base;
+        lyricCols.splice(base, 0, ...Array.from({ length: ins }, () => ' '));
+        chordCols.splice(base, 0, ...Array.from({ length: ins }, () => ' '));
+        shift += ins;
+      }
+      while (chordCols.length < start + ev.token.length) {
+        chordCols.push(' ');
+        lyricCols.push(' ');
+      }
+      for (let k = 0; k < ev.token.length; k += 1) chordCols[start + k] = ev.token[k];
+      lastEnd = start + ev.token.length - 1;
+    }
+    while (chordCols.length < lyricCols.length) chordCols.push(' ');
+    while (lyricCols.length < chordCols.length) lyricCols.push(' ');
+    renderedLines.push({ lyricCols, chordCols });
+  }
+
+  // 마디 길이 표준화(라인 전체 기준)
+  let maxMeasure = 0;
+  renderedLines.forEach((ln) => {
+    let cur = 0;
+    let hasBar = false;
+    for (const ch of ln.lyricCols) {
+      if (ch === '|') {
+        maxMeasure = Math.max(maxMeasure, cur);
+        cur = 0;
+        hasBar = true;
+      } else cur += 1;
+    }
+    if (hasBar) maxMeasure = Math.max(maxMeasure, cur);
+  });
+  if (maxMeasure > 0) {
+    for (const ln of renderedLines) {
+      const nextLyric = [];
+      const nextChord = [];
+      let bufLy = [];
+      let bufCh = [];
+      const flushMeasure = () => {
+        const pad = Math.max(0, maxMeasure - bufLy.length);
+        nextLyric.push(...bufLy, ...Array.from({ length: pad }, () => ' '));
+        nextChord.push(...bufCh, ...Array.from({ length: pad }, () => ' '));
+        bufLy = [];
+        bufCh = [];
+      };
+      for (let i = 0; i < ln.lyricCols.length; i += 1) {
+        const ly = ln.lyricCols[i];
+        const ch = ln.chordCols[i];
+        if (ly === '|') {
+          flushMeasure();
+          nextLyric.push('|');
+          nextChord.push(ch || ' ');
+        } else {
+          bufLy.push(ly);
+          bufCh.push(ch || ' ');
+        }
+      }
+      flushMeasure();
+      ln.lyricCols = nextLyric;
+      ln.chordCols = nextChord;
+    }
+  }
+
+  let out = '';
+  for (const ln of renderedLines) {
+    out += ln.chordCols.join('') + '\n' + ln.lyricCols.join('') + '\n\n';
   }
   pre.textContent = out.trimEnd();
   wrap.appendChild(pre);

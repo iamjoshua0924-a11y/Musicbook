@@ -213,7 +213,7 @@ router.get('/admin/sync/status', requireSessionOrAdmin, async (req, res) => {
 
 router.post('/admin/sync/drive', requireAdmin, async (req, res) => {
   try {
-    const latestDays = Number(req.body?.latestDays || 30);
+    const latestDays = Number(req.body?.latestDays || 1);
     const limit = Number(req.body?.limit || 5000);
     const pruneMissing = req.body?.pruneMissing !== undefined ? Boolean(req.body.pruneMissing) : true;
     const incremental = Boolean(req.body?.incremental);

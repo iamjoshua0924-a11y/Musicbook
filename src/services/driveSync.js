@@ -49,7 +49,7 @@ async function listChildren(drive, folderId, pageToken) {
 
 async function syncDriveFolderTree({
   rootFolderId,
-  latestDays = 30,
+  latestDays = 1,
   limit = 5000,
   incrementalSince = null,
   pruneMissing = true,

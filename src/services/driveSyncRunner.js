@@ -25,7 +25,7 @@ async function getDriveRootFolderId() {
   return String(s?.value || driveRootFolderId || '').trim();
 }
 
-async function runDriveSync({ latestDays = 30, limit = 5000, pruneMissing = true, incremental = true, rootFolderId = '' } = {}) {
+async function runDriveSync({ latestDays = 1, limit = 5000, pruneMissing = true, incremental = true, rootFolderId = '' } = {}) {
   if (running) return { ok: false, error: 'ALREADY_RUNNING' };
   running = true;
   abortRequested = false;

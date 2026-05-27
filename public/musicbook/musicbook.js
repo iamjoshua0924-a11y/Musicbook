@@ -43,6 +43,23 @@ const state = {
   _rouletteCandidates: []
 };
 
+function toMs(v) {
+  if (v === null || v === undefined) return 0;
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  const t = new Date(v).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
+function getSortValue(item, field) {
+  const f = String(field || '');
+  if (f === 'createdAt') {
+    // 카드(createdAt=ms) / 파일(드라이브 수정시간=ms) 모두 지원
+    return Number(item?.createdAtMs ?? item?.driveModifiedMs ?? item?.createdAt ?? 0) || 0;
+  }
+  if (f === 'key') return String(item?.keyLabel ?? item?.key ?? '').trim();
+  return String(item?.[f] ?? '').trim();
+}
+
 // ---- DOM helpers -----------------------------------------------------------------
 const $ = (id) => document.getElementById(id);
 const esc = (s) =>
@@ -258,6 +275,9 @@ async function loadSongFiles(force = false) {
   if (!data.ok) throw new Error('songs load failed');
   state.songFilesAll = (data.items || []).map((s) => ({
     ...s,
+    // 최신곡 정렬 버튼(createdAt)을 "드라이브 수정일" 기반으로 쓰기 위해 ms 필드 추가
+    driveModifiedMs: s.driveModifiedTime ? toMs(s.driveModifiedTime) : 0,
+    createdAtMs: s.driveModifiedTime ? toMs(s.driveModifiedTime) : toMs(s.createdAt),
     _searchNorm: normSearch(s.searchText || ''),
     _titleNorm: normSearch(s.title || ''),
     _displayTitleNorm: normSearch(s.displayTitle || ''),
@@ -431,8 +451,9 @@ function applySongFilters() {
     const f = state.sortField;
     const dir = state.sortDir === 'asc' ? 1 : -1;
     list.sort((a, b) => {
-      const av = a?.[f] ?? '';
-      const bv = b?.[f] ?? '';
+      const av = getSortValue(a, f);
+      const bv = getSortValue(b, f);
+      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
       if (av === bv) return 0;
       return av > bv ? dir : -dir;
     });
@@ -472,8 +493,9 @@ function applySongFilters() {
   const f = state.sortField;
   const dir = state.sortDir === 'asc' ? 1 : -1;
   list.sort((a, b) => {
-    const av = f === 'key' ? a?.keyLabel ?? '' : a?.[f] ?? '';
-    const bv = f === 'key' ? b?.keyLabel ?? '' : b?.[f] ?? '';
+    const av = getSortValue(a, f);
+    const bv = getSortValue(b, f);
+    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
     if (av === bv) return 0;
     return av > bv ? dir : -dir;
   });
@@ -606,7 +628,7 @@ function renderAvailabilityEditCards(hideTags) {
     el.innerHTML = `
       <div class="song-card-header">
         <div>
-          <div class="song-card-title">${esc(title)}</div>
+          <div class="song-card-title">${esc(title)} ${s.isLatest ? `<span class="new-badge">new!</span>` : ''}</div>
           <div class="song-card-artist">${esc(s.artist || '')}</div>
         </div>
         <div class="song-card-right">
@@ -645,7 +667,7 @@ function renderAvailabilityEditCards(hideTags) {
 // ---- Song tag edit (admin only) ---------------------------------------------------
 let _editCard = null;
 function openSongTagModal(card) {
-  if (state.role !== 'admin') return toast('관리자 권한이 필요합니다.');
+  if (state.role === 'viewer') return toast('로그인이 필요합니다.');
   _editCard = card;
   $('songTagModalSubtitle').textContent = `${card.title || '(제목없음)'} · ${card.artist || ''}`;
   // 조성(key)은 카드(키 통합) 개념과 충돌하므로 여기서는 비활성화
@@ -664,10 +686,11 @@ async function saveSongTagModal() {
     mood: $('songMoodSelect').value || '',
     vocal: $('songVocalSelect').value || ''
   };
-  const res = await apiJson(`/api/admin/song-cards`, 'PATCH', { title: _editCard.title, artist: _editCard.artist, ...payload });
+  const res = await apiJson(`/api/songs/card-tags`, 'PATCH', { title: _editCard.title, artist: _editCard.artist, ...payload });
   if (!res.ok) return toast(`저장 실패: ${res.error || ''}`);
   // 갱신은 서버 재조회로 일관성 확보
   await loadSongs(true);
+  await loadSongFiles(true);
   closeModal('songTagModal');
   _editCard = null;
   $('songKeySelect').disabled = false;
@@ -1316,7 +1339,8 @@ async function saveEditModal() {
 }
 
 async function syncDrive(isFast) {
-  const res = await apiJson('/api/admin/sync/drive', 'POST', { latestDays: isFast ? 7 : 30 });
+  // NEW! 배지는 "최근 1일"만 표시(도배 방지)
+  const res = await apiJson('/api/admin/sync/drive', 'POST', { latestDays: 1 });
   if (!res.ok) return toast(`동기화 실패: ${res.error || ''}`);
   toast(`동기화 완료: ${res.processed}개`);
   await loadSongs(true);
@@ -1493,6 +1517,10 @@ function wireEvents() {
       state.availabilityOriginalSet = new Set(Array.from(state.myAvailabilitySet || []));
       state.availabilityDraftSet = new Set(Array.from(state.myAvailabilitySet || []));
       state.availabilityEditMode = true;
+      // 선택모드는 "최신곡" 정렬이 기본
+      state.sortField = 'createdAt';
+      state.sortDir = 'desc';
+      document.querySelectorAll('.sort-btn').forEach((b) => b.classList.toggle('active', b.dataset.sortField === state.sortField));
       if (btn) btn.style.display = 'none';
       $('availabilityEditBar').style.display = 'flex';
       $('availabilityEditTitle').textContent = `가능곡 선택모드 · ${state.displayName || userId}`;

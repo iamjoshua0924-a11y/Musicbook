@@ -248,6 +248,7 @@ router.patch('/songs/tags', requireSessionOrAdmin, async (req, res) => {
   const genre = String(req.body?.genre || '').trim();
   const mood = String(req.body?.mood || '').trim();
   const vocal = String(req.body?.vocal || '').trim();
+  const overwrite = Boolean(req.body?.overwrite);
   if (!googleFileId || !genre || !mood || !vocal) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
 
   const one = await Song.findOne({ googleFileId }).lean();
@@ -257,16 +258,80 @@ router.patch('/songs/tags', requireSessionOrAdmin, async (req, res) => {
   const artist = String(one.artist || '').trim();
   if (!title) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
 
-  const r = await Song.updateMany(
-    { title, artist },
-    [
-      {
-        $set: {
-          genre: { $cond: [{ $eq: [{ $ifNull: ['$genre', ''] }, ''] }, genre, '$genre'] },
-          mood: { $cond: [{ $eq: [{ $ifNull: ['$mood', ''] }, ''] }, mood, '$mood'] },
-          vocal: { $cond: [{ $eq: [{ $ifNull: ['$vocal', ''] }, ''] }, vocal, '$vocal'] }
+  const r = overwrite
+    ? await Song.updateMany(
+        { title, artist },
+        {
+          $set: {
+            genre,
+            mood,
+            vocal,
+            updatedAt: new Date(),
+            searchText: `${one.displayTitle || ''} ${title} ${artist} ${one.key || ''} ${genre} ${mood} ${vocal}`.toLowerCase().trim()
+          }
         }
-      },
+      )
+    : await Song.updateMany(
+        { title, artist },
+        [
+          {
+            $set: {
+              genre: { $cond: [{ $eq: [{ $ifNull: ['$genre', ''] }, ''] }, genre, '$genre'] },
+              mood: { $cond: [{ $eq: [{ $ifNull: ['$mood', ''] }, ''] }, mood, '$mood'] },
+              vocal: { $cond: [{ $eq: [{ $ifNull: ['$vocal', ''] }, ''] }, vocal, '$vocal'] }
+            }
+          },
+          {
+            $set: {
+              searchText: {
+                $toLower: {
+                  $concat: [
+                    { $ifNull: ['$displayTitle', ''] },
+                    ' ',
+                    { $ifNull: ['$title', ''] },
+                    ' ',
+                    { $ifNull: ['$artist', ''] },
+                    ' ',
+                    { $ifNull: ['$key', ''] },
+                    ' ',
+                    { $ifNull: ['$genre', ''] },
+                    ' ',
+                    { $ifNull: ['$mood', ''] },
+                    ' ',
+                    { $ifNull: ['$vocal', ''] }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      );
+
+  return res.json({ ok: true, matched: r.matchedCount ?? r.n ?? 0, modified: r.modifiedCount ?? r.nModified ?? 0 });
+});
+
+// session/admin: 카드(title+artist) 단위로 태그(장르/분위기/보컬) 수정 가능하게 제공
+router.patch('/songs/card-tags', requireSessionOrAdmin, async (req, res) => {
+  const title = String(req.body?.title || '').trim();
+  const artist = String(req.body?.artist || '').trim();
+  const genre = req.body?.genre !== undefined ? String(req.body.genre || '').trim() : undefined;
+  const mood = req.body?.mood !== undefined ? String(req.body.mood || '').trim() : undefined;
+  const vocal = req.body?.vocal !== undefined ? String(req.body.vocal || '').trim() : undefined;
+  if (!title) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+
+  /** @type {Record<string, any>} */
+  const $set = {};
+  if (genre !== undefined) $set.genre = genre;
+  if (mood !== undefined) $set.mood = mood;
+  if (vocal !== undefined) $set.vocal = vocal;
+  if (!Object.keys($set).length) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+  $set.updatedAt = new Date();
+
+  // searchText는 카드 기준으로 재구성(곡별 key는 유지)
+  const r = await Song.updateMany(
+    { artist, $or: [{ title }, { displayTitle: title }] },
+    [
+      { $set: $set },
       {
         $set: {
           searchText: {
@@ -293,7 +358,7 @@ router.patch('/songs/tags', requireSessionOrAdmin, async (req, res) => {
     ]
   );
 
-  return res.json({ ok: true, matched: r.matchedCount ?? r.n ?? 0, modified: r.modifiedCount ?? r.nModified ?? 0 });
+  res.json({ ok: true, matched: r.matchedCount ?? r.n ?? 0, modified: r.modifiedCount ?? r.nModified ?? 0 });
 });
 
 // Admin/session write (for later: sync or manual edits)

@@ -912,6 +912,8 @@ const state = {
   previewEmbedSrc: '',
   // 새 탭으로 열기(Drive view URL)
   previewViewUrl: '',
+  // pdf.js blob URL (Range 재요청 방지용). 파일 교체 시 revoke 필요
+  _pdfBlobUrl: '',
 
   // pageNo -> { json, w, h }
   annoStore: {},
@@ -3545,6 +3547,53 @@ async function loadPdf(fileId) {
   setPreviewBaseOffsetPx(0);
   setPreviewScale(1);
   state.previewViewUrl = '';
+  // cleanup previous blob URL
+  if (state._pdfBlobUrl) {
+    try {
+      URL.revokeObjectURL(state._pdfBlobUrl);
+    } catch {}
+    state._pdfBlobUrl = '';
+  }
+
+  async function tryLoadPdfFromBlob({ label, url, credentials = 'omit' }) {
+    try {
+      setNetBadge(label);
+      const res = await fetch(url, { credentials });
+      if (!res.ok) throw new Error(`HTTP_${res.status}`);
+      const clen = Number(res.headers.get('content-length') || 0);
+      // 너무 큰 파일은 메모리 부담이라 기존 스트리밍으로 fallback(기본 30MB)
+      if (clen && clen > 30 * 1024 * 1024) throw new Error('TOO_LARGE_FOR_BLOB');
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      state._pdfBlobUrl = blobUrl;
+      const pdf = await pdfjsLib.getDocument({
+        url: blobUrl,
+        disableRange: true,
+        disableStream: true,
+        disableAutoFetch: true
+      }).promise;
+      state.previewMode = false;
+      state.previewVirtualMode = false;
+      state.pdfDoc = pdf;
+      state.totalPages = pdf.numPages;
+      state.isPdfReady = true;
+      state.renderedFileId = String(fileId);
+      updatePageLabels();
+      await renderSpread(state.pageNo);
+      if (state.isInSession && state.roomCode) socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId });
+      setNetBadge(`${label.replace(':...', '')} ${Date.now() - t0}ms`);
+      return true;
+    } catch {
+      // blob URL cleanup on failure
+      if (state._pdfBlobUrl) {
+        try {
+          URL.revokeObjectURL(state._pdfBlobUrl);
+        } catch {}
+        state._pdfBlobUrl = '';
+      }
+      return false;
+    }
+  }
 
   // 1) 서버에서 Drive 직접 URL 요청(대역폭 절감). 실패 시 기존 스트리밍으로 fallback.
   /** @type {string|null} */
@@ -3603,37 +3652,31 @@ async function loadPdf(fileId) {
     }
   }
 
-  // 3) 기존 Render 스트리밍 시도
-  try {
-    setNetBadge('PDF:stream');
-    const url = apiUrl(`/api/drive/pdf/${fileId}${roomParam}`);
-    const loadingTask = pdfjsLib.getDocument({
-      url,
-      withCredentials: true,
-      // 트래픽 절감:
-      // - Range ON: 필요한 부분만 내려받도록(페이지 단위)
-      // - autoFetch OFF: 안 보는 페이지까지 미리 받지 않도록
-      // ※ 일부 Drive 케이스에서 Range가 막히면 catch -> previewMode fallback.
-      disableRange: false,
-      disableStream: false,
-      disableAutoFetch: true
+  // 3) 세션 파일이면: 캐시 가능한 signed public URL로 "쿠키 없이" blob 로드(=CDN 캐시 가능)
+  if (state.isInSession && state.roomCode) {
+    try {
+      const cu = await fetch(apiUrl(`/api/drive/cache-url/${encodeURIComponent(fileId)}?room=${encodeURIComponent(state.roomCode)}`), {
+        credentials: 'include'
+      }).then((r) => r.json());
+      if (cu?.ok && cu?.url) {
+        const ok = await tryLoadPdfFromBlob({ label: 'PDF:cache-blob', url: apiUrl(String(cu.url)), credentials: 'omit' });
+        if (ok) return;
+        setNetBadge('PDF:cache→stream', { ok: false });
+      }
+    } catch {}
+  }
+
+  // 4) 기존 Render 스트리밍을 "blob 1회 다운로드"로 고정(=Range 난사 방지)
+  {
+    const ok = await tryLoadPdfFromBlob({
+      label: 'PDF:stream-blob',
+      url: apiUrl(`/api/drive/pdf/${fileId}${roomParam}`),
+      credentials: 'include'
     });
-    const pdf = await loadingTask.promise;
-    state.previewMode = false;
-    state.previewVirtualMode = false;
-    state.pdfDoc = pdf;
-    state.totalPages = pdf.numPages;
-    state.isPdfReady = true;
-    state.renderedFileId = String(fileId);
-    updatePageLabels();
-    await renderSpread(state.pageNo);
+    if (ok) return;
+  }
 
-    if (state.isInSession && state.roomCode) socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId });
-    setNetBadge(`PDF:stream ${Date.now() - t0}ms`);
-    return;
-  } catch (e) {}
-
-  // 4) Preview slice mode
+  // 5) Preview slice mode
   // GitHub Pages 등 일반 도메인에서는 Drive /preview iframe이 서드파티 쿠키 차단으로 "빈 화면"이 되는 케이스가 많다.
   // => iframe slicing을 강행하지 않고, Drive에서 직접 열도록 유도(새 탭)한다.
   try {
@@ -4501,6 +4544,13 @@ socket.on('session:follow:file', (p) => {
   state.undoStack = {};
   state.redoStack = {};
   try {
+    // cleanup blob url
+    if (state._pdfBlobUrl) {
+      try {
+        URL.revokeObjectURL(state._pdfBlobUrl);
+      } catch {}
+      state._pdfBlobUrl = '';
+    }
     els.previewRoot?.classList.add('hidden');
     els.pdfPreview.src = '';
     els.canvasStack.style.display = '';

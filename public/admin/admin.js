@@ -299,6 +299,7 @@ async function loadTraffic() {
     top: {
       drive_pdf: topFileIdsToText(http['drive.pdf']?.topFileIds),
       drive_embed: topFileIdsToText(http['drive.embed']?.topFileIds),
+      public_pdf: topFileIdsToText(http['public.pdf']?.topFileIds),
       wb_update: topFileIdsToText(ws['wb.page.update']?.topFileIds)
     },
     http,

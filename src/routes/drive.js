@@ -10,6 +10,7 @@ const { getDriveRootFolderId } = require('../services/driveSyncRunner');
 const { isFileOpenInRoom } = require('../sockets');
 const { requireSessionOrAdmin } = require('../middleware/auth');
 const { recordHttp, makeByteCounterStream } = require('../services/trafficMetrics');
+const { buildSig, isValidSig, getHourlyExpiryUnix } = require('../services/publicPdfSign');
 
 function extractDriveFileIdFromAny(input) {
   const s = String(input || '').trim();
@@ -151,6 +152,69 @@ async function allowSessionOrPublicFile(req, res, next) {
     });
   }
 }
+
+// Cacheable signed public URL for session-open files (cookie-less, CDN friendly).
+// NOTE: This does NOT mean "Drive anyone public" — it means "currently open in a session room".
+router.get('/drive/cache-url/:fileId', async (req, res) => {
+  const fileId = String(req.params?.fileId || '').trim();
+  const roomCode = String(req.query?.room || '').trim().toUpperCase();
+  if (!fileId || !roomCode) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+  if (!isFileOpenInRoom(roomCode, fileId)) {
+    return res.status(403).json({ ok: false, error: 'FORBIDDEN' });
+  }
+  const exp = getHourlyExpiryUnix(Date.now(), 1);
+  const sig = buildSig({ fileId, roomCode, exp });
+  const url = `/api/public/pdf/${encodeURIComponent(fileId)}?room=${encodeURIComponent(roomCode)}&exp=${encodeURIComponent(
+    String(exp)
+  )}&sig=${encodeURIComponent(sig)}`;
+  res.json({ ok: true, url, exp });
+});
+
+// Public(cookie-less) PDF streaming endpoint.
+// Protected by signed URL (room+fileId+exp+sig). Intended for CDN caching.
+router.get('/public/pdf/:fileId', async (req, res) => {
+  const fileId = String(req.params?.fileId || '').trim();
+  const roomCode = String(req.query?.room || '').trim().toUpperCase();
+  const exp = Number(req.query?.exp || 0);
+  const sig = String(req.query?.sig || '');
+  const range = req.headers.range;
+
+  if (!fileId || !roomCode || !exp || !sig) return res.status(400).send('BAD_REQUEST');
+  const now = Math.floor(Date.now() / 1000);
+  if (!Number.isFinite(exp) || exp < now - 10) return res.status(403).send('EXPIRED');
+  if (!isValidSig({ fileId, roomCode, exp, sig })) return res.status(403).send('FORBIDDEN');
+
+  // Extra guard: must still be open in room (prevents link reuse after session changed)
+  if (!isFileOpenInRoom(roomCode, fileId)) return res.status(403).send('FORBIDDEN');
+
+  // Cache policy: public for CDN, but URL is exp/sig scoped.
+  // Keep TTL <= exp window; for simplicity allow 1h edge cache.
+  res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=3600');
+  res.setHeader('Vary', 'Range');
+
+  try {
+    const drive = getDriveClient();
+    const driveRes = await drive.files.get(
+      { fileId, alt: 'media', supportsAllDrives: true },
+      { responseType: 'stream', headers: range ? { Range: range } : undefined }
+    );
+    res.setHeader('Content-Type', driveRes.headers?.['content-type'] || 'application/pdf');
+    if (driveRes.headers?.etag) res.setHeader('ETag', driveRes.headers.etag);
+    if (driveRes.headers?.['last-modified']) res.setHeader('Last-Modified', driveRes.headers['last-modified']);
+    if (driveRes.headers?.['content-length']) res.setHeader('Content-Length', driveRes.headers['content-length']);
+    if (driveRes.headers?.['content-range']) res.setHeader('Content-Range', driveRes.headers['content-range']);
+    res.setHeader('Accept-Ranges', 'bytes');
+    const upstreamStatus = Number(driveRes.status) || 200;
+    if (range && (upstreamStatus === 206 || driveRes.headers?.['content-range'])) res.status(206);
+
+    const counter = makeByteCounterStream((bytes) => {
+      recordHttp({ name: 'public.pdf', fileId, bytes, range: range || '' });
+    });
+    await pipeline(driveRes.data, counter, res);
+  } catch (e) {
+    res.status(403).send('STREAM_BLOCKED');
+  }
+});
 
 /**
  * Streaming pipe endpoint (NO buffering in memory).

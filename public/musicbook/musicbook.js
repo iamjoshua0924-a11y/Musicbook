@@ -1243,6 +1243,7 @@ function applyRoleUI() {
   const isPriv = isAdmin || isSession;
 
   $('adminToggleBtn').style.display = isAdmin ? 'inline-flex' : 'none';
+  if ($('adminConsoleBtn')) $('adminConsoleBtn').style.display = isAdmin ? 'inline-flex' : 'none';
   $('profileButton').style.display = isPriv ? 'inline-flex' : 'none';
   $('requestManageToggleBtn').style.display = isAdmin ? 'inline-flex' : 'none';
   $('availabilityEditToggleBtn').style.display = isPriv ? 'inline-flex' : 'none';
@@ -1420,6 +1421,18 @@ function wireEvents() {
   };
 
   $('adminToggleBtn').onclick = () => $('adminControls').classList.toggle('active');
+  if ($('adminConsoleBtn')) {
+    $('adminConsoleBtn').onclick = () => {
+      try {
+        const url = new URL('/admin', API_URL).toString();
+        window.open(url, '_blank');
+      } catch {
+        try {
+          window.open('/admin', '_blank');
+        } catch {}
+      }
+    };
+  }
 
   $('profileButton').onclick = () => openProfileModal();
   $('profileCancelBtn').onclick = () => closeModal('profileModal');

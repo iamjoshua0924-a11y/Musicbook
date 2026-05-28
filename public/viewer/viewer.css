@@ -271,6 +271,8 @@ button.danger{ background:rgba(255,107,107,0.14); border-color:rgba(255,107,107,
   /* iOS/iPadOS에서 overflow 스크롤이 "안 먹는" 이슈 방지 */
   -webkit-overflow-scrolling: touch;
   touch-action: pan-x pan-y;
+  /* zoom/follow 상태에서 스크롤바 생성/제거로 폭이 흔들리며 배율이 꿈틀거리는 현상 방지 */
+  scrollbar-gutter: stable both-edges;
 }
 
 /* 줌(스크롤) 모드에서 팔로워는 스크롤이 우선이므로, 캔버스/오버레이가 터치를 가로채지 않게 한다 */

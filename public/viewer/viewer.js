@@ -884,6 +884,12 @@ const state = {
   // follow 이벤트(곡 전환) 시퀀스
   lastFileRev: 0,
   _lastFollowAt: 0,
+  // zoom/fit 설정 적용 직후 ResizeObserver가 다시 렌더를 치는 것을 막기 위한 쿨다운 타임스탬프
+  _lastLayoutRenderAt: 0,
+  // follower settings throttle
+  _lastSettingsApplyAt: 0,
+  // loadPdf 진행 중인 fileId (session:state 재호출/레이스 방지)
+  _loadingFileId: '',
   chordPendingAuthUrl: '',
   pageNo: 1,
   totalPages: 1,
@@ -3527,6 +3533,11 @@ async function renderSpread(leftPageNo) {
 }
 
 async function loadPdf(fileId) {
+  // Load cancellation token: only the latest loadPdf call may mutate state/DOM.
+  loadPdf._seq = (loadPdf._seq || 0) + 1;
+  const mySeq = loadPdf._seq;
+  state._loadingFileId = String(fileId);
+
   state.isPdfReady = false;
   state.pdfDoc = null;
   state.totalPages = 1;
@@ -3539,6 +3550,9 @@ async function loadPdf(fileId) {
   setText('pageHud', 'PDF 로딩 중...');
   const t0 = Date.now();
   setNetBadge('PDF:…');
+
+  const stillLatest = () =>
+    mySeq === loadPdf._seq && String(state.fileId || '') === String(fileId) && String(state._loadingFileId || '') === String(fileId);
 
   // reset preview states
   state.previewMode = false;
@@ -3635,6 +3649,7 @@ async function loadPdf(fileId) {
         disableAutoFetch: true
       });
       const pdf = await loadingTask.promise;
+      if (!stillLatest()) return;
       state.previewMode = false;
       state.previewVirtualMode = false;
       state.pdfDoc = pdf;
@@ -3643,6 +3658,7 @@ async function loadPdf(fileId) {
       state.renderedFileId = String(fileId);
       updatePageLabels();
       await renderSpread(state.pageNo);
+      if (!stillLatest()) return;
       if (state.isInSession && state.roomCode) socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId });
       setNetBadge(`PDF:direct ${Date.now() - t0}ms`);
       return;
@@ -3658,8 +3674,10 @@ async function loadPdf(fileId) {
       const cu = await fetch(apiUrl(`/api/drive/cache-url/${encodeURIComponent(fileId)}?room=${encodeURIComponent(state.roomCode)}`), {
         credentials: 'include'
       }).then((r) => r.json());
+      if (!stillLatest()) return;
       if (cu?.ok && cu?.url) {
         const ok = await tryLoadPdfFromBlob({ label: 'PDF:cache-blob', url: apiUrl(String(cu.url)), credentials: 'omit' });
+        if (!stillLatest()) return;
         if (ok) return;
         setNetBadge('PDF:cache→stream', { ok: false });
       }
@@ -3673,6 +3691,7 @@ async function loadPdf(fileId) {
       url: apiUrl(`/api/drive/pdf/${fileId}${roomParam}`),
       credentials: 'include'
     });
+    if (!stillLatest()) return;
     if (ok) return;
   }
 
@@ -3713,6 +3732,9 @@ async function loadPdf(fileId) {
 // Resize -> re-render current spread
 const ro = new ResizeObserver(
   debounce(() => {
+    // Cooldown: avoid resize->render feedback loop right after applying remote settings.
+    const last = Number(state._lastLayoutRenderAt || 0);
+    if (Date.now() - last < 320) return;
     if (state.isPdfReady) renderSpread(state.pageNo).catch(() => {});
   }, 200)
 );
@@ -4317,7 +4339,8 @@ socket.on('session:state', (p) => {
     (String(fileId) !== String(state.fileId || '') ||
       (state.renderedFileId && String(fileId) !== String(state.renderedFileId || '')));
 
-  if (needFileAlign) {
+  // If we are already loading the same file, don't re-trigger loadPdf (prevents oscillation).
+  if (needFileAlign && String(state._loadingFileId || '') !== String(fileId || '')) {
     const originalLink = String(p?.currentOriginalLink || '').trim();
     if (fileId.startsWith('chord:')) {
       openChordByDocId(fileId, { broadcast: false }).catch(() => {});
@@ -4435,6 +4458,10 @@ socket.on('viewer:settings', (p) => {
   if (state.isPageTurner) return;
   if (!p?.settings) return;
   if (p?.fileId && p.fileId !== state.fileId) return;
+  // throttle to avoid oscillation during resize/zoom loops
+  const nowTs = Date.now();
+  if (nowTs - Number(state._lastSettingsApplyAt || 0) < 120) return;
+  state._lastSettingsApplyAt = nowTs;
   const s = p.settings;
   const reason = String(p?.reason || '');
   // 모바일 viewer는 1p 고정(터너 설정 무시)
@@ -4467,6 +4494,7 @@ socket.on('viewer:settings', (p) => {
     return;
   }
 
+  state._lastLayoutRenderAt = Date.now();
   renderSpread(state.pageNo).catch(() => {});
 });
 
@@ -4498,6 +4526,8 @@ socket.on('viewer:laser', async (p) => {
 
 socket.on('session:follow:file', (p) => {
   if (!state.isInSession) return;
+  // Page-turner should ignore its own broadcast echo to avoid double-load races.
+  if (state.isPageTurner) return;
   const fileId = p?.fileId;
   if (!fileId) return;
   // rev가 있으면, 더 최신 rev만 적용 (일부 클라이언트가 이벤트를 놓치는 케이스 복구)

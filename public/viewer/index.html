@@ -211,7 +211,12 @@
         </div>
 
         <div id="pdf-container">
-          <iframe id="pdf-preview" class="hidden"></iframe>
+          <!-- Preview(iframe) mode: pseudo pagination viewport -->
+          <div id="preview-root" class="hidden">
+            <div id="preview-viewport">
+              <iframe id="pdf-preview" title="pdf-preview"></iframe>
+            </div>
+          </div>
           <div id="canvas-stack">
             <!-- page views injected by viewer.js -->
           </div>
@@ -312,6 +317,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
     <script src="../config.js"></script>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
-    <script src="viewer.js?v=20260527_25"></script>
+    <script src="viewer.js?v=20260527_26"></script>
   </body>
 </html>

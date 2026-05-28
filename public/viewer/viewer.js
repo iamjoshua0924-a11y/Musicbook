@@ -897,6 +897,12 @@ const state = {
   isPdfReady: false,
   // preview slice mode: iframe(임베드) + transform으로 "페이지처럼" 보여주기(보기 전용)
   previewMode: false,
+  // preview virtual pagination mode: Drive preview를 "긴 문서"로 보고 A4 viewport로 slicing
+  previewVirtualMode: false,
+  previewVirtualMaxPages: 15,
+  _previewVpW: 0,
+  _previewVpH: 0,
+  _previewRenderedPages: 0,
   // preview iframe src (same-origin stream or drive preview url)
   previewEmbedSrc: '',
 
@@ -1214,6 +1220,11 @@ function renderSongPickList(cards) {
 function setPreviewYOffsetPx(px) {
   const v = Math.max(-300, Math.min(300, Number(px) || 0));
   document.documentElement.style.setProperty('--previewYOffsetPx', `${v}px`);
+}
+
+function setPreviewBaseOffsetPx(px) {
+  const v = Number(px) || 0;
+  document.documentElement.style.setProperty('--previewBaseOffsetPx', `${v}px`);
 }
 
 function applyStateFromUrl() {
@@ -2744,6 +2755,8 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
 
 const els = {
   pdfPreview: document.getElementById('pdf-preview'),
+  previewRoot: document.getElementById('preview-root'),
+  previewViewport: document.getElementById('preview-viewport'),
   canvasStack: document.getElementById('canvas-stack'),
   pdfContainer: document.getElementById('pdf-container'),
   pageHud: document.getElementById('pageHud')
@@ -2768,11 +2781,13 @@ function updatePageLabels() {
   const pages = getSpreadPages(state.pageNo);
   const range = pages.length > 1 ? `${pages[0]}-${pages[pages.length - 1]}` : `${pages[0] || 1}`;
   setText('pageLabel', range);
-  setText('pageTotal', `/ ${state.totalPages}`);
+  const totalLabel = state.previewMode && state.previewVirtualMode ? `/ ${state.totalPages}?` : `/ ${state.totalPages}`;
+  setText('pageTotal', totalLabel);
   setHidden('pageHud', false);
-  const hud = `${range} / ${state.totalPages}${state.isPageTurner ? ' · 터너' : ''}`;
+  const hudTotal = state.previewMode && state.previewVirtualMode ? `${state.totalPages}?` : `${state.totalPages}`;
+  const hud = `${range} / ${hudTotal}${state.isPageTurner ? ' · 터너' : ''}`;
   els.pageHud.textContent = hud;
-  setText('touchPageInfo', `${range}/${state.totalPages}`);
+  setText('touchPageInfo', `${range}/${hudTotal}`);
 }
 
 function clamp01(x) {
@@ -3373,6 +3388,35 @@ function applySnapshotToPage(pageNo, pageSnapshot) {
   });
 }
 
+function updatePreviewVirtualLayout() {
+  if (!els.previewRoot || !els.previewViewport || !els.pdfPreview) return;
+  const contW = Math.max(1, els.pdfContainer?.clientWidth || 1);
+  const contH = Math.max(1, els.pdfContainer?.clientHeight || 1);
+  const pad = 24;
+  const availW = Math.max(1, contW - pad);
+  const availH = Math.max(1, contH - pad);
+  const a4 = 1.4142;
+  const vpW = Math.max(280, Math.min(availW, availH / a4, 1100));
+  const vpH = Math.round(vpW * a4);
+  state._previewVpW = vpW;
+  state._previewVpH = vpH;
+  try {
+    els.previewViewport.style.width = `${Math.round(vpW)}px`;
+    els.previewViewport.style.height = `${Math.round(vpH)}px`;
+  } catch {}
+
+  // "프리로드" 느낌: 현재 + next2까지 보이는 영역이 iframe viewport에 포함되도록 높이를 점진적으로 늘린다.
+  const maxPages = Math.max(1, Number(state.previewVirtualMaxPages || 15));
+  const targetPages = Math.min(maxPages, Math.max(3, Number(state.pageNo || 1) + 2));
+  state._previewRenderedPages = Math.max(Number(state._previewRenderedPages || 0), targetPages);
+  try {
+    els.pdfPreview.style.height = `${Math.round(vpH * state._previewRenderedPages)}px`;
+  } catch {}
+
+  const base = -Math.round((Math.max(1, Number(state.pageNo || 1)) - 1) * vpH);
+  setPreviewBaseOffsetPx(base);
+}
+
 async function renderSpread(leftPageNo) {
   // preview slice mode: PDF 파싱이 안 되더라도 "보기"는 가능해야 한다.
   if (state.previewMode) {
@@ -3381,9 +3425,10 @@ async function renderSpread(leftPageNo) {
     // preview 모드에서는 "단일 iframe"을 우선 보여준다(보기 전용).
     try {
       els.canvasStack.style.display = 'none';
-      els.pdfPreview.classList.remove('hidden');
+      els.previewRoot?.classList.remove('hidden');
       const src = String(state.previewEmbedSrc || '').trim();
-      if (src) els.pdfPreview.src = src;
+      if (src && els.pdfPreview && els.pdfPreview.src !== src) els.pdfPreview.src = src;
+      if (state.previewVirtualMode) updatePreviewVirtualLayout();
       updatePageLabels();
     } catch {}
     return;
@@ -3399,7 +3444,7 @@ async function renderSpread(leftPageNo) {
   const seq = renderSpread._seq;
 
   // Remove preview fallback if any
-  els.pdfPreview.classList.add('hidden');
+  els.previewRoot?.classList.add('hidden');
   els.canvasStack.style.display = 'flex';
 
   // Rebuild views each time (<=4 pages, OK)
@@ -3462,6 +3507,12 @@ async function loadPdf(fileId) {
   const t0 = Date.now();
   setNetBadge('PDF:…');
 
+  // reset preview states
+  state.previewMode = false;
+  state.previewVirtualMode = false;
+  state._previewRenderedPages = 0;
+  setPreviewBaseOffsetPx(0);
+
   // 1) 서버에서 Drive 직접 URL 요청(대역폭 절감). 실패 시 기존 스트리밍으로 fallback.
   /** @type {string|null} */
   let directUrl = null;
@@ -3487,6 +3538,7 @@ async function loadPdf(fileId) {
       });
       const pdf = await loadingTask.promise;
       state.previewMode = false;
+      state.previewVirtualMode = false;
       state.pdfDoc = pdf;
       state.totalPages = pdf.numPages;
       state.isPdfReady = true;
@@ -3514,6 +3566,7 @@ async function loadPdf(fileId) {
     });
     const pdf = await loadingTask.promise;
     state.previewMode = false;
+    state.previewVirtualMode = false;
     state.pdfDoc = pdf;
     state.totalPages = pdf.numPages;
     state.isPdfReady = true;
@@ -3531,10 +3584,15 @@ async function loadPdf(fileId) {
       // - PDF 파싱 실패 시, iframe(임베드) + transform으로 페이지처럼 보이게(보기 전용)
       // - 세션 참여자에게 "무조건 보이게" 하는 것이 목표
       state.previewMode = true;
+      state.previewVirtualMode = true;
       state.pdfDoc = null;
       state.isPdfReady = true;
-      state.totalPages = 9999;
-      state.pageNo = Math.max(1, Number(state.pageNo) || 1);
+      state.totalPages = Math.max(1, Number(state.previewVirtualMaxPages || 15));
+      state.pageNo = clamp(Math.max(1, Number(state.pageNo) || 1), 1, state.totalPages);
+      // 줌은 일단 배제(가상 페이지 오프셋 드리프트 방지)
+      state.fitMode = true;
+      state.zoom = 1;
+      state._previewRenderedPages = 0;
 
       // 미리보기는 1) same-origin embed 스트림을 우선, 2) 실패 시 drive preview URL을 사용한다.
       state.previewEmbedSrc = apiUrl(`/api/drive/embed/${encodeURIComponent(fileId)}${roomParam}`);
@@ -3577,6 +3635,19 @@ function updateToolActiveUI() {
   on('lineBtn', state.tool === 'shape' && state.shape === 'line');
   on('rectBtn', state.tool === 'shape' && state.shape === 'rect');
   on('circleBtn', state.tool === 'shape' && state.shape === 'circle');
+  // previewVirtual 모드에서는 줌/오버랩 등은 의미가 없고 드리프트 원인이 되므로 비활성
+  try {
+    const pv = Boolean(state.previewMode && state.previewVirtualMode);
+    const dis = (id, disabled) => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = Boolean(disabled);
+    };
+    dis('zoomInBtn', pv);
+    dis('zoomOutBtn', pv);
+    dis('fitBtn', pv);
+    const overlap = document.getElementById('overlapRange');
+    if (overlap) overlap.disabled = pv;
+  } catch {}
   // 코드뷰어 편집 버튼(페이지터너/관리자)
   try {
     const btn = document.getElementById('chordEditBtn');
@@ -4377,7 +4448,7 @@ socket.on('session:follow:file', (p) => {
   state.undoStack = {};
   state.redoStack = {};
   try {
-    els.pdfPreview.classList.add('hidden');
+    els.previewRoot?.classList.add('hidden');
     els.pdfPreview.src = '';
     els.canvasStack.style.display = '';
   } catch {}

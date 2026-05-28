@@ -905,6 +905,8 @@ const state = {
   _previewRenderedPages: 0,
   // preview iframe src (same-origin stream or drive preview url)
   previewEmbedSrc: '',
+  // 새 탭으로 열기(Drive view URL)
+  previewViewUrl: '',
 
   // pageNo -> { json, w, h }
   annoStore: {},
@@ -3439,6 +3441,14 @@ async function renderSpread(leftPageNo) {
     try {
       els.canvasStack.style.display = 'none';
       els.previewRoot?.classList.remove('hidden');
+      // GAS 성공 케이스 설정을 최대한 맞춘다.
+      try {
+        if (els.pdfPreview) {
+          els.pdfPreview.referrerPolicy = 'no-referrer';
+          els.pdfPreview.allow = 'fullscreen';
+          els.pdfPreview.loading = 'eager';
+        }
+      } catch {}
       const src = String(state.previewEmbedSrc || '').trim();
       if (src && els.pdfPreview && els.pdfPreview.src !== src) els.pdfPreview.src = src;
       // NOTE:
@@ -3534,6 +3544,10 @@ async function loadPdf(fileId) {
   /** @type {string|null} */
   let directUrl = null;
   let directUrlIsPublic = false;
+  /** @type {string|null} */
+  let drivePreviewUrl = null;
+  /** @type {string|null} */
+  let driveViewUrl = null;
   try {
     const urlRes = await fetch(apiUrl(`/api/drive/pdf-url/${encodeURIComponent(fileId)}${roomParam}`), {
       credentials: 'include'
@@ -3541,6 +3555,12 @@ async function loadPdf(fileId) {
     if (urlRes?.ok && urlRes?.url) directUrl = String(urlRes.url);
     directUrlIsPublic = Boolean(urlRes?.isPublic);
     if (urlRes?.fallback?.previewUrl && !state.previewEmbedSrc) state.previewEmbedSrc = String(urlRes.fallback.previewUrl);
+  } catch {}
+  // drive preview/view url (새 탭 fallback/preview virtual용)
+  try {
+    const pr = await fetch(apiUrl(`/api/drive/preview/${encodeURIComponent(fileId)}`)).then((r) => r.json());
+    if (pr?.ok && pr.previewUrl) drivePreviewUrl = String(pr.previewUrl);
+    if (pr?.ok && pr.viewUrl) driveViewUrl = String(pr.viewUrl);
   } catch {}
 
   // 2) Drive 직접 URL(pdf-url) 우선 시도
@@ -3553,8 +3573,10 @@ async function loadPdf(fileId) {
         url: directUrl,
         // access_token이 URL에 포함되므로 credential은 불필요
         withCredentials: false,
-        disableRange: false,
-        disableStream: false,
+        // googleapis CORS에서 Range 헤더/노출 헤더가 막히는 케이스가 있어
+        // direct는 일단 "전체 다운로드"로 안정성 우선
+        disableRange: true,
+        disableStream: true,
         disableAutoFetch: true
       });
       const pdf = await loadingTask.promise;
@@ -3618,9 +3640,12 @@ async function loadPdf(fileId) {
     state.zoom = 1;
     state._previewRenderedPages = 0;
 
-    // 미리보기는 same-origin embed를 기본으로 한다.
-    // (embed가 내부에서 drive preview로 redirect될 수는 있으나, 그 경우도 최소한 "보이기"는 가능해야 한다.)
-    state.previewEmbedSrc = apiUrl(`/api/drive/embed/${encodeURIComponent(fileId)}${roomParam}`);
+    // pseudo-pagination은 Drive preview URL 기반이 안정적(GAS 성공 사례와 동일).
+    // previewUrl이 없으면 embed로 폴백한다.
+    state.previewEmbedSrc =
+      (drivePreviewUrl && String(drivePreviewUrl).trim()) || apiUrl(`/api/drive/embed/${encodeURIComponent(fileId)}${roomParam}`);
+    // 새 탭으로 열기용(디버그/긴급 탈출)
+    state.previewViewUrl = driveViewUrl || '';
 
     state.renderedFileId = String(fileId);
     await renderSpread(state.pageNo);

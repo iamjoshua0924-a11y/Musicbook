@@ -371,6 +371,11 @@ function setText(id, text) {
   if (el) el.textContent = text;
 }
 
+function setHtml(id, html) {
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = String(html ?? '');
+}
+
 function setHidden(id, hidden) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -3539,6 +3544,7 @@ async function loadPdf(fileId) {
   state._previewRenderedPages = 0;
   setPreviewBaseOffsetPx(0);
   setPreviewScale(1);
+  state.previewViewUrl = '';
 
   // 1) 서버에서 Drive 직접 URL 요청(대역폭 절감). 실패 시 기존 스트리밍으로 fallback.
   /** @type {string|null} */
@@ -3628,30 +3634,32 @@ async function loadPdf(fileId) {
   } catch (e) {}
 
   // 4) Preview slice mode
+  // GitHub Pages 등 일반 도메인에서는 Drive /preview iframe이 서드파티 쿠키 차단으로 "빈 화면"이 되는 케이스가 많다.
+  // => iframe slicing을 강행하지 않고, Drive에서 직접 열도록 유도(새 탭)한다.
   try {
-    state.previewMode = true;
-    state.previewVirtualMode = true;
-    state.pdfDoc = null;
-    state.isPdfReady = true;
-    state.totalPages = Math.max(1, Number(state.previewVirtualMaxPages || 15));
-    state.pageNo = clamp(Math.max(1, Number(state.pageNo) || 1), 1, state.totalPages);
-    // 줌은 일단 배제(가상 페이지 오프셋 드리프트 방지)
-    state.fitMode = true;
-    state.zoom = 1;
-    state._previewRenderedPages = 0;
+    const viewUrl =
+      (driveViewUrl && String(driveViewUrl).trim()) || `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/view`;
+    state.previewMode = false;
+    state.previewVirtualMode = false;
+    state.previewEmbedSrc = '';
+    state.previewViewUrl = viewUrl;
+    // 화면 정리: 캔버스/프리뷰 숨김
+    try {
+      els.previewRoot?.classList.add('hidden');
+      els.canvasStack.style.display = 'none';
+    } catch {}
 
-    // pseudo-pagination은 Drive preview URL 기반이 안정적(GAS 성공 사례와 동일).
-    // previewUrl이 없으면 embed로 폴백한다.
-    state.previewEmbedSrc =
-      (drivePreviewUrl && String(drivePreviewUrl).trim()) || apiUrl(`/api/drive/embed/${encodeURIComponent(fileId)}${roomParam}`);
-    // 새 탭으로 열기용(디버그/긴급 탈출)
-    state.previewViewUrl = driveViewUrl || '';
-
-    state.renderedFileId = String(fileId);
-    await renderSpread(state.pageNo);
     setHidden('pageHud', false);
-    setText('pageHud', '스트리밍이 제한되어 미리보기(슬라이스) 모드로 열었습니다(보기 전용)');
-    setNetBadge(`PDF:preview ${Date.now() - t0}ms`);
+    setHtml(
+      'pageHud',
+      `이 파일은 다운로드/스트리밍이 제한되어 Drive에서 열어야 합니다 <button class="hudBtn" id="openDriveBtn" type="button">Drive에서 열기</button>`
+    );
+    document.getElementById('openDriveBtn')?.addEventListener('click', () => {
+      try {
+        window.open(viewUrl, '_blank');
+      } catch {}
+    });
+    setNetBadge(`PDF:open-drive ${Date.now() - t0}ms`, { ok: false });
   } catch {
     setHidden('pageHud', false);
     setText('pageHud', 'PDF 로딩 실패: Drive 공유/권한 또는 fileId 확인');

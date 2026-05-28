@@ -518,6 +518,18 @@ body.light #preview-viewport{ background: rgba(255,255,255,0.85); }
   font-size: 12px;
   font-weight: 800;
 }
+#pageHud .hudBtn{
+  margin-left: 8px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.18);
+  background: rgba(122,162,255,0.18);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
 
 /* (fab 제거됨) */
 #fab{ display:none !important; }

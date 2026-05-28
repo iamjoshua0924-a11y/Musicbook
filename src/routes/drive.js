@@ -9,6 +9,7 @@ const { normalizeSongFileName } = require('../services/songNameNormalizer');
 const { getDriveRootFolderId } = require('../services/driveSyncRunner');
 const { isFileOpenInRoom } = require('../sockets');
 const { requireSessionOrAdmin } = require('../middleware/auth');
+const { recordHttp, makeByteCounterStream } = require('../services/trafficMetrics');
 
 function extractDriveFileIdFromAny(input) {
   const s = String(input || '').trim();
@@ -84,7 +85,10 @@ router.get('/drive/embed/:fileId', async (req, res) => {
     res.setHeader('Accept-Ranges', 'bytes');
     const upstreamStatus = Number(driveRes.status) || 200;
     if (range && (upstreamStatus === 206 || driveRes.headers?.['content-range'])) res.status(206);
-    await pipeline(driveRes.data, res);
+    const counter = makeByteCounterStream((bytes) => {
+      recordHttp({ name: 'drive.embed', fileId, bytes, range: range || '' });
+    });
+    await pipeline(driveRes.data, counter, res);
   } catch {
     try {
       // 2) public download stream
@@ -100,7 +104,10 @@ router.get('/drive/embed/:fileId', async (req, res) => {
       if (range && (upstreamStatus === 206 || cr)) res.status(206);
       const bodyStream = dl.body ? Readable.fromWeb(dl.body) : null;
       if (!bodyStream) throw new Error('PUBLIC_STREAM_EMPTY');
-      await pipeline(bodyStream, res);
+      const counter = makeByteCounterStream((bytes) => {
+        recordHttp({ name: 'drive.embed.public', fileId, bytes, range: range || '' });
+      });
+      await pipeline(bodyStream, counter, res);
     } catch {
       // 3) last resort: redirect to Drive preview
       res.redirect(buildPreviewUrl(fileId));
@@ -185,7 +192,10 @@ router.get('/drive/pdf/:fileId', allowSessionOrPublicFile, async (req, res) => {
       res.status(206);
     }
 
-    await pipeline(driveRes.data, res);
+    const counter = makeByteCounterStream((bytes) => {
+      recordHttp({ name: 'drive.pdf', fileId, bytes, range: range || '' });
+    });
+    await pipeline(driveRes.data, counter, res);
   } catch (err) {
     // Fallback: if Drive API streaming is blocked but link is public,
     // try public download streaming (so sessions can still view without Google login).
@@ -202,7 +212,10 @@ router.get('/drive/pdf/:fileId', allowSessionOrPublicFile, async (req, res) => {
       if (range && (upstreamStatus === 206 || cr)) res.status(206);
       const bodyStream = dl.body ? Readable.fromWeb(dl.body) : null;
       if (!bodyStream) throw new Error('PUBLIC_STREAM_EMPTY');
-      await pipeline(bodyStream, res);
+      const counter = makeByteCounterStream((bytes) => {
+        recordHttp({ name: 'drive.pdf.public', fileId, bytes, range: range || '' });
+      });
+      await pipeline(bodyStream, counter, res);
     } catch {
       // Do not leak details; client can use preview fallback.
       res.status(403).json({

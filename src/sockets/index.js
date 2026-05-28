@@ -1,5 +1,6 @@
 const ViewerAnnoSnapshot = require('../models/ViewerAnnoSnapshot');
 const Request = require('../models/Request');
+const { recordWs } = require('../services/trafficMetrics');
 const { SessionStore } = require('./sessionStore');
 const { verifySocketMetaToken } = require('../services/socketMeta');
 
@@ -505,12 +506,17 @@ function attachSockets(io) {
       if (!pageSnapshot || typeof pageSnapshot !== 'object') return ack?.({ ok: false, error: 'BAD_REQUEST' });
 
       // size guard (very rough)
+      let size = 0;
       try {
-        const size = JSON.stringify(pageSnapshot?.json || {}).length;
+        size = JSON.stringify(pageSnapshot?.json || {}).length;
         if (size > 300000) return ack?.({ ok: false, error: 'PAYLOAD_TOO_LARGE' });
       } catch {
         return ack?.({ ok: false, error: 'BAD_REQUEST' });
       }
+      // record WS payload size (best-effort)
+      try {
+        recordWs({ name: 'wb.page.update', fileId, bytes: size });
+      } catch {}
 
       let fileAnno = room.annotationsByFile.get(fileId);
       if (!fileAnno) {

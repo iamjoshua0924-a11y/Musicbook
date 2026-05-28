@@ -10,6 +10,7 @@ const { KEYS, getJson } = require('../services/syncStatus');
 const { start: startCsvImport, getStatus: getCsvImportStatus } = require('../services/csvImportRunner');
 const { getFileMetadata, renameFile } = require('../services/drive');
 const { chzzkIngestor } = require('../services/chzzkIngestor');
+const { getTrafficMetrics, resetTrafficMetrics } = require('../services/trafficMetrics');
 
 const { driveToThumb } = require('../services/legacyCsvImport');
 
@@ -231,6 +232,15 @@ router.post('/admin/sync/drive', requireAdmin, async (req, res) => {
 router.post('/admin/sync/stop', requireAdmin, async (_req, res) => {
   const r = stopDriveSync();
   res.json({ ok: true, ...r });
+});
+
+// ---- Traffic metrics (admin diagnostics) ------------------------------------------
+router.get('/admin/metrics/traffic', requireAdmin, async (_req, res) => {
+  res.json({ ok: true, data: getTrafficMetrics() });
+});
+
+router.post('/admin/metrics/traffic/reset', requireAdmin, async (_req, res) => {
+  res.json({ ok: true, data: resetTrafficMetrics() });
 });
 
 // Drive sync root folder config (stored in DB)

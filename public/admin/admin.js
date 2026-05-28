@@ -29,7 +29,7 @@ async function apiJson(url, method, body) {
 function showAuthed(on) {
   $('loginCard').style.display = on ? 'none' : 'block';
   // CSV 임포트 기능은 더 이상 사용하지 않으므로 UI에서 제거
-  ['meCard', 'mainCard', 'usersCard', 'syncCard', 'parseErrorCard'].forEach((id) => {
+  ['meCard', 'mainCard', 'usersCard', 'syncCard', 'parseErrorCard', 'trafficCard'].forEach((id) => {
     $(id).style.display = on ? 'block' : 'none';
   });
 }
@@ -237,6 +237,83 @@ function escapeHtml(str) {
     .replaceAll("'", '&#39;');
 }
 
+function formatBytes(n) {
+  const v = Number(n || 0);
+  if (!Number.isFinite(v) || v <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let x = v;
+  let i = 0;
+  while (x >= 1024 && i < units.length - 1) {
+    x /= 1024;
+    i += 1;
+  }
+  return `${x.toFixed(i === 0 ? 0 : 2)} ${units[i]}`;
+}
+
+function topFileIdsToText(map, topN = 8) {
+  const entries = Object.entries(map || {})
+    .map(([k, v]) => [k, Number(v?.bytes || 0), Number(v?.count || 0)])
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, topN);
+  if (!entries.length) return '-';
+  return entries.map(([k, bytes, c]) => `${k} · ${formatBytes(bytes)} · ${c}x`).join('\n');
+}
+
+async function loadTraffic() {
+  const out = $('trafficOut');
+  const pre = $('trafficJson');
+  if (out) out.textContent = '로딩 중...';
+  if (pre) pre.textContent = '';
+  const r = await apiGet('/api/admin/metrics/traffic');
+  if (!r.ok) {
+    if (out) out.textContent = `불러오기 실패: ${r.error || ''}`;
+    return;
+  }
+  const d = r.data || {};
+  const http = d.http || {};
+  const ws = d.ws || {};
+
+  let httpBytes = 0;
+  let httpCount = 0;
+  let httpRanges = 0;
+  Object.values(http).forEach((m) => {
+    httpBytes += Number(m?.bytes || 0);
+    httpCount += Number(m?.count || 0);
+    httpRanges += Number(m?.ranges || 0);
+  });
+  let wsBytes = 0;
+  let wsCount = 0;
+  Object.values(ws).forEach((m) => {
+    wsBytes += Number(m?.bytes || 0);
+    wsCount += Number(m?.count || 0);
+  });
+
+  if (out) out.textContent = `HTTP ${httpCount}건 / ${formatBytes(httpBytes)} (Range ${httpRanges}건) · WS ${wsCount}건 / ${formatBytes(wsBytes)}`;
+
+  const report = {
+    startedAt: d.startedAt,
+    summary: {
+      http: { count: httpCount, bytes: httpBytes, ranges: httpRanges },
+      ws: { count: wsCount, bytes: wsBytes }
+    },
+    top: {
+      drive_pdf: topFileIdsToText(http['drive.pdf']?.topFileIds),
+      drive_embed: topFileIdsToText(http['drive.embed']?.topFileIds),
+      wb_update: topFileIdsToText(ws['wb.page.update']?.topFileIds)
+    },
+    http,
+    ws
+  };
+  if (pre) pre.textContent = JSON.stringify(report, null, 2);
+}
+
+async function resetTraffic() {
+  if (!confirm('트래픽 계측을 리셋할까요?')) return;
+  const r = await apiJson('/api/admin/metrics/traffic/reset', 'POST', {});
+  if (!r.ok) return alert('리셋 실패');
+  await loadTraffic();
+}
+
 function wire() {
   $('loginBtn').onclick = async () => {
     const userId = $('loginId').value.trim();
@@ -263,6 +340,8 @@ function wire() {
     await syncDrive();
   };
   $('reloadParseErrorsBtn').onclick = () => loadParseErrors().catch(() => {});
+  $('reloadTrafficBtn').onclick = () => loadTraffic().catch(() => {});
+  $('resetTrafficBtn').onclick = () => resetTraffic().catch(() => {});
 
   $('reloadUsersBtn').onclick = () => loadUsers().catch(() => {});
   $('createUserBtn').onclick = async () => {
@@ -288,6 +367,7 @@ async function boot() {
     await loadDriveRoot();
     await loadSyncStatus();
     await loadParseErrors();
+    await loadTraffic();
     startSyncPolling();
   } else {
     stopSyncPolling();

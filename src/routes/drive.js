@@ -4,7 +4,7 @@ const { Readable } = require('node:stream');
 const router = express.Router();
 
 const Song = require('../models/Song');
-const { getDriveClient, getFileMetadata, buildPreviewUrl, buildViewUrl } = require('../services/drive');
+const { getDriveClient, getFileMetadata, buildPreviewUrl, buildViewUrl, getSignedDownloadUrl } = require('../services/drive');
 const { normalizeSongFileName } = require('../services/songNameNormalizer');
 const { getDriveRootFolderId } = require('../services/driveSyncRunner');
 const { isFileOpenInRoom } = require('../sockets');
@@ -211,6 +211,36 @@ router.get('/drive/pdf/:fileId', allowSessionOrPublicFile, async (req, res) => {
         fallback: { mode: 'iframe', previewUrl: buildPreviewUrl(fileId) }
       });
     }
+  }
+});
+
+/**
+ * Direct URL endpoint:
+ * - Render가 PDF 바이트를 중계하지 않고, 브라우저가 Drive에 직접 요청할 URL을 반환한다.
+ * - 권한 확인은 /drive/pdf 와 동일하게 allowSessionOrPublicFile을 사용한다.
+ */
+router.get('/drive/pdf-url/:fileId', allowSessionOrPublicFile, async (req, res) => {
+  const { fileId } = req.params;
+  try {
+    const { url, expiresAt } = await getSignedDownloadUrl(fileId, 900); // 15분
+    return res.json({
+      ok: true,
+      url,
+      expiresAt,
+      fileId,
+      fallback: { mode: 'iframe', previewUrl: buildPreviewUrl(fileId) }
+    });
+  } catch (err) {
+    // Drive API 접근 실패 시: 공개 파일이면 공개 다운로드 URL을 반환(※ confirm이 뜰 수 있어 실패 가능)
+    const publicUrl = `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`;
+    return res.json({
+      ok: true,
+      url: publicUrl,
+      expiresAt: Date.now() + 3600 * 1000,
+      fileId,
+      isPublic: true,
+      fallback: { mode: 'iframe', previewUrl: buildPreviewUrl(fileId) }
+    });
   }
 });
 

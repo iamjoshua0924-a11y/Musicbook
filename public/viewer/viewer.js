@@ -3444,11 +3444,45 @@ async function loadPdf(fileId) {
   updatePageLabels();
 
   const roomParam = state.isInSession && state.roomCode ? `?room=${encodeURIComponent(state.roomCode)}` : '';
-  const url = apiUrl(`/api/drive/pdf/${fileId}${roomParam}`);
   setHidden('pageHud', false);
   setText('pageHud', 'PDF 로딩 중...');
 
+  // 1) 서버에서 Drive 직접 URL 요청(대역폭 절감). 실패 시 기존 스트리밍으로 fallback.
+  /** @type {string|null} */
+  let directUrl = null;
   try {
+    const urlRes = await fetch(apiUrl(`/api/drive/pdf-url/${encodeURIComponent(fileId)}${roomParam}`), {
+      credentials: 'include'
+    }).then((r) => r.json());
+    if (urlRes?.ok && urlRes?.url) directUrl = String(urlRes.url);
+    if (urlRes?.fallback?.previewUrl && !state.previewEmbedSrc) state.previewEmbedSrc = String(urlRes.fallback.previewUrl);
+  } catch {}
+
+  try {
+    // 2) Drive 직접 URL로 pdf.js 로드(실패하면 catch로 넘어가 스트리밍/미리보기)
+    if (directUrl) {
+      const loadingTask = pdfjsLib.getDocument({
+        url: directUrl,
+        // access_token이 URL에 포함되므로 credential은 불필요
+        withCredentials: false,
+        disableRange: false,
+        disableStream: false,
+        disableAutoFetch: true
+      });
+      const pdf = await loadingTask.promise;
+      state.previewMode = false;
+      state.pdfDoc = pdf;
+      state.totalPages = pdf.numPages;
+      state.isPdfReady = true;
+      state.renderedFileId = String(fileId);
+      updatePageLabels();
+      await renderSpread(state.pageNo);
+      if (state.isInSession && state.roomCode) socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId });
+      return;
+    }
+
+    // 3) fallback: 기존 Render 스트리밍
+    const url = apiUrl(`/api/drive/pdf/${fileId}${roomParam}`);
     const loadingTask = pdfjsLib.getDocument({
       url,
       withCredentials: true,

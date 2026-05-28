@@ -377,6 +377,19 @@ function setHidden(id, hidden) {
   el.classList.toggle('hidden', hidden);
 }
 
+function setNetBadge(label, { ok = true } = {}) {
+  const el = document.getElementById('netBadge');
+  if (!el) return;
+  const t = String(label || '').trim();
+  if (!t) {
+    el.classList.add('hidden');
+    return;
+  }
+  el.classList.remove('hidden');
+  el.classList.toggle('badgeNet', true);
+  el.textContent = ok ? t : `${t}✗`;
+}
+
 function setParticipantsOpen(open) {
   setHidden('participantsPanel', !open);
 }
@@ -3446,6 +3459,8 @@ async function loadPdf(fileId) {
   const roomParam = state.isInSession && state.roomCode ? `?room=${encodeURIComponent(state.roomCode)}` : '';
   setHidden('pageHud', false);
   setText('pageHud', 'PDF 로딩 중...');
+  const t0 = Date.now();
+  setNetBadge('PDF:…');
 
   // 1) 서버에서 Drive 직접 URL 요청(대역폭 절감). 실패 시 기존 스트리밍으로 fallback.
   /** @type {string|null} */
@@ -3461,6 +3476,7 @@ async function loadPdf(fileId) {
   try {
     // 2) Drive 직접 URL로 pdf.js 로드(실패하면 catch로 넘어가 스트리밍/미리보기)
     if (directUrl) {
+      setNetBadge('PDF:direct-url');
       const loadingTask = pdfjsLib.getDocument({
         url: directUrl,
         // access_token이 URL에 포함되므로 credential은 불필요
@@ -3478,10 +3494,12 @@ async function loadPdf(fileId) {
       updatePageLabels();
       await renderSpread(state.pageNo);
       if (state.isInSession && state.roomCode) socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId });
+      setNetBadge(`PDF:direct ${Date.now() - t0}ms`);
       return;
     }
 
     // 3) fallback: 기존 Render 스트리밍
+    setNetBadge('PDF:stream');
     const url = apiUrl(`/api/drive/pdf/${fileId}${roomParam}`);
     const loadingTask = pdfjsLib.getDocument({
       url,
@@ -3504,8 +3522,11 @@ async function loadPdf(fileId) {
     await renderSpread(state.pageNo);
 
     if (state.isInSession && state.roomCode) socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId });
+    setNetBadge(`PDF:stream ${Date.now() - t0}ms`);
   } catch (e) {
     try {
+      // direct 시도가 있었는데 실패한 경우 표시(주로 CORS/토큰/네트워크)
+      if (directUrl) setNetBadge('PDF:direct→fallback', { ok: false });
       // Preview slice mode:
       // - PDF 파싱 실패 시, iframe(임베드) + transform으로 페이지처럼 보이게(보기 전용)
       // - 세션 참여자에게 "무조건 보이게" 하는 것이 목표
@@ -3526,9 +3547,11 @@ async function loadPdf(fileId) {
       await renderSpread(state.pageNo);
       setHidden('pageHud', false);
       setText('pageHud', '스트리밍이 제한되어 미리보기(슬라이스) 모드로 열었습니다(보기 전용)');
+      setNetBadge(`PDF:preview ${Date.now() - t0}ms`);
     } catch {
       setHidden('pageHud', false);
       setText('pageHud', 'PDF 로딩 실패: Drive 공유/권한 또는 fileId 확인');
+      setNetBadge('PDF:fail', { ok: false });
     }
   }
 }

@@ -123,6 +123,7 @@ body.light button:hover{ border-color:rgba(0,0,0,0.22); }
 
 .toggle { display: inline-flex; gap: 6px; align-items: center; }
 .badge { padding: 2px 8px; border-radius: 999px; background: rgba(0,0,0,0.55); color: var(--text); font-size: 12px; border: 1px solid var(--border); }
+.badge.badgeNet{ background: rgba(122,162,255,0.12); border-color: rgba(122,162,255,0.35); }
 .hidden { display: none; }
 .isHidden{ display:none !important; }
 

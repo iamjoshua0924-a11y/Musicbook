@@ -1349,6 +1349,63 @@ function clearChordPaneState({ keepMode = false, keepData = true } = {}) {
   }
 }
 
+function closeCurrentDocument({ reason = '' } = {}) {
+  // Stop pending loads (best-effort)
+  try {
+    loadPdf._seq = (loadPdf._seq || 0) + 1;
+  } catch {}
+  try {
+    openChordByDocId._seq = (openChordByDocId._seq || 0) + 1;
+  } catch {}
+
+  // Clear chord state fully
+  clearChordPaneState({ keepMode: true, keepData: false });
+
+  // Clear PDF state
+  try {
+    state.isPdfReady = false;
+    state.pdfDoc = null;
+    state.totalPages = 1;
+    state.pageNo = 1;
+    state.activeDrawPageNo = 1;
+    state.previewMode = false;
+    state.previewVirtualMode = false;
+    state.previewEmbedSrc = '';
+    state.previewViewUrl = '';
+    state.annoStore = {};
+    state.undoStack = {};
+    state.redoStack = {};
+    state.renderedFileId = '';
+    state._loadingFileId = '';
+    if (state._pdfBlobUrl) {
+      try {
+        URL.revokeObjectURL(state._pdfBlobUrl);
+      } catch {}
+      state._pdfBlobUrl = '';
+    }
+  } catch {}
+
+  // Reset file ids (keep room param)
+  state.fileId = '';
+  state.pdfFileId = null;
+
+  // UI reset
+  try {
+    clearViews();
+    els.previewRoot?.classList.add('hidden');
+    els.pdfPreview.src = '';
+    els.canvasStack.style.display = 'none';
+  } catch {}
+  try {
+    // chord tab should be hidden when no chord data
+    document.getElementById('chordModeBtn')?.classList.add('hidden');
+  } catch {}
+  setMode('pdf');
+  setHidden('pageHud', false);
+  setText('pageHud', reason ? `닫힘: ${reason}` : '열려있는 악보/코드가 없습니다');
+  setNetBadge('CLOSED', { ok: false });
+}
+
 function setMode(mode) {
   state.mode = mode;
   document.getElementById('pdfModeBtn')?.classList.toggle('active', mode === 'pdf');
@@ -2216,6 +2273,15 @@ async function openChordByDocId(docId, { broadcast } = { broadcast: true }) {
 
     state.chordDocId = id;
     state.chordSourceUrl = String(r?.meta?.sourceUrl || '');
+    // show debug meta (helps validate edit refresh)
+    try {
+      const meta = r?.meta || {};
+      const lines = [];
+      if (state.chordSourceUrl) lines.push(`원문: ${state.chordSourceUrl}`);
+      if (meta.editedAt) lines.push(`수정: ${String(meta.editedAt)}${meta.editedBy ? ` by ${meta.editedBy}` : ''}`);
+      if (meta.source) lines.push(`source: ${String(meta.source)}`);
+      setCwMeta(lines.join('\n'));
+    } catch {}
     const blocksObj = r.blocks || [];
     const isCompact =
       blocksObj && typeof blocksObj === 'object' && !Array.isArray(blocksObj) && String(blocksObj.format || '').startsWith('mb_chord_compact_');
@@ -2463,6 +2529,8 @@ function openByInput(input) {
         window.open(trimmed, '_blank');
       } catch {}
     }
+    // 전환 UX: 기존에 열려 있던 코드/악보를 일단 닫아서 "안 바뀌는 것처럼 보이는" 혼동을 줄인다.
+    closeCurrentDocument({ reason: 'ChordWiki 탭에서 열기 버튼을 눌러주세요' });
     flashHud('ChordWiki 탭에서 “🎵 ScoreViewer로 열기” 버튼을 누르세요', 1600);
     return;
   }
@@ -2520,6 +2588,7 @@ document.getElementById('openBtn')?.addEventListener('click', () => {
   const input = document.getElementById('linkInput')?.value || '';
   openByInput(input);
 });
+document.getElementById('closeBtn')?.addEventListener('click', () => closeCurrentDocument({ reason: '사용자 요청' }));
 document.getElementById('linkInput')?.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') document.getElementById('openBtn')?.click();
 });

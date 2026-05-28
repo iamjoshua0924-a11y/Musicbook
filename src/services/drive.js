@@ -43,9 +43,10 @@ async function getSignedDownloadUrl(fileId, expiresInSeconds = 900) {
   const accessToken = typeof tokenObj === 'string' ? tokenObj : tokenObj?.token;
   if (!accessToken) throw new Error('ACCESS_TOKEN_MISSING');
 
-  const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media&access_token=${encodeURIComponent(
-    accessToken
-  )}`;
+  // Shared Drive 대응: supportsAllDrives=true
+  const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(
+    fileId
+  )}?alt=media&supportsAllDrives=true&access_token=${encodeURIComponent(accessToken)}`;
   return { url, expiresAt: Date.now() + Number(expiresInSeconds || 900) * 1000 };
 }
 
@@ -53,6 +54,7 @@ async function getFileMetadata(fileId) {
   const drive = getDriveClient();
   const res = await drive.files.get({
     fileId,
+    supportsAllDrives: true,
     fields: 'id,name,mimeType,size,modifiedTime'
   });
   return res.data;

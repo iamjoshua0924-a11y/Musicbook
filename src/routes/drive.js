@@ -73,7 +73,7 @@ router.get('/drive/embed/:fileId', async (req, res) => {
     // 1) Drive API stream
     const drive = getDriveClient();
     const driveRes = await drive.files.get(
-      { fileId, alt: 'media' },
+      { fileId, alt: 'media', supportsAllDrives: true },
       { responseType: 'stream', headers: range ? { Range: range } : undefined }
     );
     res.setHeader('Content-Type', driveRes.headers?.['content-type'] || 'application/pdf');
@@ -164,7 +164,7 @@ router.get('/drive/pdf/:fileId', allowSessionOrPublicFile, async (req, res) => {
 
     // Prefer streaming bytes directly.
     const driveRes = await drive.files.get(
-      { fileId, alt: 'media' },
+      { fileId, alt: 'media', supportsAllDrives: true },
       {
         responseType: 'stream',
         headers: range ? { Range: range } : undefined
@@ -247,7 +247,14 @@ router.get('/drive/pdf-url/:fileId', allowSessionOrPublicFile, async (req, res) 
 // Public: preview URL builder does not access Drive API; safe for anonymous viewer mode.
 router.get('/drive/preview/:fileId', async (req, res) => {
   const { fileId } = req.params;
-  res.json({ ok: true, previewUrl: buildPreviewUrl(fileId) });
+  res.json({ ok: true, previewUrl: buildPreviewUrl(fileId), viewUrl: buildViewUrl(fileId) });
+});
+
+// New-tab helper: /view 는 iframe 임베드가 안 되는 경우가 많아(Drive X-Frame-Options),
+// "새 탭으로 열기" 용으로만 제공한다.
+router.get('/drive/view/:fileId', async (req, res) => {
+  const { fileId } = req.params;
+  res.redirect(buildViewUrl(fileId));
 });
 
 router.get('/drive/meta/:fileId', requireSessionOrAdmin, async (req, res) => {

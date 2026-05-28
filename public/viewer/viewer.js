@@ -2762,6 +2762,33 @@ const els = {
   pageHud: document.getElementById('pageHud')
 };
 
+// Preview iframe load detector:
+// - embed(same-origin)면 slicing 가능
+// - drive preview(cross-origin)로 떨어지면 외부 pagination이 불가능하므로 plain 모드로 내려간다.
+try {
+  els.pdfPreview?.addEventListener?.('load', () => {
+    if (!state.previewMode) return;
+    let cross = false;
+    try {
+      // cross-origin이면 여기서 SecurityError
+      // eslint-disable-next-line no-unused-vars
+      const _href = els.pdfPreview?.contentWindow?.location?.href;
+    } catch {
+      cross = true;
+    }
+    if (cross && state.previewVirtualMode) {
+      state.previewVirtualMode = false;
+      updateToolActiveUI();
+      updatePreviewVirtualLayout();
+      // 배지로 상태를 명확히 보여준다.
+      try {
+        setNetBadge('PDF:drive-preview');
+      } catch {}
+      flashHud('Drive 미리보기 모드(페이지 넘김 제한)', 1200);
+    }
+  });
+} catch {}
+
 /** @type {Map<number, any>} */
 const viewMap = new Map(); // pageNo -> view
 /** @type {Map<number, Function>} */
@@ -2781,10 +2808,10 @@ function updatePageLabels() {
   const pages = getSpreadPages(state.pageNo);
   const range = pages.length > 1 ? `${pages[0]}-${pages[pages.length - 1]}` : `${pages[0] || 1}`;
   setText('pageLabel', range);
-  const totalLabel = state.previewMode && state.previewVirtualMode ? `/ ${state.totalPages}?` : `/ ${state.totalPages}`;
+  const totalLabel = state.previewMode && state.previewVirtualMode ? `/ ${state.totalPages}?` : state.previewMode ? `/ ??` : `/ ${state.totalPages}`;
   setText('pageTotal', totalLabel);
   setHidden('pageHud', false);
-  const hudTotal = state.previewMode && state.previewVirtualMode ? `${state.totalPages}?` : `${state.totalPages}`;
+  const hudTotal = state.previewMode && state.previewVirtualMode ? `${state.totalPages}?` : state.previewMode ? '??' : `${state.totalPages}`;
   const hud = `${range} / ${hudTotal}${state.isPageTurner ? ' · 터너' : ''}`;
   els.pageHud.textContent = hud;
   setText('touchPageInfo', `${range}/${hudTotal}`);
@@ -3390,6 +3417,17 @@ function applySnapshotToPage(pageNo, pageSnapshot) {
 
 function updatePreviewVirtualLayout() {
   if (!els.previewRoot || !els.previewViewport || !els.pdfPreview) return;
+  // drive preview(크로스 오리진)에서는 외부에서 pagination slicing이 사실상 불가능하므로 plain 모드로 전환한다.
+  if (!state.previewVirtualMode) {
+    try {
+      els.previewRoot.classList.toggle('preview-plain', true);
+    } catch {}
+    setPreviewBaseOffsetPx(0);
+    return;
+  }
+  try {
+    els.previewRoot.classList.toggle('preview-plain', false);
+  } catch {}
   const contW = Math.max(1, els.pdfContainer?.clientWidth || 1);
   const contH = Math.max(1, els.pdfContainer?.clientHeight || 1);
   const pad = 24;
@@ -3428,7 +3466,10 @@ async function renderSpread(leftPageNo) {
       els.previewRoot?.classList.remove('hidden');
       const src = String(state.previewEmbedSrc || '').trim();
       if (src && els.pdfPreview && els.pdfPreview.src !== src) els.pdfPreview.src = src;
-      if (state.previewVirtualMode) updatePreviewVirtualLayout();
+      // NOTE:
+      // - same-origin(embed)일 때만 previewVirtual slicing을 시도한다.
+      // - drive preview(크로스 오리진)로 리다이렉트된 경우는 onload에서 감지해 previewVirtualMode를 끈다.
+      updatePreviewVirtualLayout();
       updatePageLabels();
     } catch {}
     return;

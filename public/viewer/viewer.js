@@ -2198,7 +2198,10 @@ async function openChordByDocId(docId, { broadcast } = { broadcast: true }) {
       const cur = String(el?.textContent || '').trim();
       if (cur === '불러오는 중...') setCwError('불러오기 실패: TIMEOUT');
     }, 9000);
-    r = await fetch(apiUrl(`/api/chord-doc?docId=${encodeURIComponent(id)}`), { signal: controller.signal }).then((x) => x.json());
+    // cache-bust: 편집 저장 직후에도 브라우저 캐시로 구버전이 뜨는 케이스 방지
+    r = await fetch(apiUrl(`/api/chord-doc?docId=${encodeURIComponent(id)}&_=${Date.now()}`), { signal: controller.signal }).then((x) =>
+      x.json()
+    );
     clearTimeout(t);
   } catch (e) {
     r = { ok: false, error: `NETWORK_ERROR: ${String(e?.message || e)}` };
@@ -2273,6 +2276,10 @@ const emitScrollSync = debounce(() => {
 
 cwScrollEl?.addEventListener('scroll', () => {
   if (state.mode !== 'chord') return;
+  // scrolling changes fabric offset; keep annotations aligned
+  try {
+    viewMap.get(1)?.fabric?.calcOffset?.();
+  } catch {}
   // 페이지터너만 브로드캐스트
   if (state.isInSession && state.isPageTurner) emitScrollSync();
 });
@@ -2470,25 +2477,6 @@ function openByInput(input) {
     const originalLink = String(input || '').trim();
     const isUrl = /^https?:\/\//i.test(trimmed);
 
-    const applyLocal = (nextFileId) => {
-      // local apply (no full reload)
-      setMode('pdf');
-      state.fileId = String(nextFileId);
-      state.pdfFileId = String(nextFileId);
-      try {
-        setLastRoomForFile(state.fileId, roomCode);
-        window.history.replaceState(
-          null,
-          '',
-          buildViewerUrl({ fileId: state.fileId, roomCode })
-        );
-      } catch {}
-      state.annoStore = {};
-      state.undoStack = {};
-      state.redoStack = {};
-      loadPdf(state.fileId).catch(() => {});
-    };
-
     const broadcast = (nextFileId) => {
       socket.emit('session:follow:file', { roomCode, fileId: nextFileId, originalLink }, (ack) => {
         if (!ack?.ok) alert('세션 곡 전환 브로드캐스트 실패(권한 확인)');
@@ -2510,18 +2498,17 @@ function openByInput(input) {
           if (!r?.ok || !r?.imported?.googleFileId) throw new Error(r?.error || 'IMPORT_FAILED');
           const nextId = String(r.imported.googleFileId);
           broadcast(nextId);
-          applyLocal(nextId);
         })
         .catch(() => {
           // import 실패 시 기존 fileId로 fallback
           broadcast(fileId);
-          applyLocal(fileId);
         });
       return;
     }
 
     broadcast(fileId);
-    applyLocal(fileId);
+    // 실제 전환은 follow:file 이벤트로 통일(턴너/팔로워 모두 동일 흐름)
+    return;
   } else {
     const roomParam = state.isInSession && roomCode ? `?room=${roomCode}` : '';
     window.location.href = buildViewerUrl({ fileId, roomCode: roomParam ? roomCode : '' });
@@ -4208,6 +4195,7 @@ socket.on('session:pageTurner:state', (p) => {
   }
   updateTurnerToggleAccess();
   updateCursorShareUI();
+  updateToolActiveUI();
   updatePageLabels();
 });
 
@@ -4526,8 +4514,6 @@ socket.on('viewer:laser', async (p) => {
 
 socket.on('session:follow:file', (p) => {
   if (!state.isInSession) return;
-  // Page-turner should ignore its own broadcast echo to avoid double-load races.
-  if (state.isPageTurner) return;
   const fileId = p?.fileId;
   if (!fileId) return;
   // rev가 있으면, 더 최신 rev만 적용 (일부 클라이언트가 이벤트를 놓치는 케이스 복구)

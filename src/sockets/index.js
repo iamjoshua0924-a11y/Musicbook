@@ -472,7 +472,12 @@ function attachSockets(io) {
       room.currentOriginalLink = originalLink;
       room.currentPageNo = 1;
 
-      io.to(toSessionRoomName(roomCode)).emit('session:follow:file', { fileId, originalLink, rev: Number(room.currentFileRev || 0) });
+      io.to(toSessionRoomName(roomCode)).emit('session:follow:file', {
+        fileId,
+        originalLink,
+        rev: Number(room.currentFileRev || 0),
+        senderId: socket.id
+      });
       io.to(toSessionRoomName(roomCode)).emit('viewer:page_change', { fileId, pageNo: 1 });
       io.to(toSessionRoomName(roomCode)).emit('session:state', {
         roomCode,

@@ -1424,11 +1424,12 @@ function wireEvents() {
   if ($('adminConsoleBtn')) {
     $('adminConsoleBtn').onclick = () => {
       try {
-        const url = new URL('/admin', API_URL).toString();
+        // GitHub Pages(/Musicbook/public/musicbook/) 안에서 제공되는 admin 콘솔로 이동
+        const url = new URL('../admin/', window.location.href).toString();
         window.open(url, '_blank');
       } catch {
         try {
-          window.open('/admin', '_blank');
+          window.open('../admin/', '_blank');
         } catch {}
       }
     };
@@ -1829,8 +1830,42 @@ function renderPresence(items) {
   wrap.innerHTML = '';
 
   const list = Array.isArray(items) ? items : [];
-  const viewers = list.filter((p) => String(p?.role || '') === 'viewer');
-  const members = list.filter((p) => String(p?.role || '') !== 'viewer');
+
+  // 중복 탭/브라우저로 같은 사람이 2번 뜨는 문제 완화:
+  // - displayName(또는 nickname) 기준으로 병합
+  // - role은 admin > session > viewer 우선
+  // - 최신 ts(서버 기록)가 우선
+  const roleRank = (r) => (r === 'admin' ? 3 : r === 'session' ? 2 : 1);
+  const merged = new Map(); // key -> item
+  list.forEach((p) => {
+    const key = String(p?.displayName || p?.nickname || '').trim() || '익명';
+    const k = key.toLowerCase();
+    const prev = merged.get(k);
+    if (!prev) return merged.set(k, { ...p, _nameKey: key });
+    const a = prev;
+    const b = p;
+    const keep =
+      roleRank(String(b?.role || 'viewer')) > roleRank(String(a?.role || 'viewer'))
+        ? b
+        : roleRank(String(b?.role || 'viewer')) < roleRank(String(a?.role || 'viewer'))
+          ? a
+          : Number(b?.ts || 0) > Number(a?.ts || 0)
+            ? b
+            : a;
+    const other = keep === a ? b : a;
+    merged.set(k, {
+      ...keep,
+      _nameKey: key,
+      // 보조 정보는 가능한 채우기
+      displayName: keep.displayName || other.displayName || '',
+      nickname: keep.nickname || other.nickname || '',
+      profilePhoto: keep.profilePhoto || other.profilePhoto || ''
+    });
+  });
+
+  const uniq = Array.from(merged.values());
+  const viewers = uniq.filter((p) => String(p?.role || '') === 'viewer');
+  const members = uniq.filter((p) => String(p?.role || '') !== 'viewer');
 
   // 방문자는 개별 리스트업 하지 않고 카운트만 노출
   if (viewers.length) {
@@ -1855,9 +1890,9 @@ function renderPresence(items) {
     el.className = 'presence-item';
     el.innerHTML = `
       <div style="display:flex; gap:10px; align-items:center;">
-        ${avatarCircle(p.displayName || p.nickname || '익명', p.profilePhoto)}
+        ${avatarCircle(p.displayName || p.nickname || p._nameKey || '익명', p.profilePhoto)}
         <div>
-          <div>${esc(p.displayName || p.nickname || '익명')}</div>
+          <div>${esc(p.displayName || p.nickname || p._nameKey || '익명')}</div>
         </div>
       </div>
     `;

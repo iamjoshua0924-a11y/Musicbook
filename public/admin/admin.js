@@ -30,6 +30,15 @@ async function apiJson(url, method, body) {
   return res.json();
 }
 
+// Back link: Render(/admin)에서 열릴 때는 /musicbook/ 경로가 없으므로 루트로 보정.
+try {
+  const a = document.getElementById('backToSongbook');
+  if (a) {
+    const host = String(window.location.hostname || '');
+    if (host.endsWith('onrender.com') && window.location.pathname === '/admin') a.href = '/';
+  }
+} catch {}
+
 function showAuthed(on) {
   setDisplay('loginCard', on ? 'none' : 'block');
   // CSV 임포트 기능은 더 이상 사용하지 않으므로 UI에서 제거

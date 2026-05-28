@@ -3533,17 +3533,21 @@ async function loadPdf(fileId) {
   // 1) 서버에서 Drive 직접 URL 요청(대역폭 절감). 실패 시 기존 스트리밍으로 fallback.
   /** @type {string|null} */
   let directUrl = null;
+  let directUrlIsPublic = false;
   try {
     const urlRes = await fetch(apiUrl(`/api/drive/pdf-url/${encodeURIComponent(fileId)}${roomParam}`), {
       credentials: 'include'
     }).then((r) => r.json());
     if (urlRes?.ok && urlRes?.url) directUrl = String(urlRes.url);
+    directUrlIsPublic = Boolean(urlRes?.isPublic);
     if (urlRes?.fallback?.previewUrl && !state.previewEmbedSrc) state.previewEmbedSrc = String(urlRes.fallback.previewUrl);
   } catch {}
 
-  try {
-    // 2) Drive 직접 URL로 pdf.js 로드(실패하면 catch로 넘어가 스트리밍/미리보기)
-    if (directUrl) {
+  // 2) Drive 직접 URL(pdf-url) 우선 시도
+  // - 단, public(uc?export=download) URL은 HTML confirm이 나올 수 있어 pdf.js에서 실패 확률이 높으므로 제외한다.
+  const canTryDirect = Boolean(directUrl) && !directUrlIsPublic && /googleapis\.com\/drive\/v3\/files\//.test(String(directUrl));
+  if (canTryDirect) {
+    try {
       setNetBadge('PDF:direct-url');
       const loadingTask = pdfjsLib.getDocument({
         url: directUrl,
@@ -3565,9 +3569,14 @@ async function loadPdf(fileId) {
       if (state.isInSession && state.roomCode) socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId });
       setNetBadge(`PDF:direct ${Date.now() - t0}ms`);
       return;
+    } catch {
+      // direct 실패 시 스트리밍으로 폴백(이전 구현은 여기서 preview로 바로 떨어져서 "열리던 것도 안 열림" 문제가 있었다)
+      setNetBadge('PDF:direct→stream', { ok: false });
     }
+  }
 
-    // 3) fallback: 기존 Render 스트리밍
+  // 3) 기존 Render 스트리밍 시도
+  try {
     setNetBadge('PDF:stream');
     const url = apiUrl(`/api/drive/pdf/${fileId}${roomParam}`);
     const loadingTask = pdfjsLib.getDocument({
@@ -3593,42 +3602,35 @@ async function loadPdf(fileId) {
 
     if (state.isInSession && state.roomCode) socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId });
     setNetBadge(`PDF:stream ${Date.now() - t0}ms`);
-  } catch (e) {
-    try {
-      // direct 시도가 있었는데 실패한 경우 표시(주로 CORS/토큰/네트워크)
-      if (directUrl) setNetBadge('PDF:direct→fallback', { ok: false });
-      // Preview slice mode:
-      // - PDF 파싱 실패 시, iframe(임베드) + transform으로 페이지처럼 보이게(보기 전용)
-      // - 세션 참여자에게 "무조건 보이게" 하는 것이 목표
-      state.previewMode = true;
-      state.previewVirtualMode = true;
-      state.pdfDoc = null;
-      state.isPdfReady = true;
-      state.totalPages = Math.max(1, Number(state.previewVirtualMaxPages || 15));
-      state.pageNo = clamp(Math.max(1, Number(state.pageNo) || 1), 1, state.totalPages);
-      // 줌은 일단 배제(가상 페이지 오프셋 드리프트 방지)
-      state.fitMode = true;
-      state.zoom = 1;
-      state._previewRenderedPages = 0;
+    return;
+  } catch (e) {}
 
-      // 미리보기는 1) same-origin embed 스트림을 우선, 2) 실패 시 drive preview URL을 사용한다.
-      state.previewEmbedSrc = apiUrl(`/api/drive/embed/${encodeURIComponent(fileId)}${roomParam}`);
-      try {
-        const pr = await fetch(apiUrl(`/api/drive/preview/${encodeURIComponent(fileId)}`)).then((r) => r.json());
-        // pseudo-pagination은 Drive preview URL을 직접 쓰는 편이 안정적(성공 사례 기준)
-        if (pr?.ok && pr.previewUrl) state.previewEmbedSrc = String(pr.previewUrl);
-      } catch {}
+  // 4) Preview slice mode
+  try {
+    state.previewMode = true;
+    state.previewVirtualMode = true;
+    state.pdfDoc = null;
+    state.isPdfReady = true;
+    state.totalPages = Math.max(1, Number(state.previewVirtualMaxPages || 15));
+    state.pageNo = clamp(Math.max(1, Number(state.pageNo) || 1), 1, state.totalPages);
+    // 줌은 일단 배제(가상 페이지 오프셋 드리프트 방지)
+    state.fitMode = true;
+    state.zoom = 1;
+    state._previewRenderedPages = 0;
 
-      state.renderedFileId = String(fileId);
-      await renderSpread(state.pageNo);
-      setHidden('pageHud', false);
-      setText('pageHud', '스트리밍이 제한되어 미리보기(슬라이스) 모드로 열었습니다(보기 전용)');
-      setNetBadge(`PDF:preview ${Date.now() - t0}ms`);
-    } catch {
-      setHidden('pageHud', false);
-      setText('pageHud', 'PDF 로딩 실패: Drive 공유/권한 또는 fileId 확인');
-      setNetBadge('PDF:fail', { ok: false });
-    }
+    // 미리보기는 same-origin embed를 기본으로 한다.
+    // (embed가 내부에서 drive preview로 redirect될 수는 있으나, 그 경우도 최소한 "보이기"는 가능해야 한다.)
+    state.previewEmbedSrc = apiUrl(`/api/drive/embed/${encodeURIComponent(fileId)}${roomParam}`);
+
+    state.renderedFileId = String(fileId);
+    await renderSpread(state.pageNo);
+    setHidden('pageHud', false);
+    setText('pageHud', '스트리밍이 제한되어 미리보기(슬라이스) 모드로 열었습니다(보기 전용)');
+    setNetBadge(`PDF:preview ${Date.now() - t0}ms`);
+  } catch {
+    setHidden('pageHud', false);
+    setText('pageHud', 'PDF 로딩 실패: Drive 공유/권한 또는 fileId 확인');
+    setNetBadge('PDF:fail', { ok: false });
   }
 }
 

@@ -1,4 +1,8 @@
 const $ = (id) => document.getElementById(id);
+const setDisplay = (id, display) => {
+  const el = $(id);
+  if (el) el.style.display = display;
+};
 let syncRunning = false;
 let syncPoller = null;
 
@@ -27,11 +31,11 @@ async function apiJson(url, method, body) {
 }
 
 function showAuthed(on) {
-  $('loginCard').style.display = on ? 'none' : 'block';
+  setDisplay('loginCard', on ? 'none' : 'block');
   // CSV 임포트 기능은 더 이상 사용하지 않으므로 UI에서 제거
-  ['meCard', 'mainCard', 'usersCard', 'syncCard', 'parseErrorCard', 'trafficCard'].forEach((id) => {
-    $(id).style.display = on ? 'block' : 'none';
-  });
+  ['meCard', 'mainCard', 'usersCard', 'syncCard', 'parseErrorCard', 'trafficCard'].forEach((id) =>
+    setDisplay(id, on ? 'block' : 'none')
+  );
 }
 
 async function refreshMe() {
@@ -40,7 +44,7 @@ async function refreshMe() {
     showAuthed(false);
     return null;
   }
-  $('meText').textContent = `${me.user.userId} (${me.user.role})`;
+  if ($('meText')) $('meText').textContent = `${me.user.userId} (${me.user.role})`;
   showAuthed(true);
   return me.user;
 }
@@ -89,51 +93,54 @@ async function loadMain() {
   const r = await apiGet('/api/main');
   if (!r.ok) return;
   const d = r.data;
-  $('titleImage').value = d.titleImage || '';
-  $('bannerImage').value = d.bannerImage || '';
-  $('notice').value = d.notice || '';
-  $('discordUrl').value = d.discordUrl || '';
-  $('youtubeUrl').value = d.youtubeUrl || '';
-  $('chzzkUrl').value = d.chzzkUrl || '';
+  if ($('titleImage')) $('titleImage').value = d.titleImage || '';
+  if ($('bannerImage')) $('bannerImage').value = d.bannerImage || '';
+  if ($('notice')) $('notice').value = d.notice || '';
+  if ($('discordUrl')) $('discordUrl').value = d.discordUrl || '';
+  if ($('youtubeUrl')) $('youtubeUrl').value = d.youtubeUrl || '';
+  if ($('chzzkUrl')) $('chzzkUrl').value = d.chzzkUrl || '';
 }
 
 async function saveMain() {
   const fields = ['titleImage', 'bannerImage', 'notice', 'discordUrl', 'youtubeUrl', 'chzzkUrl'];
   for (const f of fields) {
-    const v = $(f).value;
+    const el = $(f);
+    const v = el ? el.value : '';
     const r = await apiJson('/api/main', 'PATCH', { field: f, value: v });
     if (!r.ok) {
-      $('mainSaveOut').textContent = `저장 실패: ${r.error || ''}`;
+      if ($('mainSaveOut')) $('mainSaveOut').textContent = `저장 실패: ${r.error || ''}`;
       return;
     }
   }
-  $('mainSaveOut').textContent = '저장 완료';
-  setTimeout(() => ($('mainSaveOut').textContent = ''), 1200);
+  if ($('mainSaveOut')) $('mainSaveOut').textContent = '저장 완료';
+  setTimeout(() => {
+    if ($('mainSaveOut')) $('mainSaveOut').textContent = '';
+  }, 1200);
 }
 
 async function loadDriveRoot() {
   const r = await apiGet('/api/admin/drive-root');
   if (!r.ok) return;
-  $('rootFolderId').value = r.rootFolderId || '';
+  if ($('rootFolderId')) $('rootFolderId').value = r.rootFolderId || '';
 }
 
 async function saveDriveRoot() {
-  const rootFolderId = $('rootFolderId').value.trim();
+  const rootFolderId = ($('rootFolderId')?.value || '').trim();
   const r = await apiJson('/api/admin/drive-root', 'PATCH', { rootFolderId });
   if (!r.ok) return alert('저장 실패');
-  $('rootFolderId').value = r.rootFolderId || '';
+  if ($('rootFolderId')) $('rootFolderId').value = r.rootFolderId || '';
 }
 
 async function syncDrive() {
   const payload = {
-    rootFolderId: $('rootFolderId').value.trim(),
-    latestDays: Number($('latestDays').value || 30),
+    rootFolderId: ($('rootFolderId')?.value || '').trim(),
+    latestDays: Number($('latestDays')?.value || 30),
     limit: 5000,
     incremental: Boolean($('incrementalToggle')?.checked),
     pruneMissing: Boolean($('pruneToggle')?.checked)
   };
   const r = await apiJson('/api/admin/sync/drive', 'POST', payload);
-  $('syncOut').textContent = JSON.stringify(r, null, 2);
+  if ($('syncOut')) $('syncOut').textContent = JSON.stringify(r, null, 2);
   await loadSyncStatus();
 }
 
@@ -142,7 +149,7 @@ async function loadSyncStatus() {
   if (!r.ok) return;
   const s = r.status;
   if (!s) {
-    $('syncStatusLine').textContent = '-';
+    if ($('syncStatusLine')) $('syncStatusLine').textContent = '-';
     syncRunning = false;
     const btn = $('syncBtn');
     if (btn) btn.textContent = '동기화 실행';
@@ -151,7 +158,7 @@ async function loadSyncStatus() {
   const msg = s.running
     ? `RUNNING · processed=${s.processed ?? 0} skipped=${s.skipped ?? 0}${s.currentPath ? ` · path=${s.currentPath}` : ''}${s.currentFile ? ` · file=${s.currentFile}` : ''}`
     : `endedAt=${s.endedAt || '-'} · processed=${s.processed ?? '-'} · skipped=${s.skipped ?? '-'} · hidden=${s.hiddenCount ?? '-'}`;
-  $('syncStatusLine').textContent = msg;
+  if ($('syncStatusLine')) $('syncStatusLine').textContent = msg;
   syncRunning = Boolean(s.running);
   const btn = $('syncBtn');
   if (btn) btn.textContent = syncRunning ? '동기화 중지' : '동기화 실행';
@@ -171,8 +178,8 @@ async function loadParseErrors() {
   const r = await apiGet('/api/admin/songs/parse-errors?limit=200');
   if (!r.ok) return;
   const wrap = $('parseErrorList');
-  wrap.innerHTML = '';
-  $('parseErrorOut').textContent = `총 ${r.items?.length || 0}건`;
+  if (wrap) wrap.innerHTML = '';
+  if ($('parseErrorOut')) $('parseErrorOut').textContent = `총 ${r.items?.length || 0}건`;
 
   (r.items || []).forEach((s) => {
     const parseLabel = (() => {
@@ -224,7 +231,7 @@ async function loadParseErrors() {
       if (rr.renameError) alert(`저장은 됐는데 파일명 변경 실패: ${rr.renameError}`);
       el.remove();
     };
-    wrap.appendChild(el);
+    if (wrap) wrap.appendChild(el);
   });
 }
 
@@ -316,47 +323,47 @@ async function resetTraffic() {
 }
 
 function wire() {
-  $('loginBtn').onclick = async () => {
-    const userId = $('loginId').value.trim();
-    const password = $('loginPw').value;
+  $('loginBtn')?.addEventListener?.('click', async () => {
+    const userId = ($('loginId')?.value || '').trim();
+    const password = $('loginPw')?.value || '';
     const r = await apiJson('/api/admin/login', 'POST', { userId, password });
-    $('loginOut').textContent = JSON.stringify(r, null, 2);
+    if ($('loginOut')) $('loginOut').textContent = JSON.stringify(r, null, 2);
     if (r.ok) location.reload();
-  };
+  });
 
-  $('logoutBtn').onclick = async () => {
+  $('logoutBtn')?.addEventListener?.('click', async () => {
     await apiJson('/api/admin/logout', 'POST', {});
     location.reload();
-  };
+  });
 
-  $('saveMainBtn').onclick = () => saveMain().catch(() => {});
-  $('saveRootFolderBtn').onclick = () => saveDriveRoot().catch(() => {});
-  $('syncBtn').onclick = async () => {
+  $('saveMainBtn')?.addEventListener?.('click', () => saveMain().catch(() => {}));
+  $('saveRootFolderBtn')?.addEventListener?.('click', () => saveDriveRoot().catch(() => {}));
+  $('syncBtn')?.addEventListener?.('click', async () => {
     if (syncRunning) {
       const r = await apiJson('/api/admin/sync/stop', 'POST', {});
-      $('syncOut').textContent = JSON.stringify(r, null, 2);
+      if ($('syncOut')) $('syncOut').textContent = JSON.stringify(r, null, 2);
       await loadSyncStatus();
       return;
     }
     await syncDrive();
-  };
-  $('reloadParseErrorsBtn').onclick = () => loadParseErrors().catch(() => {});
-  $('reloadTrafficBtn').onclick = () => loadTraffic().catch(() => {});
-  $('resetTrafficBtn').onclick = () => resetTraffic().catch(() => {});
+  });
+  $('reloadParseErrorsBtn')?.addEventListener?.('click', () => loadParseErrors().catch(() => {}));
+  $('reloadTrafficBtn')?.addEventListener?.('click', () => loadTraffic().catch(() => {}));
+  $('resetTrafficBtn')?.addEventListener?.('click', () => resetTraffic().catch(() => {}));
 
-  $('reloadUsersBtn').onclick = () => loadUsers().catch(() => {});
-  $('createUserBtn').onclick = async () => {
-    const userId = $('newUserId').value.trim();
-    const role = $('newUserRole').value;
-    const displayName = $('newUserName').value.trim();
+  $('reloadUsersBtn')?.addEventListener?.('click', () => loadUsers().catch(() => {}));
+  $('createUserBtn')?.addEventListener?.('click', async () => {
+    const userId = ($('newUserId')?.value || '').trim();
+    const role = $('newUserRole')?.value || '';
+    const displayName = ($('newUserName')?.value || '').trim();
     if (!userId) return alert('userId를 입력하세요');
     const r = await apiJson('/api/admin/users', 'POST', { userId, role, displayName });
     if (!r.ok) return alert('생성 실패');
-    $('newUserId').value = '';
-    $('newUserName').value = '';
+    if ($('newUserId')) $('newUserId').value = '';
+    if ($('newUserName')) $('newUserName').value = '';
     alert(`생성 완료: ${userId} (PW: ${r.password || '1234'})`);
     await loadUsers();
-  };
+  });
 }
 
 async function boot() {

@@ -636,21 +636,24 @@ function stopCursorShare(sendHide = false) {
   ensureCursorEls();
   if (localCursorEl) localCursorEl.style.display = 'none';
   if (cursorMoveHandler) {
-    const c = state.mode === 'chord' ? document.getElementById('cwInner') : document.getElementById('pdf-container');
-    c?.removeEventListener('pointermove', cursorMoveHandler);
+    const c = document.getElementById('stage') || document.getElementById('pdf-container');
+    c?.removeEventListener('pointermove', cursorMoveHandler, { capture: true });
+    // fallback
     c?.removeEventListener('mousemove', cursorMoveHandler);
     c?.removeEventListener('touchmove', cursorMoveHandler);
   }
   if (cursorDownHandler) {
-    const c = state.mode === 'chord' ? document.getElementById('cwInner') : document.getElementById('pdf-container');
-    c?.removeEventListener('pointerdown', cursorDownHandler);
+    const c = document.getElementById('stage') || document.getElementById('pdf-container');
+    c?.removeEventListener('pointerdown', cursorDownHandler, { capture: true });
+    // fallback
     c?.removeEventListener('mousedown', cursorDownHandler);
     c?.removeEventListener('touchstart', cursorDownHandler);
   }
   if (cursorUpHandler) {
-    const c = state.mode === 'chord' ? document.getElementById('cwInner') : document.getElementById('pdf-container');
-    c?.removeEventListener('pointerup', cursorUpHandler);
-    c?.removeEventListener('pointercancel', cursorUpHandler);
+    const c = document.getElementById('stage') || document.getElementById('pdf-container');
+    c?.removeEventListener('pointerup', cursorUpHandler, { capture: true });
+    c?.removeEventListener('pointercancel', cursorUpHandler, { capture: true });
+    // fallback
     c?.removeEventListener('mouseup', cursorUpHandler);
     c?.removeEventListener('mouseleave', cursorUpHandler);
     c?.removeEventListener('touchend', cursorUpHandler);
@@ -673,15 +676,14 @@ function startCursorShare() {
     return;
   }
   ensureCursorEls();
-  // 커서공유는 "표시"가 핵심이므로 chord 모드에서는 select로 강제(스크롤/포인터 안정)
-  // (주의) setTool은 cursorShareOn이면 stopCursorShare를 호출하므로, 먼저 tool을 정리한 뒤 켠다.
-  if (state.mode === 'chord') setTool('select');
+  // 커서공유는 "표시(오버레이)" 기능이므로, 악보/코드 모드 모두에서
+  // 레이저/주석 도구와 동시에 켤 수 있어야 한다.
   state.cursorShareOn = true;
   updateCursorShareUI();
   updateToolActiveUI();
 
-  // chord 모드는 캔버스가 위를 덮기 때문에, cwScroll이 아니라 상위 컨테이너(cwInner)에 걸어야 이벤트가 잡힌다.
-  const container = state.mode === 'chord' ? document.getElementById('cwInner') : document.getElementById('pdf-container');
+  // stage에 capture로 걸어, Fabric이 포인터를 먹어도 커서공유가 항상 동작하게 한다.
+  const container = document.getElementById('stage') || document.getElementById('pdf-container');
   if (!container) return;
 
   cursorDownHandler = (e) => {
@@ -754,9 +756,9 @@ function startCursorShare() {
     socket.emit('viewer:cursor', { roomCode: state.roomCode, fileId: state.fileId, pageNo, xPageNorm, yPageNorm, mode });
   };
 
-  container.addEventListener('pointerdown', cursorDownHandler, { passive: true });
-  container.addEventListener('pointerup', cursorUpHandler, { passive: true });
-  container.addEventListener('pointercancel', cursorUpHandler, { passive: true });
+  container.addEventListener('pointerdown', cursorDownHandler, { passive: true, capture: true });
+  container.addEventListener('pointerup', cursorUpHandler, { passive: true, capture: true });
+  container.addEventListener('pointercancel', cursorUpHandler, { passive: true, capture: true });
   // fallback
   container.addEventListener('mousedown', cursorDownHandler, { passive: true });
   container.addEventListener('mouseup', cursorUpHandler, { passive: true });
@@ -765,7 +767,7 @@ function startCursorShare() {
   container.addEventListener('touchend', cursorUpHandler, { passive: true });
   container.addEventListener('touchcancel', cursorUpHandler, { passive: true });
 
-  container.addEventListener('pointermove', cursorMoveHandler, { passive: true });
+  container.addEventListener('pointermove', cursorMoveHandler, { passive: true, capture: true });
   // fallback
   container.addEventListener('mousemove', cursorMoveHandler, { passive: true });
   container.addEventListener('touchmove', cursorMoveHandler, { passive: true });
@@ -3847,8 +3849,7 @@ function setTool(tool, shape = null) {
   if (state.isInSession && !canUseToolsNow() && tool !== 'select') {
     flashHud('로컬 주석 모드(공유 안됨)', 900);
   }
-  // 커서공유는 "표시 모드"이므로, 다른 도구로 전환하면 자동 중단
-  if (state.cursorShareOn) stopCursorShare(true);
+  // 커서공유는 "표시(오버레이)" 기능이므로, 도구 전환으로 자동 중단하지 않는다.
   state.tool = tool;
   state.shape = shape;
   document.body.dataset.tool = tool;

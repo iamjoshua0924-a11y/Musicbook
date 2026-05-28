@@ -108,7 +108,22 @@ router.get('/songs/cards', async (req, res) => {
     availSet = new Set((items || []).map((x) => x.googleFileId));
   }
 
-  const songs = await Song.find(filter).sort({ title: 1, artist: 1, key: 1, googleFileId: 1 }).limit(5000).lean();
+  const [songs, totalDocs, totalCardsAgg] = await Promise.all([
+    Song.find(filter).sort({ title: 1, artist: 1, key: 1, googleFileId: 1 }).limit(5000).lean(),
+    Song.countDocuments(filter),
+    Song.aggregate([
+      { $match: filter },
+      {
+        $project: {
+          t: { $toLower: { $ifNull: ['$displayTitle', '$title'] } },
+          a: { $toLower: { $ifNull: ['$artist', ''] } }
+        }
+      },
+      { $group: { _id: { t: '$t', a: '$a' } } },
+      { $count: 'n' }
+    ]).allowDiskUse(true)
+  ]);
+  const totalCards = Number(totalCardsAgg?.[0]?.n || 0);
   const cardsByKey = new Map(); // cardKey -> card
   const fileIdToCardKey = new Map(); // googleFileId -> cardKey
   const fixOps = [];
@@ -239,7 +254,16 @@ router.get('/songs/cards', async (req, res) => {
     });
   }
 
-  res.json({ ok: true, items: cards, total: cards.length });
+  res.json({
+    ok: true,
+    items: cards,
+    // 정확한 수치(5000 cap 무관)
+    totalDocs,
+    totalCards,
+    // 하위 호환: 기존 클라이언트용
+    total: totalCards,
+    truncated: Number(totalDocs || 0) > 5000
+  });
 });
 
 // session/admin: 태그가 비어있는 곡은 "최초 1회" 입력을 유도(빈 값만 채움)

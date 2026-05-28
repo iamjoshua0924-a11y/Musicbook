@@ -4313,9 +4313,11 @@ socket.on('session:participants', (p) => {
   const mergedMap = new Map();
   (p?.members || []).forEach((m) => {
     const nameKey = String(m?.displayName || m?.nickname || '익명').trim() || '익명';
-    const prev = mergedMap.get(nameKey);
+    // '익명'은 서로 다른 사람/탭일 가능성이 높아 병합하지 않는다.
+    const mergeKey = nameKey === '익명' ? `익명:${String(m?.socketId || Math.random())}` : nameKey;
+    const prev = mergedMap.get(mergeKey);
     if (!prev) {
-      mergedMap.set(nameKey, { ...m });
+      mergedMap.set(mergeKey, { ...m });
       return;
     }
     const keep =
@@ -4329,7 +4331,7 @@ socket.on('session:participants', (p) => {
               ? m
               : prev;
     const other = keep === prev ? m : prev;
-    mergedMap.set(nameKey, {
+    mergedMap.set(mergeKey, {
       ...keep,
       // flags merge
       isPageTurner: Boolean(keep.isPageTurner || other.isPageTurner),

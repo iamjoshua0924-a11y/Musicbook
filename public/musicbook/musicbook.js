@@ -28,6 +28,8 @@ const state = {
   main: null,
   songCardsAll: [],
   songCardsFiltered: [],
+  songCardsTotal: 0, // 서버 기준 전체 카드 수(5000 제한과 무관)
+  songFilesTotal: 0, // 서버 기준 전체 파일 수(5000 제한과 무관)
   songFilesAll: [], // fileId 단위(세션 팔로우/가능곡 편집 등에서 사용)
   songFilesFiltered: [],
   requests: [],
@@ -277,6 +279,7 @@ async function loadSongs(force = false) {
   if (!force && state.songCardsAll.length) return;
   const data = await apiGet('/api/songs/cards');
   if (!data.ok) throw new Error('songs load failed');
+  state.songCardsTotal = Number(data.totalCards || 0) || Number(data.total || 0) || 0;
   state.songCardsAll = (data.items || []).map((c) => ({
     ...c,
     keyLabel: (c.keys || []).filter(Boolean).join('/') || '-',
@@ -293,6 +296,7 @@ async function loadSongFiles(force = false) {
   if (!force && state.songFilesAll.length) return;
   const data = await apiGet('/api/songs?limit=5000');
   if (!data.ok) throw new Error('songs load failed');
+  state.songFilesTotal = Number(data.total || 0) || 0;
   state.songFilesAll = (data.items || []).map((s) => ({
     ...s,
     // 최신곡 정렬 버튼(createdAt)을 "드라이브 수정일" 기반으로 쓰기 위해 ms 필드 추가
@@ -479,7 +483,8 @@ function applySongFilters() {
     });
 
     state.songFilesFiltered = list;
-    $('resultCount').textContent = `검색 결과: ${list.length}개(파일 단위)`;
+    const totalLabel = state.songFilesTotal ? ` / 전체: ${state.songFilesTotal}개` : '';
+    $('resultCount').textContent = `검색 결과: ${list.length}개(파일 단위)${totalLabel}`;
     renderAvailabilityEditCards(hideTags);
     renderPager();
     return;
@@ -521,7 +526,8 @@ function applySongFilters() {
   });
 
   state.songCardsFiltered = list;
-  $('resultCount').textContent = `검색 결과: ${list.length}곡`;
+  const totalCardsLabel = state.songCardsTotal ? ` / 전체: ${state.songCardsTotal}곡` : '';
+  $('resultCount').textContent = `검색 결과: ${list.length}곡${totalCardsLabel}`;
   renderSongCards(hideTags);
   renderPager();
 }

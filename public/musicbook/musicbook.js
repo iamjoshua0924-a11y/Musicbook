@@ -1352,6 +1352,12 @@ async function doLogin() {
   closeModal('loginModal');
   $('loginPw').value = '';
   await refreshSession();
+  // 사파리/파이어폭스는 cross-site 쿠키(깃헙페이지 -> onrender) 저장이 차단될 수 있다.
+  // 이 경우 login 응답은 ok이지만, /api/admin/me가 계속 실패하며 "로그인이 안된 것처럼" 보인다.
+  if (state.role === 'viewer') {
+    toast('로그인 쿠키가 저장되지 않았습니다(사파리/파폭 추적차단/타사 쿠키 설정 확인).');
+    return;
+  }
   // 로그인 직후에도 곡 카드 클릭/선택이 바로 활성화되도록 UI를 재렌더링한다.
   applySongFilters();
   await refreshSocketMetaAndReconnect();

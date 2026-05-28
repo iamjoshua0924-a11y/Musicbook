@@ -1441,7 +1441,9 @@ function wireEvents() {
 
   $('requestPopoutBtn').onclick = () => {
     try {
-      window.open('/requests', 'requestBoard', 'width=420,height=820');
+      // GitHub Pages(/Musicbook/public/musicbook/)에서도 동작하도록 상대 경로로 계산
+      const url = new URL('../requests/', window.location.href).toString();
+      window.open(url, 'requestBoard', 'width=420,height=820');
     } catch {}
   };
   $('requestHideBtn').onclick = () => {

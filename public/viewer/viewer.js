@@ -1227,6 +1227,10 @@ function setPreviewBaseOffsetPx(px) {
   document.documentElement.style.setProperty('--previewBaseOffsetPx', `${v}px`);
 }
 
+function setPreviewScale(s) {
+  const v = clamp(Number(s) || 1, 0.6, 2.0);
+  document.documentElement.style.setProperty('--previewScale', String(v));
+}
 function applyStateFromUrl() {
   const p = Number(qs('p') || '');
   const s = Number(qs('s') || '');
@@ -2762,32 +2766,8 @@ const els = {
   pageHud: document.getElementById('pageHud')
 };
 
-// Preview iframe load detector:
-// - embed(same-origin)면 slicing 가능
-// - drive preview(cross-origin)로 떨어지면 외부 pagination이 불가능하므로 plain 모드로 내려간다.
-try {
-  els.pdfPreview?.addEventListener?.('load', () => {
-    if (!state.previewMode) return;
-    let cross = false;
-    try {
-      // cross-origin이면 여기서 SecurityError
-      // eslint-disable-next-line no-unused-vars
-      const _href = els.pdfPreview?.contentWindow?.location?.href;
-    } catch {
-      cross = true;
-    }
-    if (cross && state.previewVirtualMode) {
-      state.previewVirtualMode = false;
-      updateToolActiveUI();
-      updatePreviewVirtualLayout();
-      // 배지로 상태를 명확히 보여준다.
-      try {
-        setNetBadge('PDF:drive-preview');
-      } catch {}
-      flashHud('Drive 미리보기 모드(페이지 넘김 제한)', 1200);
-    }
-  });
-} catch {}
+// NOTE: Drive preview(크로스 오리진)에서도 slicing이 가능한 성공 사례가 있어,
+// cross-origin 여부로 previewVirtual을 끄지 않는다.
 
 /** @type {Map<number, any>} */
 const viewMap = new Map(); // pageNo -> view
@@ -3417,17 +3397,14 @@ function applySnapshotToPage(pageNo, pageSnapshot) {
 
 function updatePreviewVirtualLayout() {
   if (!els.previewRoot || !els.previewViewport || !els.pdfPreview) return;
-  // drive preview(크로스 오리진)에서는 외부에서 pagination slicing이 사실상 불가능하므로 plain 모드로 전환한다.
+  // previewVirtualMode=false는 plain(기존 iframe)로만 보여준다.
   if (!state.previewVirtualMode) {
-    try {
-      els.previewRoot.classList.toggle('preview-plain', true);
-    } catch {}
+    try { els.previewRoot.classList.toggle('preview-plain', true); } catch {}
     setPreviewBaseOffsetPx(0);
+    setPreviewScale(1);
     return;
   }
-  try {
-    els.previewRoot.classList.toggle('preview-plain', false);
-  } catch {}
+  try { els.previewRoot.classList.toggle('preview-plain', false); } catch {}
   const contW = Math.max(1, els.pdfContainer?.clientWidth || 1);
   const contH = Math.max(1, els.pdfContainer?.clientHeight || 1);
   const pad = 24;
@@ -3443,16 +3420,14 @@ function updatePreviewVirtualLayout() {
     els.previewViewport.style.height = `${Math.round(vpH)}px`;
   } catch {}
 
-  // "프리로드" 느낌: 현재 + next2까지 보이는 영역이 iframe viewport에 포함되도록 높이를 점진적으로 늘린다.
-  const maxPages = Math.max(1, Number(state.previewVirtualMaxPages || 15));
-  const targetPages = Math.min(maxPages, Math.max(3, Number(state.pageNo || 1) + 2));
-  state._previewRenderedPages = Math.max(Number(state._previewRenderedPages || 0), targetPages);
-  try {
-    els.pdfPreview.style.height = `${Math.round(vpH * state._previewRenderedPages)}px`;
-  } catch {}
+  // 성공 사례(GAS)처럼 iframe은 매우 큰 높이로 두고, translateY로 slicing 한다.
+  try { els.pdfPreview.style.height = '50000px'; } catch {}
 
-  const base = -Math.round((Math.max(1, Number(state.pageNo || 1)) - 1) * vpH);
+  const overlap = 30; // 성공 사례 기본값에 맞춤(미세한 하단 UI/드리프트 흡수)
+  const step = Math.max(40, vpH - overlap);
+  const base = -Math.round((Math.max(1, Number(state.pageNo || 1)) - 1) * step);
   setPreviewBaseOffsetPx(base);
+  setPreviewScale(1);
 }
 
 async function renderSpread(leftPageNo) {
@@ -3553,6 +3528,7 @@ async function loadPdf(fileId) {
   state.previewVirtualMode = false;
   state._previewRenderedPages = 0;
   setPreviewBaseOffsetPx(0);
+  setPreviewScale(1);
 
   // 1) 서버에서 Drive 직접 URL 요청(대역폭 절감). 실패 시 기존 스트리밍으로 fallback.
   /** @type {string|null} */
@@ -3639,6 +3615,7 @@ async function loadPdf(fileId) {
       state.previewEmbedSrc = apiUrl(`/api/drive/embed/${encodeURIComponent(fileId)}${roomParam}`);
       try {
         const pr = await fetch(apiUrl(`/api/drive/preview/${encodeURIComponent(fileId)}`)).then((r) => r.json());
+        // pseudo-pagination은 Drive preview URL을 직접 쓰는 편이 안정적(성공 사례 기준)
         if (pr?.ok && pr.previewUrl) state.previewEmbedSrc = String(pr.previewUrl);
       } catch {}
 

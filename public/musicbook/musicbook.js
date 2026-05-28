@@ -161,17 +161,34 @@ function switchPage(page) {
 
 // ---- API -------------------------------------------------------------------------
 async function apiGet(url) {
-  const res = await fetch(apiUrl(url), { credentials: 'include' });
-  return res.json();
+  try {
+    const res = await fetch(apiUrl(url), { credentials: 'include' });
+    try {
+      return await res.json();
+    } catch {
+      return { ok: false, error: `BAD_JSON:${res.status}` };
+    }
+  } catch (e) {
+    // CORS/광고차단/망 차단 등으로 fetch 자체가 실패하면 여기로 온다.
+    return { ok: false, error: `NETWORK_ERROR:${String(e?.message || e)}` };
+  }
 }
 async function apiJson(url, method, body) {
-  const res = await fetch(apiUrl(url), {
-    method,
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body ?? {})
-  });
-  return res.json();
+  try {
+    const res = await fetch(apiUrl(url), {
+      method,
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body ?? {})
+    });
+    try {
+      return await res.json();
+    } catch {
+      return { ok: false, error: `BAD_JSON:${res.status}` };
+    }
+  } catch (e) {
+    return { ok: false, error: `NETWORK_ERROR:${String(e?.message || e)}` };
+  }
 }
 
 function updateProfileImage(id, url) {
@@ -1327,7 +1344,11 @@ async function doLogin() {
   const password = $('loginPw').value;
   if (!userId || !password) return toast('아이디/비번을 입력해 주세요.');
   const res = await apiJson('/api/admin/login', 'POST', { userId, password });
-  if (!res.ok) return toast('로그인 실패');
+  if (!res.ok) {
+    // 네트워크/CORS 차단이면 사용자에게 원인을 보여준다.
+    if (String(res.error || '').startsWith('NETWORK_ERROR')) return toast('로그인 요청이 차단되었습니다(네트워크/확장프로그램/CORS).');
+    return toast('로그인 실패');
+  }
   closeModal('loginModal');
   $('loginPw').value = '';
   await refreshSession();

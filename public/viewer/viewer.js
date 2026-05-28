@@ -2686,6 +2686,33 @@ window.addEventListener('keydown', (e) => {
   }
 
   const { prev, next } = loadBoundKeys();
+
+  // CodeWiki mode: page-turn keys should scroll by half viewport (page turner style).
+  // - PgDn / ArrowDown: scroll down
+  // - PgUp / ArrowUp: scroll up
+  // - also respect custom bind list if user bound those keys
+  if (state.mode === 'chord') {
+    const isNext =
+      next.includes(e.key) || e.key === 'PageDown' || e.key === 'ArrowDown' || (e.key === ' ' && next.includes(' '));
+    const isPrev = prev.includes(e.key) || e.key === 'PageUp' || e.key === 'ArrowUp';
+    if (isNext || isPrev) {
+      if (e.key === ' ') e.preventDefault();
+      const el = cwScrollEl || document.getElementById('cwScroll');
+      if (!el) return;
+      const delta = (el.clientHeight || 0) * 0.5 * (isNext ? 1 : -1);
+      try {
+        el.scrollBy({ top: delta, left: 0, behavior: 'smooth' });
+      } catch {
+        el.scrollTop += delta;
+      }
+      // Keep annotation overlay aligned
+      try {
+        viewMap.get(1)?.fabric?.calcOffset?.();
+      } catch {}
+      return;
+    }
+  }
+
   if (next.includes(e.key)) {
     if (e.key === ' ') e.preventDefault();
     changePage(state.pageNo + pageTurnStep(), 'kbd');

@@ -106,16 +106,12 @@ function getOrCreateNickname() {
   const shared = String(localStorage.getItem(key) || '').trim();
   const legacy = String(localStorage.getItem('mb_nickname') || '').trim();
   const picked = shared || legacy;
-  if (picked && picked !== '익명') return picked;
-  // 익명 금지: 자동 임시 고유 닉네임 생성(프롬프트 없음)
-  const memberId = String(localStorage.getItem('mb_member_id') || '').trim() || getOrCreateMemberId();
-  const suffix = memberId.replace(/[^a-zA-Z0-9]/g, '').slice(-4) || String(Math.random()).slice(2, 6);
-  const nick = `게스트-${suffix}`;
-  try {
-    localStorage.setItem(key, nick);
-    localStorage.setItem('mb_nickname', nick);
-  } catch {}
-  return nick;
+  // NOTE:
+  // - 기존에는 '게스트-xxxx' 임시 닉네임을 자동 생성/저장했는데,
+  //   닉네임 변경이 꼬이는 케이스가 있어 자동 생성은 중단한다.
+  // - 과거 값이 남아있으면 무시하고, 실제 세션 참여 시 입력을 받는다.
+  if (picked && picked !== '익명' && !/^게스트-/.test(picked) && !/^guest-/.test(picked)) return picked;
+  return '익명';
 }
 
 function getOrCreateMemberId() {
@@ -307,6 +303,10 @@ async function ensureNickname() {
   localStorage.setItem('mb_presence_nick', nick);
   // legacy 키도 같이 저장(호환)
   localStorage.setItem('mb_nickname', nick);
+  // 닉네임이 UI/세션에 즉시 반영되도록 viewer는 displayName을 덮어쓴다.
+  try {
+    if (String(authState?.role || '') === 'viewer') authState.displayName = nick;
+  } catch {}
   return nick;
 }
 
@@ -1084,8 +1084,8 @@ function updateCursorShareUI() {
 function updateReactionUI() {
   const bar = document.getElementById('reactionBar');
   if (!bar) return;
-  // 기본 정책: 세션에 들어온 "팔로워"에게만 노출(턴너는 운영 UI만 사용)
-  const show = Boolean(state.isInSession && !state.isPageTurner);
+  // 도구바 패널로 이동: 세션 참여 중이면 모두 사용 가능(턴너 포함)
+  const show = Boolean(state.isInSession);
   bar.classList.toggle('hidden', !show);
   try {
     bar.querySelectorAll('button.reactionBtn').forEach((b) => {
@@ -1395,8 +1395,6 @@ const state = {
   // 커서공유 디폴트: 한줄전체(row)
   cursorShareMode: String(localStorage.getItem('mb_viewer_cursorMode') || 'row') === 'line' ? 'line' : 'row',
   nickname: getOrCreateNickname(),
-  nickname: getOrCreateNickname(),
-  overlapPx: 0,
   overlapPx: 0,
 
   pdfDoc: null,
@@ -1435,9 +1433,15 @@ const state = {
       const raw = localStorage.getItem('mb_viewer_quick_colors_v1') || '';
       const arr = raw ? JSON.parse(raw) : null;
       const ok = Array.isArray(arr) && arr.length === 4 && arr.every((x) => typeof x === 'string' && x.trim());
-      return ok ? arr.map((x) => String(x).trim()) : ['#ff2d55', '#ffd60a', '#0a84ff', '#111111'];
+      const v = ok ? arr.map((x) => String(x).trim()) : null;
+      // migrate: old default(빨/노/파/검) -> new default(빨/초/파/보라)
+      const oldDefault = ['#ff2d55', '#ffd60a', '#0a84ff', '#111111'];
+      const newDefault = ['#ff2d55', '#34c759', '#0a84ff', '#bf5af2'];
+      if (!v) return newDefault;
+      const sameOld = v.every((c, i) => String(c).toLowerCase() === String(oldDefault[i]).toLowerCase());
+      return sameOld ? newDefault : v;
     } catch {
-      return ['#ff2d55', '#ffd60a', '#0a84ff', '#111111'];
+      return ['#ff2d55', '#34c759', '#0a84ff', '#bf5af2'];
     }
   })(),
   // 텍스트 프리셋(주석 텍스트 빠른 입력)
@@ -1579,7 +1583,7 @@ function joinSession(roomCode) {
       roomCode: state.roomCode,
       nickname: state.nickname,
       role: authState.role,
-      displayName: authState.displayName,
+      displayName: authState.displayName || state.nickname || '익명',
       profilePhoto: authState.profilePhoto,
       memberId: state.memberId || ''
     },
@@ -1690,6 +1694,7 @@ const TEXT_PRESETS = [
   // 기본 cue
   { group: 'CUE', value: 'section' },
   { group: 'CUE', value: 'band in' },
+  { group: 'CUE', value: 'band out' },
   { group: 'CUE', value: 'break' },
   { group: 'CUE', value: 'piano in' },
   { group: 'CUE', value: 'drum in' },
@@ -1706,6 +1711,7 @@ const TEXT_PRESETS = [
   // 템포
   { group: 'TEMPO', value: 'halftime' },
   { group: 'TEMPO', value: 'doubletime' },
+  { group: 'TEMPO', value: 'original rythm' },
   // 보컬
   { group: 'VOCAL', value: 'vocal adlib' },
   { group: 'VOCAL', value: 'vocal 1' },
@@ -1908,7 +1914,7 @@ async function loadSongCardsIfNeeded() {
   setSongPickLoading(false);
   const q = document.getElementById('songPickSearch')?.value || songPickState.pendingQuery || '';
   renderSongPickList(pickCardMatchesAdvanced(q));
-  document.getElementById('songPickHint').textContent = `총 ${songCardsCache.length}곡 · 검색해서 선택`;
+  // hint는 renderSongPickList에서 필터/검색 결과 기준으로 갱신
 }
 
 // ---- SongPick: filters -------------------------------------------------------------
@@ -2049,7 +2055,47 @@ function pickCardMatchesAdvanced(q) {
 
   // keep list compact
   const cap = raw || genre || mood || vocal || ids.length ? 80 : 30;
-  return list.slice(0, cap);
+  songPickState._lastTotal = list.length;
+  const sliced = list.slice(0, cap);
+  songPickState._lastShown = sliced.length;
+  songPickState._lastCap = cap;
+  return sliced;
+}
+
+function pickCardMatchesAdvancedAll(q) {
+  const raw = String(q || '').trim();
+  const qNorm = normSearch(raw);
+  const qCho = raw.replace(/\s+/g, '');
+  const qIsCho = isChoseongQuery(qCho);
+  if (!songCardsCache) return [];
+
+  const genre = String(document.getElementById('songPickGenreFilter')?.value || '');
+  const mood = String(document.getElementById('songPickMoodFilter')?.value || '');
+  const vocal = String(document.getElementById('songPickVocalFilter')?.value || '');
+  let list = songCardsCache.slice();
+  if (genre) list = list.filter((c) => String(c.genre || '') === genre);
+  if (mood) list = list.filter((c) => String(c.mood || '') === mood);
+  if (vocal) list = list.filter((c) => String(c.vocal || '') === vocal);
+  if (raw) {
+    if (qIsCho) {
+      const qq = qCho;
+      list = list.filter((c) => String(c._searchCho || '').includes(qq) || String(c._titleCho || '').includes(qq) || String(c._artistCho || '').includes(qq));
+    } else if (qNorm) {
+      list = list.filter((c) => (c._searchNorm || '').includes(qNorm) || (c._titleNorm || '').includes(qNorm) || (c._artistNorm || '').includes(qNorm));
+    }
+  }
+  const ids = Array.isArray(songPickState.selectedAvailableVocalUserIds) ? songPickState.selectedAvailableVocalUserIds : [];
+  if (ids.length) {
+    list = list.filter((c) => {
+      const vars = Array.isArray(c.variants) ? c.variants : [];
+      return ids.every((uid) => {
+        const set = songPickState.availableSetsByUserId.get(uid);
+        if (!set) return false;
+        return vars.some((v) => set.has(String(v.googleFileId || '')));
+      });
+    });
+  }
+  return list;
 }
 
 function openFileInRoom(fileId, originalLink = '') {
@@ -2068,6 +2114,15 @@ function renderSongPickList(cards) {
   const wrap = document.getElementById('songPickList');
   if (!wrap) return;
   wrap.innerHTML = '';
+  try {
+    const hint = document.getElementById('songPickHint');
+    if (hint) {
+      const total = Number(songPickState._lastTotal || 0);
+      const shown = Number(songPickState._lastShown || 0);
+      const all = Array.isArray(songCardsCache) ? songCardsCache.length : 0;
+      hint.textContent = `검색/필터 결과 ${total}곡 (표시 ${shown}곡) · 전체 ${all}곡`;
+    }
+  } catch {}
   (cards || []).forEach((c) => {
     const el = document.createElement('div');
     el.className = 'songPickItem';
@@ -2129,7 +2184,6 @@ function applyStateFromUrl() {
   const s = Number(qs('s') || '');
   const z = Number(qs('z') || '');
   const fit = String(qs('fit') || '').trim().toLowerCase();
-  const po = Number(qs('po') || '');
   const py = Number(qs('py') || '');
 
   if (Number.isFinite(p) && p > 0) state.pageNo = Math.floor(p);
@@ -2139,7 +2193,6 @@ function applyStateFromUrl() {
     state.fitMode = false;
     state.zoom = clamp(z, 0.5, 3);
   }
-  if (Number.isFinite(po)) state.overlapPx = clamp(po, 0, 40);
   if (Number.isFinite(py)) setPreviewYOffsetPx(py);
 }
 applyStateFromUrl();
@@ -2164,7 +2217,8 @@ const updateUrlState = debounce(() => {
     u.searchParams.delete('fit');
     u.searchParams.set('z', String(state.zoom || 1));
   }
-  u.searchParams.set('po', String(state.overlapPx || 0));
+  // NOTE: 겹침(overlap) UI 제거됨 (기본값 고정)
+  u.searchParams.delete('po');
   window.history.replaceState(null, '', `${u.pathname}?${u.searchParams.toString()}`);
 }, 120);
 
@@ -3384,6 +3438,14 @@ document.getElementById('rehearsalToggleBtn')?.addEventListener('click', () => {
     updateRehearsalToggleUI();
     updateReadyBtnUI();
     flashHud(state.rehearsalActive ? '합주 시작됨' : '합주 종료됨 (준비 초기화)', 1200);
+    // 작은 피드백(연출)
+    try {
+      pulseBpmBar();
+      if (state.rehearsalActive) setTimeout(() => pulseBpmBar(), 220);
+    } catch {}
+    try {
+      if (navigator?.vibrate) navigator.vibrate(state.rehearsalActive ? [30, 40, 30] : [40]);
+    } catch {}
   });
 });
 
@@ -3409,6 +3471,35 @@ document.getElementById('songBookPickBtn')?.addEventListener('click', () => {
   openSongPickModal();
 });
 document.getElementById('songPickCloseBtn')?.addEventListener('click', () => closeSongPickModal());
+document.getElementById('songPickRandomBtn')?.addEventListener('click', () => {
+  try {
+    if (!songCardsCache) {
+      flashHud('곡 목록 로딩 중...', 900);
+      return;
+    }
+    const ids = Array.isArray(songPickState.selectedAvailableVocalUserIds) ? songPickState.selectedAvailableVocalUserIds : [];
+    if (ids.length) {
+      const missing = ids.some((uid) => !songPickState.availableSetsByUserId.get(uid));
+      if (missing) {
+        flashHud('가능보컬 필터 로딩 중...', 1000);
+        return;
+      }
+    }
+    const q = document.getElementById('songPickSearch')?.value || '';
+    const list = pickCardMatchesAdvancedAll(q);
+    if (!list.length) {
+      flashHud('랜덤 뽑을 곡이 없음(필터/검색 확인)', 1100);
+      return;
+    }
+    const picked = list[Math.floor(Math.random() * list.length)];
+    const vars = Array.isArray(picked?.variants) ? picked.variants : [];
+    const v = vars.length ? vars[Math.floor(Math.random() * vars.length)] : null;
+    if (!v?.googleFileId) return;
+    closeSongPickModal();
+    flashHud(`랜덤: ${String(picked.title || '')}`, 900);
+    openFileInRoom(v.googleFileId, v.driveUrl || '');
+  } catch {}
+});
 document.getElementById('songPickModal')?.addEventListener('click', (e) => {
   if (e.target?.id === 'songPickModal') closeSongPickModal();
 });
@@ -3511,35 +3602,26 @@ try {
       btn.addEventListener('click', () => {
         const emoji = String(btn.dataset.emoji || '').trim();
         if (!emoji) return;
-        state.reactionEmoji = emoji;
-        state.reactionArmed = true;
+        // toggle style: same emoji re-click => off
+        if (state.reactionArmed && String(state.reactionEmoji || '') === emoji) {
+          state.reactionArmed = false;
+        } else {
+          state.reactionEmoji = emoji;
+          state.reactionArmed = true;
+        }
         updateReactionUI();
-        flashHud('악보를 클릭해서 위치를 찍어주세요', 1200);
+        if (state.reactionArmed) flashHud('악보를 클릭해서 이모지를 찍어주세요', 1100);
+        else flashHud('이모지 모드 해제', 800);
       });
     });
   }
 } catch {}
 
-// overlap slider (GAS style)
-function setSpreadOverlapPx(px) {
-  const v = Math.max(0, Math.min(40, Number(px) || 0));
-  state.overlapPx = v;
-  document.documentElement.style.setProperty('--spreadOverlapPx', `${v}px`);
-  const label = document.getElementById('overlapLabel');
-  if (label) label.textContent = `${v}px`;
-  localStorage.setItem('mb_viewer_overlap', String(v));
-}
-const savedOverlap = Number(localStorage.getItem('mb_viewer_overlap') || '0');
-setSpreadOverlapPx(Number.isFinite(state.overlapPx) ? state.overlapPx : savedOverlap);
-const overlapRange = document.getElementById('overlapRange');
-if (overlapRange) {
-  overlapRange.value = String(Number.isFinite(state.overlapPx) ? state.overlapPx : savedOverlap);
-  overlapRange.addEventListener('input', (e) => {
-    setSpreadOverlapPx(e.target.value);
-    emitViewerSettings('overlap');
-    updateUrlState();
-  });
-}
+// 겹침(overlap) 슬라이더 제거됨: 기본값 0px 고정
+try {
+  state.overlapPx = 0;
+  document.documentElement.style.setProperty('--spreadOverlapPx', `0px`);
+} catch {}
 
 // ---- BPM / metronome (local only) -------------------------------------------------
 let _metroTimer = null;
@@ -3663,14 +3745,17 @@ document.getElementById('sessionFloatBtn')?.addEventListener('click', async () =
     state.nickname = nick;
     localStorage.setItem('mb_presence_nick', nick);
     localStorage.setItem('mb_nickname', nick);
-    authState.displayName = authState.displayName || nick;
+    // viewer는 displayName을 입력 닉네임으로 고정(기존 게스트-xxxx 잔존 방지)
+    if (String(authState?.role || '') === 'viewer') authState.displayName = nick;
+    else authState.displayName = authState.displayName || nick;
     socket.auth = { ...(socket.auth || {}), nickname: nick };
     const room = safeRoomCode(v.room || urlRoom);
     if (room) return joinSession(room);
   } else {
     const nick = await ensureNickname();
     state.nickname = nick;
-    authState.displayName = authState.displayName || nick;
+    if (String(authState?.role || '') === 'viewer') authState.displayName = nick;
+    else authState.displayName = authState.displayName || nick;
     socket.auth = { ...(socket.auth || {}), nickname: nick };
     if (urlRoom) return joinSession(urlRoom);
   }
@@ -4350,7 +4435,7 @@ function makeView(pageNo) {
       // optimistic render
       showReaction(payload);
       socket.emit('viewer:reaction', payload, () => {});
-      state.reactionArmed = false;
+      // 유지형: 다른 도구를 누르기 전까지 계속 이모지 모드 유지
       updateReactionUI();
       return;
     }
@@ -5143,7 +5228,8 @@ function syncQuickColorPaletteUI() {
   // ensure palette colors match state (and persist)
   try {
     const btns = Array.from(wrap.querySelectorAll('button.qc'));
-    const colors = Array.isArray(state.quickColors) && state.quickColors.length === 4 ? state.quickColors : ['#ff2d55', '#ffd60a', '#0a84ff', '#111111'];
+    const colors =
+      Array.isArray(state.quickColors) && state.quickColors.length === 4 ? state.quickColors : ['#ff2d55', '#34c759', '#0a84ff', '#bf5af2'];
     btns.forEach((btn, i) => {
       const c = String(colors[i] || btn.dataset.color || '').trim();
       btn.dataset.color = c;
@@ -5158,6 +5244,11 @@ function setTool(tool, shape = null) {
   // 세션 참여 중이더라도 도구 사용 자체는 허용(단, 공유/동기화는 권한 필요)
   if (state.isInSession && !canUseToolsNow() && tool !== 'select') {
     flashHud('로컬 주석 모드(공유 안됨)', 900);
+  }
+  // T-??: 이모지 모드는 다른 도구를 누르면 해제된다.
+  if (state.reactionArmed) {
+    state.reactionArmed = false;
+    updateReactionUI();
   }
   // 커서공유는 "표시(오버레이)" 기능이므로, 도구 전환으로 자동 중단하지 않는다.
   state.tool = tool;

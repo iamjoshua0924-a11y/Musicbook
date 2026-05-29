@@ -935,27 +935,20 @@ body[data-tool="text"] #brushGroup{
 
 /* Emoji reactions */
 .reactionBar{
-  position: fixed;
-  left: 50%;
-  bottom: 14px;
-  transform: translateX(-50%);
-  z-index: 7400;
   display: inline-flex;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: rgba(18,19,22,0.78);
-  backdrop-filter: blur(10px);
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  backdrop-filter: none;
 }
-body.light .reactionBar{ background: rgba(255,255,255,0.82); }
 .reactionBar.hidden{ display:none; }
 .reactionBtn{
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   border-radius: 999px;
   padding: 0;
-  font-size: 18px;
+  font-size: 16px;
 }
 .reactionBtn.armed{
   border-color: rgba(255,45,85,0.65);

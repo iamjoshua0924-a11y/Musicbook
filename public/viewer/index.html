@@ -71,12 +71,6 @@
           </div>
 
           <div class="group">
-            <span class="label">겹침</span>
-            <input id="overlapRange" type="range" min="0" max="40" value="0" />
-            <span class="kv"><span id="overlapLabel">0px</span></span>
-          </div>
-
-          <div class="group">
             <span class="label">줌</span>
             <button id="zoomOutBtn" type="button" class="mini">-</button>
             <button id="fitBtn" type="button" class="mini">100%</button>
@@ -189,11 +183,24 @@
             <span class="kv">색</span>
             <div id="quickColorPalette" class="quickColorPalette" aria-label="색상 퀵 팔레트">
               <button type="button" class="qc" data-color="#ff2d55" aria-label="빨강"></button>
-              <button type="button" class="qc" data-color="#ffd60a" aria-label="노랑"></button>
+              <button type="button" class="qc" data-color="#34c759" aria-label="초록"></button>
               <button type="button" class="qc" data-color="#0a84ff" aria-label="파랑"></button>
-              <button type="button" class="qc" data-color="#111111" aria-label="검정"></button>
+              <button type="button" class="qc" data-color="#bf5af2" aria-label="보라"></button>
             </div>
             <input id="colorPicker" type="color" value="#ff2d55" />
+          </div>
+
+          <div class="group" id="reactionToolGroup">
+            <span class="label">이모지</span>
+            <div class="seg reactionBar" id="reactionBar" aria-label="이모지 리액션">
+              <button type="button" class="mini reactionBtn" data-emoji="👍">👍</button>
+              <button type="button" class="mini reactionBtn" data-emoji="❓">❓</button>
+              <button type="button" class="mini reactionBtn" data-emoji="❗">❗</button>
+              <button type="button" class="mini reactionBtn" data-emoji="👀">👀</button>
+              <button type="button" class="mini reactionBtn" data-emoji="💀">💀</button>
+              <button type="button" class="mini reactionBtn" data-emoji="😂">😂</button>
+              <button type="button" class="mini reactionBtn" data-emoji="😭">😭</button>
+            </div>
           </div>
 
           <div class="group" id="textOptionGroup">
@@ -280,16 +287,6 @@
           </div>
         </aside>
 
-        <!-- 이모지 리액션 바 (도구 권한 없이 사용 가능) -->
-        <div id="reactionBar" class="reactionBar hidden" aria-label="이모지 리액션">
-          <button type="button" class="reactionBtn" data-emoji="👍">👍</button>
-          <button type="button" class="reactionBtn" data-emoji="❓">❓</button>
-          <button type="button" class="reactionBtn" data-emoji="❗">❗</button>
-          <button type="button" class="reactionBtn" data-emoji="👀">👀</button>
-          <button type="button" class="reactionBtn" data-emoji="💀">💀</button>
-          <button type="button" class="reactionBtn" data-emoji="😂">😂</button>
-          <button type="button" class="reactionBtn" data-emoji="😭">😭</button>
-        </div>
       </main>
     </div>
 
@@ -359,7 +356,10 @@
           <span id="songPickAvailableVocalChips"></span>
         </div>
 
-        <div id="songPickHint" class="muted" style="margin-top:8px;">검색해서 곡을 선택하세요.</div>
+        <div class="row" style="margin-top:8px; gap:10px; align-items:center; flex-wrap:wrap;">
+          <div id="songPickHint" class="muted" style="flex:1;">검색해서 곡을 선택하세요.</div>
+          <button id="songPickRandomBtn" type="button" class="mini">랜덤</button>
+        </div>
         <div id="songPickList" class="songPickList"></div>
         <div class="modalActions">
           <button id="songPickCloseBtn" type="button">닫기</button>

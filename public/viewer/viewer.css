@@ -933,6 +933,50 @@ body[data-tool="text"] #brushGroup{
   z-index: 1001;
 }
 
+/* Emoji reactions */
+.reactionBar{
+  position: fixed;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 7400;
+  display: inline-flex;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(18,19,22,0.78);
+  backdrop-filter: blur(10px);
+}
+body.light .reactionBar{ background: rgba(255,255,255,0.82); }
+.reactionBar.hidden{ display:none; }
+.reactionBtn{
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  padding: 0;
+  font-size: 18px;
+}
+.reactionBtn.armed{
+  border-color: rgba(255,45,85,0.65);
+  background: rgba(255,45,85,0.14);
+}
+.reactionEmoji{
+  position:absolute;
+  z-index: 60;
+  transform: translate(-50%, -50%);
+  font-size: 28px;
+  pointer-events:none;
+  animation: reactionFloat 1.6s ease-out forwards;
+  filter: drop-shadow(0 6px 10px rgba(0,0,0,0.35));
+}
+@keyframes reactionFloat{
+  0%{ opacity:0; transform: translate(-50%, -35%) scale(0.9); }
+  10%{ opacity:1; transform: translate(-50%, -50%) scale(1.0); }
+  80%{ opacity:1; transform: translate(-50%, -80%) scale(1.05); }
+  100%{ opacity:0; transform: translate(-50%, -98%) scale(1.1); }
+}
+
 /* live-mode: 패널을 하단 시트/모달처럼 보이게 */
 body.live-mode #participantsPanel{
   position: fixed;

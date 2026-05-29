@@ -989,6 +989,37 @@ function updateCursorShareUI() {
   updateToolActiveUI();
 }
 
+// --- Emoji reactions (T-04) --------------------------------------------------------
+function updateReactionUI() {
+  const bar = document.getElementById('reactionBar');
+  if (!bar) return;
+  // 기본 정책: 세션에 들어온 "팔로워"에게만 노출(턴너는 운영 UI만 사용)
+  const show = Boolean(state.isInSession && !state.isPageTurner);
+  bar.classList.toggle('hidden', !show);
+  try {
+    bar.querySelectorAll('button.reactionBtn').forEach((b) => {
+      b.classList.toggle('armed', state.reactionArmed && String(b.dataset.emoji || '') === String(state.reactionEmoji || ''));
+    });
+  } catch {}
+}
+
+function showReaction({ pageNo, xPageNorm, yPageNorm, emoji }) {
+  const pn = Number(pageNo || 1);
+  const root = els.canvasStack?.querySelector?.(`.page-view[data-page-no="${pn}"]`);
+  if (!root) return;
+  const el = document.createElement('div');
+  el.className = 'reactionEmoji';
+  el.textContent = String(emoji || '');
+  const w = root.clientWidth || 1;
+  const h = root.clientHeight || 1;
+  const x = clamp(Number(xPageNorm || 0), 0, 1) * w;
+  const y = clamp(Number(yPageNorm || 0), 0, 1) * h;
+  el.style.left = `${x}px`;
+  el.style.top = `${y}px`;
+  root.appendChild(el);
+  setTimeout(() => el.remove(), 1800);
+}
+
 function stopCursorShare(sendHide = false) {
   state.cursorShareOn = false;
   ensureCursorEls();
@@ -1320,6 +1351,9 @@ const state = {
   })(),
   // 텍스트 프리셋(주석 텍스트 빠른 입력)
   textPreset: String(localStorage.getItem('mb_text_preset') || '').trim() || 'section',
+  // 이모지 리액션(T-04)
+  reactionEmoji: '',
+  reactionArmed: false,
 
   // view modes
   spreadCount: 2, // 1~4 (기본 2p)
@@ -3377,6 +3411,23 @@ document.getElementById('rehearsalAllOffBtn')?.addEventListener('click', () => {
   });
 });
 
+// T-04: reaction bar wiring (follower only UI)
+try {
+  const bar = document.getElementById('reactionBar');
+  if (bar) {
+    bar.querySelectorAll('button.reactionBtn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const emoji = String(btn.dataset.emoji || '').trim();
+        if (!emoji) return;
+        state.reactionEmoji = emoji;
+        state.reactionArmed = true;
+        updateReactionUI();
+        flashHud('악보를 클릭해서 위치를 찍어주세요', 1200);
+      });
+    });
+  }
+} catch {}
+
 // overlap slider (GAS style)
 function setSpreadOverlapPx(px) {
   const v = Math.max(0, Math.min(40, Number(px) || 0));
@@ -4188,6 +4239,29 @@ function makeView(pageNo) {
   fabricCanvas.on('mouse:down', (opt) => {
     state.activeDrawPageNo = pageNo;
     if (state.locked) return;
+
+    // T-04: emoji reaction placement (tool/permission independent)
+    if (state.isInSession && state.roomCode && state.reactionArmed && state.reactionEmoji) {
+      const p = getPointer(opt);
+      const w = fabricCanvas.getWidth() || 1;
+      const h = fabricCanvas.getHeight() || 1;
+      const xPageNorm = clamp(p.x / w, 0, 1);
+      const yPageNorm = clamp(p.y / h, 0, 1);
+      const payload = {
+        roomCode: state.roomCode,
+        fileId: state.fileId || '',
+        emoji: state.reactionEmoji,
+        pageNo,
+        xPageNorm,
+        yPageNorm
+      };
+      // optimistic render
+      showReaction(payload);
+      socket.emit('viewer:reaction', payload, () => {});
+      state.reactionArmed = false;
+      updateReactionUI();
+      return;
+    }
 
     if (state.tool === 'eraser') {
       const p = getPointer(opt);
@@ -5470,6 +5544,7 @@ socket.on('session:pageTurner:state', (p) => {
   }
   updateTurnerToggleAccess();
   updateCursorShareUI();
+  updateReactionUI();
   updateToolActiveUI();
   updatePageLabels();
   updateRehearsalToggleUI();
@@ -5491,6 +5566,7 @@ socket.on('session:participants', (p) => {
   updateRehearsalToggleUI();
   updateTurnerToggleAccess();
   updateCursorShareUI();
+  updateReactionUI();
   // T-03: 전원 합주멤버 지정/해제 버튼(턴너 전용)
   try {
     const bulk = document.getElementById('participantsBulkRow');
@@ -5746,6 +5822,15 @@ socket.on('viewer:cursor', (p) => {
 
   // Legacy fallback: container-based normalized cursor
   setCursorMarker(remoteCursorEl, { xNorm: p?.xNorm, yNorm: p?.yNorm, visible: true, mode });
+});
+
+// T-04: emoji reactions (server -> room)
+socket.on('viewer:reaction', (p) => {
+  try {
+    if (!state.isInSession) return;
+    if (String(p?.roomCode || '').toUpperCase() !== String(state.roomCode || '').toUpperCase()) return;
+    showReaction(p || {});
+  } catch {}
 });
 
 socket.on('session:tool:request', (p) => {

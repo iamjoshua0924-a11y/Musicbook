@@ -620,6 +620,39 @@ function attachSockets(io) {
       ack?.({ ok: true });
     });
 
+    // Emoji reactions (transient) - anyone in room, lightweight feedback
+    socket.on('viewer:reaction', (payload, ack) => {
+      const now = Date.now();
+      if (socket.data._lastReactionAt && now - socket.data._lastReactionAt < 900) return ack?.({ ok: false, error: 'RATE_LIMIT' });
+      socket.data._lastReactionAt = now;
+
+      const roomCode = String(payload?.roomCode || '').trim().toUpperCase();
+      const emoji = String(payload?.emoji || '').trim().slice(0, 8);
+      const pageNo = Number(payload?.pageNo || 0);
+      const xPageNorm = Number(payload?.xPageNorm);
+      const yPageNorm = Number(payload?.yPageNorm);
+      const room = store.rooms.get(roomCode);
+      if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
+      if (!room.members.has(socket.id)) return ack?.({ ok: false, error: 'NOT_IN_ROOM' });
+      if (!emoji) return ack?.({ ok: false, error: 'BAD_REQUEST' });
+      if (!pageNo || !Number.isFinite(xPageNorm) || !Number.isFinite(yPageNorm)) return ack?.({ ok: false, error: 'BAD_REQUEST' });
+      if (xPageNorm < -0.2 || xPageNorm > 1.2 || yPageNorm < -0.2 || yPageNorm > 1.2) return ack?.({ ok: false, error: 'BAD_REQUEST' });
+
+      const fileId = String(payload?.fileId || room.currentFileId || '').trim();
+      if (!fileId) return ack?.({ ok: false, error: 'FILE_REQUIRED' });
+
+      io.to(toSessionRoomName(roomCode)).emit('viewer:reaction', {
+        roomCode,
+        fileId,
+        emoji,
+        pageNo,
+        xPageNorm,
+        yPageNorm,
+        senderId: socket.id
+      });
+      ack?.({ ok: true });
+    });
+
     // --- Follow file (song change sync) ---------------------------------------------
     socket.on('session:follow:file', async (payload, ack) => {
       const roomCode = String(payload?.roomCode || '').trim().toUpperCase();

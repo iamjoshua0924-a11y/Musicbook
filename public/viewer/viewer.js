@@ -174,8 +174,11 @@ function openJoinModal({ nickname = '', roomCode = '' } = {}) {
   const cancelBtn = document.getElementById('joinCancelBtn');
   if (!overlay || !nickField || !roomField || !okBtn || !cancelBtn) return Promise.resolve(null);
 
-  // 정책: 사용자가 직접 입력 (자동 채움 금지)
-  nickField.value = '';
+  // T-17: 게스트 닉네임 기억(localStorage)
+  // - 로그인 유저(role !== viewer)에는 적용하지 않음
+  const isGuest = String(authState?.role || '') === 'viewer';
+  const savedGuestNick = isGuest ? String(localStorage.getItem('mb_guest_nickname') || '').trim() : '';
+  nickField.value = String(nickname || savedGuestNick || '').trim();
   nickField.placeholder = '닉네임(필수)';
   roomField.value = String(roomCode || '');
   overlay.classList.remove('hidden');
@@ -194,6 +197,10 @@ function openJoinModal({ nickname = '', roomCode = '' } = {}) {
       const nick = String(nickField.value || '').trim();
       if (!nick) return flashHud('닉네임을 입력해 주세요', 1200);
       const room = safeRoomCode(roomField.value);
+      // 게스트일 때만 저장 (T-17)
+      try {
+        if (String(authState?.role || '') === 'viewer') localStorage.setItem('mb_guest_nickname', nick);
+      } catch {}
       cleanup({ nick, room });
     };
     okBtn.onclick = tryOk;
@@ -221,6 +228,10 @@ async function ensureNickname() {
   // 게스트(뷰어)만 직접 입력 필수
   const input = await openInputModalRequired({ title: '닉네임 입력', placeholder: '닉네임(필수)', value: '' });
   const nick = String(input || '').trim();
+  // T-17
+  try {
+    localStorage.setItem('mb_guest_nickname', nick);
+  } catch {}
   localStorage.setItem('mb_presence_nick', nick);
   // legacy 키도 같이 저장(호환)
   localStorage.setItem('mb_nickname', nick);
@@ -233,6 +244,10 @@ async function ensureNicknameForVisitorAlways() {
   if (isMobileLike()) {
     const v = await openJoinModal({ nickname: '', roomCode: safeRoomCode(qs('room')) || '' });
     const finalNick = String(v?.nick || saved || '').trim() || '익명';
+    // T-17
+    try {
+      localStorage.setItem('mb_guest_nickname', finalNick);
+    } catch {}
     localStorage.setItem('mb_presence_nick', finalNick);
     localStorage.setItem('mb_nickname', finalNick);
     // room code가 있으면 즉시 join 시도(세션코드가 없으면 닉네임만 저장)
@@ -252,6 +267,10 @@ async function ensureNicknameForVisitorAlways() {
 
   const nick = await openInputModalRequired({ title: '닉네임 입력', placeholder: '닉네임(필수)', value: '', minLen: 1 });
   const finalNick = String(nick || '').trim() || '익명';
+  // T-17
+  try {
+    localStorage.setItem('mb_guest_nickname', finalNick);
+  } catch {}
   localStorage.setItem('mb_presence_nick', finalNick);
   localStorage.setItem('mb_nickname', finalNick);
   return finalNick;

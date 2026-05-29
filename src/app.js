@@ -23,6 +23,8 @@ function createApp() {
   // CORS (GitHub Pages 프론트 ↔ Render 백엔드 분리 대응)
   const ALLOWED_ORIGINS = [
     process.env.FRONTEND_URL,
+    'https://songbook.kro.kr',
+    'https://www.songbook.kro.kr',
     'https://iamjoshua0924-a11y.github.io',
     'http://localhost:5500',
     'http://localhost:3000'

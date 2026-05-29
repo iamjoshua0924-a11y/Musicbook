@@ -5865,8 +5865,13 @@ els.pdfContainer.addEventListener(
 // ---- Socket event handlers ---------------------------------------------------------
 socket.on('session:pageTurner:state', (p) => {
   if (!state.isInSession) return;
+  const wasTurner = Boolean(state.isPageTurner);
   state.isPageTurner = p?.pageTurnerSocketId === socket.id;
   if (state.isPageTurner) state.isToolAuthorized = true;
+  // 턴너를 잃는 순간: 기존 커서공유가 켜져있으면 반드시 끄고 hide를 브로드캐스트
+  try {
+    if (wasTurner && !state.isPageTurner && state.cursorShareOn) stopCursorShare(true);
+  } catch {}
   try {
     updateParticipantsBulkRowVisibility();
   } catch {}
@@ -5920,11 +5925,16 @@ socket.on('session:participants', (p) => {
   try {
     const me = (p?.members || []).find((m) => m.socketId === socket.id);
     if (me) {
+      const wasTurner = Boolean(state.isPageTurner);
       // participants payload 기준으로 TURNER 여부도 확정(이벤트 누락/레이스 대비)
       state.isPageTurner = Boolean(me.isPageTurner);
       state.isToolAuthorized = Boolean(me.isToolAuthorized) || state.isPageTurner;
       state.rehearsalReady = Boolean(me.isRehearsalReady);
       updateReadyBtnUI();
+      // 턴너를 잃는 순간: 기존 커서공유가 켜져있으면 반드시 끄고 hide를 브로드캐스트
+      try {
+        if (wasTurner && !state.isPageTurner && state.cursorShareOn) stopCursorShare(true);
+      } catch {}
     }
   } catch {}
   updateRehearsalToggleUI();

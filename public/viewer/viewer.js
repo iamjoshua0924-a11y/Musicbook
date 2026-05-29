@@ -166,6 +166,78 @@ function isMobileViewer() {
   }
 }
 
+// T-20: 세션 참여자 수 파비콘 배지
+let _faviconBaseHref = '';
+let _faviconLink = null;
+let _faviconImg = null;
+function _getFaviconLink() {
+  if (_faviconLink) return _faviconLink;
+  const links = Array.from(document.querySelectorAll('link[rel~="icon"]'));
+  const link = links[0] || null;
+  _faviconLink = link;
+  if (link) _faviconBaseHref = String(link.getAttribute('href') || link.href || '').trim();
+  return _faviconLink;
+}
+function _ensureFaviconImage() {
+  if (_faviconImg) return _faviconImg;
+  const link = _getFaviconLink();
+  const href = String(_faviconBaseHref || (link?.href || '')).trim();
+  if (!href) return null;
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.src = href;
+  _faviconImg = img;
+  return img;
+}
+function setFaviconBadge(count) {
+  const link = _getFaviconLink();
+  if (!link) return;
+  const n = Math.max(0, Number(count || 0));
+  const label = n > 9 ? '9+' : String(n);
+  const img = _ensureFaviconImage();
+  const draw = () => {
+    const size = 32;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    try {
+      if (img && img.complete && img.naturalWidth > 0) ctx.drawImage(img, 0, 0, size, size);
+    } catch {}
+
+    // badge
+    const r = 10;
+    const cx = size - r;
+    const cy = r;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = '#ff2d55';
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.stroke();
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 11px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, cx, cy + 0.5);
+
+    try {
+      link.setAttribute('href', canvas.toDataURL('image/png'));
+    } catch {}
+  };
+  if (img && img.complete) draw();
+  else if (img) img.onload = () => draw();
+  else draw();
+}
+function resetFaviconBadge() {
+  const link = _getFaviconLink();
+  if (!link) return;
+  if (_faviconBaseHref) link.setAttribute('href', _faviconBaseHref);
+}
+
 function openJoinModal({ nickname = '', roomCode = '' } = {}) {
   const overlay = document.getElementById('joinModal');
   const nickField = document.getElementById('joinNickField');
@@ -1565,6 +1637,7 @@ function leaveSession() {
   if (roomCode) socket.emit('session:leave', { roomCode });
   setRoomToUrl('');
   if (state.fileId) clearLastRoomForFile(state.fileId);
+  resetFaviconBadge();
   restoreUiAfterLeavingSession();
   updateTurnerToggleAccess();
   updateSongBookPickVisibility();
@@ -5719,8 +5792,11 @@ socket.on('session:participants', (p) => {
       profilePhoto: keep.profilePhoto || other.profilePhoto || ''
     });
   });
+  // T-20: 파비콘 배지(참여자 수)
+  try {
+    setFaviconBadge(mergedMap.size || 0);
+  } catch {}
 
-  const values = Array.from(mergedMap.values());
 
   // Turner feedback: ready count + 변화 알림
   try {

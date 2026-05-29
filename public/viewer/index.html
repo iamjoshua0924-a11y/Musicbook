@@ -6,7 +6,7 @@
     <title>Score Viewer</title>
     <!-- cache-bust for mobile browsers -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/naver/d2codingfont@master/D2Coding.css" />
-    <link rel="stylesheet" href="viewer.css?v=20260529_9" />
+    <link rel="stylesheet" href="viewer.css?v=20260529_10" />
   </head>
   <body>
     <div id="viewer-wrapper">
@@ -406,12 +406,22 @@
       </div>
     </div>
 
+    <!-- 텍스트 프리셋 팔레트(텍스트 도구 보조) -->
+    <aside id="textPresetPalette" class="textPresetPalette hidden" aria-label="텍스트 프리셋">
+      <div class="textPresetHeader">
+        <div class="textPresetTitle">텍스트 프리셋</div>
+        <button id="textPresetCloseBtn" type="button" class="mini">닫기</button>
+      </div>
+      <div class="textPresetHint muted">프리셋을 고른 뒤 악보를 클릭하면 텍스트가 찍힙니다.</div>
+      <div id="textPresetList" class="textPresetList"></div>
+    </aside>
+
     <!-- pdf.js + fabric.js (CDN, GAS 원본과 동일 계열) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
     <script src="../config.js"></script>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
-    <script src="viewer.js?v=20260529_10"></script>
+    <script src="viewer.js?v=20260529_11"></script>
   </body>
 </html>

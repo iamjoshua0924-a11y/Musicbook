@@ -1315,7 +1315,10 @@ const state = {
   shape: null, // 'line'|'rect'|'circle' (when tool==='shape')
   brushSize: 3,
   brushColor: '#ff2d55',
-  textFontSize: 22,
+  // 텍스트 기본 크기(요구사항: 기존 디폴트(22)보다 작게)
+  textFontSize: 16,
+  // 텍스트 프리셋(주석 텍스트 빠른 입력)
+  textPreset: String(localStorage.getItem('mb_text_preset') || '').trim() || 'section',
 
   // view modes
   spreadCount: 2, // 1~4 (기본 2p)
@@ -1553,6 +1556,105 @@ function toChoseongString(s) {
     out += normLower(ch);
   }
   return out.replace(/\s+/g, '');
+}
+
+// ---- Text presets (annotation helper) ---------------------------------------------
+const TEXT_PRESETS = [
+  // 기본 cue
+  { group: 'CUE', value: 'section' },
+  { group: 'CUE', value: 'band in' },
+  { group: 'CUE', value: 'break' },
+  { group: 'CUE', value: 'piano in' },
+  { group: 'CUE', value: 'drum in' },
+  { group: 'CUE', value: 'bass in' },
+  { group: 'CUE', value: 'guitar in' },
+  // 솔로/파트
+  { group: 'SOLO', value: 'guitar solo' },
+  { group: 'SOLO', value: 'bass solo' },
+  { group: 'SOLO', value: 'piano solo' },
+  { group: 'SOLO', value: 'drum solo' },
+  { group: 'PART', value: 'bass line' },
+  { group: 'PART', value: 'guitar line' },
+  { group: 'PART', value: 'piano only' },
+  // 템포
+  { group: 'TEMPO', value: 'halftime' },
+  { group: 'TEMPO', value: 'doubletime' },
+  // 보컬
+  { group: 'VOCAL', value: 'vocal adlib' },
+  { group: 'VOCAL', value: 'vocal 1' },
+  { group: 'VOCAL', value: 'vocal 2' },
+  { group: 'VOCAL', value: 'vocal 3' },
+  { group: 'VOCAL', value: 'vocal 4' }
+];
+
+function setTextPresetPaletteOpen(open) {
+  const el = document.getElementById('textPresetPalette');
+  if (!el) return;
+  el.classList.toggle('hidden', !open);
+  if (open) renderTextPresetPalette();
+}
+
+function getActiveFabricCanvas() {
+  try {
+    const v = viewMap.get(Number(state.activeDrawPageNo || state.pageNo || 1));
+    return v?.fabric || null;
+  } catch {
+    return null;
+  }
+}
+
+function applyTextPresetToActiveObject(presetText) {
+  const fab = getActiveFabricCanvas();
+  if (!fab) return false;
+  const obj = fab.getActiveObject?.();
+  if (!obj || obj.type !== 'i-text') return false;
+  try {
+    obj.text = String(presetText || '').trim() || obj.text || '';
+    obj.set('fill', String(state.brushColor || '#ff2d55'));
+    obj.set('fontSize', clamp(Number(state.textFontSize || 16), 12, 60));
+    fab.setActiveObject(obj);
+    obj.enterEditing?.();
+    obj.selectAll?.();
+    fab.requestRenderAll();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function renderTextPresetPalette() {
+  const wrap = document.getElementById('textPresetList');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  const cur = String(state.textPreset || '').trim();
+  const groups = [];
+  TEXT_PRESETS.forEach((p) => {
+    if (!groups.includes(p.group)) groups.push(p.group);
+  });
+  groups.forEach((g) => {
+    const header = document.createElement('div');
+    header.className = 'textPresetGroup';
+    header.textContent = g;
+    wrap.appendChild(header);
+    TEXT_PRESETS.filter((p) => p.group === g).forEach((p) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'textPresetBtn';
+      btn.textContent = p.value;
+      btn.classList.toggle('active', String(p.value) === cur);
+      btn.addEventListener('click', () => {
+        const v = String(p.value || '').trim();
+        state.textPreset = v;
+        try {
+          localStorage.setItem('mb_text_preset', v);
+        } catch {}
+        // 편집 중인 텍스트가 있으면 즉시 교체(편의)
+        applyTextPresetToActiveObject(v);
+        renderTextPresetPalette();
+      });
+      wrap.appendChild(btn);
+    });
+  });
 }
 
 function openSongPickModal() {
@@ -4028,10 +4130,11 @@ function makeView(pageNo) {
       if (tgt) return;
 
       const color = String(state.brushColor || '#ff2d55');
-      const it = new fabric.IText('텍스트', {
+      const preset = String(state.textPreset || '').trim() || 'section';
+      const it = new fabric.IText(preset, {
         left: p.x,
         top: p.y,
-        fontSize: state.textFontSize || 22,
+        fontSize: clamp(Number(state.textFontSize || 16), 12, 60),
         fill: color,
         fontWeight: 700
       });
@@ -4045,7 +4148,10 @@ function makeView(pageNo) {
       fabricCanvas.requestRenderAll();
       vPushUndo();
       vBroadcast();
-      // 텍스트 툴은 유지(입력 중 풀리는 문제 방지)
+      // 요구사항: 텍스트 생성 후에는 선택도구로 전환(즉시 편집 가능 UX)
+      try {
+        setTool('select');
+      } catch {}
       return;
     }
 
@@ -4814,7 +4920,11 @@ document.getElementById('selectBtn').addEventListener('click', () => setTool('se
 document.getElementById('lineBtn').addEventListener('click', () => setTool('shape', 'line'));
 document.getElementById('rectBtn').addEventListener('click', () => setTool('shape', 'rect'));
 document.getElementById('circleBtn').addEventListener('click', () => setTool('shape', 'circle'));
-document.getElementById('textBtn').addEventListener('click', () => setTool('text'));
+document.getElementById('textBtn').addEventListener('click', () => {
+  setTool('text');
+  setTextPresetPaletteOpen(true);
+});
+document.getElementById('textPresetCloseBtn')?.addEventListener('click', () => setTextPresetPaletteOpen(false));
 
 document.getElementById('chordEditBtn')?.addEventListener('click', async () => {
   if (state.mode !== 'chord' || !state.chordDocId) return;

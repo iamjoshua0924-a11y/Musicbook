@@ -782,6 +782,65 @@ body.light .modalTextarea{
   align-items:center;
   gap:10px;
 }
+
+/* Text preset palette (annotation helper) */
+.textPresetPalette{
+  position: fixed;
+  left: 10px;
+  top: 92px;
+  z-index: 7200;
+  width: 230px;
+  max-height: min(70vh, 520px);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(18, 19, 22, 0.92);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 18px 60px rgba(0,0,0,0.35);
+}
+body.light .textPresetPalette{ background: rgba(255,255,255,0.92); }
+.textPresetPalette.hidden{ display:none; }
+.textPresetHeader{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:10px 10px 6px;
+  border-bottom:1px solid var(--border);
+}
+.textPresetTitle{ font-weight: 900; font-size: 13px; }
+.textPresetHint{ padding:8px 10px; font-size: 12px; }
+.textPresetList{
+  padding: 6px 8px 10px;
+  overflow:auto;
+  max-height: calc(min(70vh, 520px) - 92px);
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.textPresetGroup{
+  margin-top: 6px;
+  font-size: 11px;
+  opacity: 0.78;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  padding: 6px 2px 0;
+}
+.textPresetBtn{
+  width: 100%;
+  text-align: left;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(122,162,255,0.18);
+  background: rgba(255,255,255,0.04);
+  font-size: 13px;
+  font-weight: 800;
+}
+.textPresetBtn.active{
+  border-color: rgba(255, 45, 85, 0.55);
+  background: rgba(255, 45, 85, 0.16);
+}
 .songPickChip{
   display:inline-flex;
   align-items:center;

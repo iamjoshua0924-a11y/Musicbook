@@ -1706,11 +1706,11 @@ function wireEvents() {
     } catch {}
   };
   $('requestHideBtn').onclick = () => {
-    $('requestPanel').style.display = 'none';
+    $('requestDock').style.display = 'none';
     $('requestShowBtn').style.display = 'inline-flex';
   };
   $('requestShowBtn').onclick = () => {
-    $('requestPanel').style.display = 'block';
+    $('requestDock').style.display = 'block';
     $('requestShowBtn').style.display = 'none';
   };
 

@@ -556,11 +556,14 @@ body.hide-tags .song-chips{ display:none; }
 }
 
 /* Request panel */
-.floating-request-panel {
+.request-dock{
   position: fixed;
   right: 22px;
   bottom: 22px;
   width: min(288px, calc(100vw - 44px)); /* 기존 대비 1.2배 */
+  z-index: 1700;
+}
+.request-dock .request-panel{
   overflow: hidden;
   padding: 16px;
   border-radius: 24px;
@@ -568,6 +571,22 @@ body.hide-tags .song-chips{ display:none; }
   border: 1px solid var(--border);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.18);
   backdrop-filter: blur(18px);
+}
+.request-dock .request-top-actions{
+  position: absolute;
+  right: 0;
+  top: -10px;
+  transform: translateY(-100%);
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.floating-request-panel {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  width: min(288px, calc(100vw - 44px)); /* legacy (no longer used) */
   z-index: 1700;
 }
 .request-panel.active {
@@ -576,16 +595,8 @@ body.hide-tags .song-chips{ display:none; }
 .request-panel {
   display: block;
 }
-.request-panel-header .toolbar-right{
-  display:flex;
-  align-items:center;
-  gap:8px;
-  flex-wrap:wrap;
-  justify-content:flex-end;
-}
-.request-panel-header .toolbar-right .floating-btn{
-  margin:0;
-}
+.request-panel-header .toolbar-right{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+.request-panel-header .toolbar-right .floating-btn{ margin:0; }
 .request-panel-header {
   display: flex;
   align-items: center;

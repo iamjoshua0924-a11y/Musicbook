@@ -5,7 +5,7 @@
     <title>밍긴어게인 노래책</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="https://www.gstatic.com/images/branding/product/1x/drive_2020q4_32dp.png" />
-    <link rel="stylesheet" href="musicbook.css?v=20260529_4" />
+    <link rel="stylesheet" href="musicbook.css?v=20260529_5" />
   </head>
 
   <body class="preload">
@@ -211,28 +211,33 @@
       </div>
     </div>
 
-    <!-- 신청곡 패널 -->
-    <aside id="requestPanel" class="request-panel floating-request-panel">
-
-      <div class="request-panel-header">
-        <div class="request-panel-title">신청곡 현황</div>
-        <div class="toolbar-right">
-          <button
-            class="floating-btn compact-btn request-top-btn request-top-secondary"
-            id="requestManageToggleBtn"
-            style="display: none"
-            type="button"
-            title="선택 후 상태 변경"
-          >
-            상태변경
-          </button>
-          <button class="floating-btn compact-btn request-top-btn black-btn" id="requestOpenBtn" type="button">
-            곡 신청하기
-          </button>
-          <button class="floating-btn compact-btn" id="requestPopoutBtn" type="button" title="별도창">↗</button>
-          <button class="floating-btn compact-btn" id="requestHideBtn" type="button">숨기기</button>
-        </div>
+    <!-- 신청곡: 패널 밖에 있지만 "같이 움직이게" (도킹 래퍼) -->
+    <div id="requestDock" class="request-dock">
+      <!-- 신청곡 버튼(패널과 분리, 패널에 붙여서 플로팅) -->
+      <div class="request-top-actions" id="requestExternalActions">
+        <button
+          class="floating-btn compact-btn request-top-btn request-top-secondary"
+          id="requestManageToggleBtn"
+          style="display: none"
+          type="button"
+        >
+          상태변경
+        </button>
+        <button class="floating-btn compact-btn request-top-btn black-btn" id="requestOpenBtn" type="button">
+          곡 신청하기
+        </button>
       </div>
+
+      <!-- 신청곡 패널 -->
+      <aside id="requestPanel" class="request-panel">
+
+        <div class="request-panel-header">
+          <div class="request-panel-title">신청곡 현황</div>
+          <div class="toolbar-right">
+            <button class="floating-btn compact-btn" id="requestPopoutBtn" type="button" title="별도창">↗</button>
+            <button class="floating-btn compact-btn" id="requestHideBtn" type="button">숨기기</button>
+          </div>
+        </div>
 
       <div class="request-list" id="requestTableBody"></div>
 
@@ -259,7 +264,8 @@
           </button>
         </div>
       </div>
-    </aside>
+      </aside>
+    </div>
 
     <button class="floating-btn compact-btn presence-show-btn" id="requestShowBtn" type="button">신청곡 나타내기</button>
 

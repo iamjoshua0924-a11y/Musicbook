@@ -413,18 +413,8 @@ function setHidden(id, hidden) {
   el.classList.toggle('hidden', hidden);
 }
 
-function setNetBadge(label, { ok = true } = {}) {
-  const el = document.getElementById('netBadge');
-  if (!el) return;
-  const t = String(label || '').trim();
-  if (!t) {
-    el.classList.add('hidden');
-    return;
-  }
-  el.classList.remove('hidden');
-  el.classList.toggle('badgeNet', true);
-  el.textContent = ok ? t : `${t}✗`;
-}
+// 네트워크 디버그 배지(UI 노이즈) 제거됨.
+function setNetBadge(_label, _opts = {}) {}
 
 function setParticipantsOpen(open) {
   setHidden('participantsPanel', !open);
@@ -5397,10 +5387,7 @@ socket.on('session:pageTurner:state', (p) => {
   state.isPageTurner = p?.pageTurnerSocketId === socket.id;
   if (state.isPageTurner) state.isToolAuthorized = true;
   if (state.isPageTurner) {
-    setHidden('turnerBadge', false);
-    setText('turnerBadge', '현재 당신이 페이지터너입니다');
-    setHidden('touchTurnerBadge', false);
-    setText('touchTurnerBadge', 'TURNER');
+    // turner 안내 배지(UI 노이즈) 제거됨.
     // 턴너가 된 순간 현재 보기설정도 동기화(요구사항)
     // 또한 room.currentFileId/currentPageNo를 확정(곡리스트→뷰어→세션생성 케이스 안정화)
     if (state.roomCode && state.fileId) {
@@ -5413,8 +5400,7 @@ socket.on('session:pageTurner:state', (p) => {
     }
     emitViewerSettings('turner_state');
   } else {
-    setHidden('turnerBadge', true);
-    setHidden('touchTurnerBadge', true);
+    // turner 안내 배지(UI 노이즈) 제거됨.
   }
   updateTurnerToggleAccess();
   updateCursorShareUI();

@@ -1,6 +1,7 @@
 const ViewerAnnoSnapshot = require('../models/ViewerAnnoSnapshot');
 const Request = require('../models/Request');
 const { recordWs } = require('../services/trafficMetrics');
+const { recordConnectionCount } = require('../services/connectionHistory');
 const { SessionStore } = require('./sessionStore');
 const { verifySocketMetaToken } = require('../services/socketMeta');
 
@@ -131,6 +132,10 @@ async function saveSnapshotOnce(roomCode, fileId, snapshot) {
 
 function attachSockets(io) {
   io.on('connection', (socket) => {
+    try {
+      // T-19: connection count history (best-effort)
+      recordConnectionCount(io?.engine?.clientsCount ?? 0);
+    } catch {}
     const nickname = socket.handshake.auth?.nickname || '익명';
     const metaToken = socket.handshake.auth?.metaToken;
     const meta = verifySocketMetaToken(metaToken) || { role: 'viewer', displayName: nickname, userId: '' };
@@ -754,6 +759,10 @@ function attachSockets(io) {
     });
 
     socket.on('disconnect', async () => {
+      try {
+        // disconnect 이벤트 시점에 clientsCount 업데이트 타이밍이 애매할 수 있어 defer
+        setTimeout(() => recordConnectionCount(io?.engine?.clientsCount ?? 0), 0);
+      } catch {}
       // remove from presence
       if (presence.has(socket.id)) {
         presence.delete(socket.id);

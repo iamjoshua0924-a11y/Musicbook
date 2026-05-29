@@ -49,6 +49,15 @@
         <div class="list" id="sessionsList" style="margin-top:10px;"></div>
       </div>
 
+      <div class="card" id="connectionsCard" style="display:none;">
+        <div class="title" style="font-size:16px;">소켓 연결 수(24h)</div>
+        <div class="row" style="margin-top:10px;">
+          <button id="reloadConnectionsBtn" class="light">새로고침</button>
+          <span class="muted" id="connectionsOut"></span>
+        </div>
+        <canvas id="connectionsCanvas" width="900" height="220" style="width:100%; margin-top:10px; border-radius:12px; background:rgba(0,0,0,0.18); border:1px solid rgba(255,255,255,0.10);"></canvas>
+      </div>
+
       <div class="card" id="syncCard" style="display:none;">
         <div class="title" style="font-size:16px;">Drive 동기화(진단)</div>
         <div class="row" style="margin-top:10px;">
@@ -120,6 +129,6 @@
     </div>
 
     <script src="../config.js"></script>
-    <script src="dev.js?v=20260529_6"></script>
+    <script src="dev.js?v=20260529_7"></script>
   </body>
 </html>

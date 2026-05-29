@@ -11,6 +11,7 @@ const Song = require('../models/Song');
 const User = require('../models/User');
 const { getDriveRootFolderId, restartDriveSync, stopDriveSync } = require('../services/driveSyncRunner');
 const { getFileMetadata, renameFile } = require('../services/drive');
+const { getNowCount, getSeries } = require('../services/connectionHistory');
 
 const router = express.Router();
 
@@ -425,6 +426,15 @@ router.get(
         createdAt: u.createdAt || null
       }))
     });
+  })
+);
+
+// GET /api/dev/connections (T-19)
+router.get(
+  '/connections',
+  requireDev,
+  asyncHandler(async (_req, res) => {
+    res.json({ ok: true, nowCount: getNowCount(), points: getSeries({}) });
   })
 );
 

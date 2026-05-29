@@ -26,7 +26,7 @@ async function apiJson(url, method, body) {
 
 function showAuthed(on) {
   $('loginCard').style.display = on ? 'none' : 'block';
-  ['meCard', 'usersCard', 'sessionsCard', 'syncCard', 'parseErrorCard', 'trafficCard', 'errorsCard'].forEach((id) => {
+  ['meCard', 'usersCard', 'sessionsCard', 'connectionsCard', 'syncCard', 'parseErrorCard', 'trafficCard', 'errorsCard'].forEach((id) => {
     const el = $(id);
     if (el) el.style.display = on ? 'block' : 'none';
   });
@@ -358,10 +358,83 @@ async function loadUsers() {
   });
 }
 
+function drawLineChart(canvas, points, { color = '#64d2ff', fill = 'rgba(100,210,255,0.12)' } = {}) {
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+
+  // background grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.lineWidth = 1;
+  for (let i = 1; i < 5; i += 1) {
+    const y = (h * i) / 5;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(w, y);
+    ctx.stroke();
+  }
+
+  const arr = Array.isArray(points) ? points : [];
+  if (!arr.length) return;
+  const max = Math.max(1, ...arr.map((p) => Number(p.c || 0)));
+  const minT = Number(arr[0].t || 0);
+  const maxT = Number(arr[arr.length - 1].t || 0);
+  const spanT = Math.max(1, maxT - minT);
+
+  const xOf = (t) => ((Number(t) - minT) / spanT) * (w - 20) + 10;
+  const yOf = (c) => h - 20 - (Number(c || 0) / max) * (h - 40);
+
+  // area fill
+  ctx.beginPath();
+  ctx.moveTo(xOf(arr[0].t), h - 20);
+  arr.forEach((p) => ctx.lineTo(xOf(p.t), yOf(p.c)));
+  ctx.lineTo(xOf(arr[arr.length - 1].t), h - 20);
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.fill();
+
+  // line
+  ctx.beginPath();
+  arr.forEach((p, i) => {
+    const x = xOf(p.t);
+    const y = yOf(p.c);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // labels (max + now)
+  ctx.fillStyle = 'rgba(255,255,255,0.70)';
+  ctx.font = '12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+  ctx.fillText(`max ${max}`, 10, 14);
+  const last = arr[arr.length - 1];
+  ctx.fillText(`now ${Number(last?.c || 0)}`, 10, 28);
+}
+
+async function loadConnections() {
+  const out = $('connectionsOut');
+  if (out) out.textContent = '로딩 중...';
+  const r = await apiGet('/api/dev/connections');
+  if (!r.ok) {
+    if (out) out.textContent = `실패: ${r.error || ''}`;
+    return;
+  }
+  const nowCount = Number(r.nowCount || 0);
+  const pts = Array.isArray(r.points) ? r.points : [];
+  if (out) out.textContent = `현재 ${nowCount} · ${pts.length}pt`;
+  drawLineChart($('connectionsCanvas'), pts);
+}
+
 $('devLoginBtn').onclick = () => login().catch(() => {});
 $('devLogoutBtn').onclick = () => logout().catch(() => {});
 $('reloadUsersBtn')?.addEventListener?.('click', () => loadUsers().catch(() => {}));
 $('reloadSessionsBtn').onclick = () => loadSessions().catch(() => {});
+$('reloadConnectionsBtn')?.addEventListener?.('click', () => loadConnections().catch(() => {}));
 $('saveRootFolderBtn')?.addEventListener?.('click', () => saveDriveRoot().catch(() => {}));
 $('syncBtn')?.addEventListener?.('click', () => toggleSync().catch(() => {}));
 $('reloadParseErrorsBtn')?.addEventListener?.('click', () => loadParseErrors().catch(() => {}));
@@ -389,6 +462,7 @@ function setAutoRefresh(on) {
     // best-effort: these should not throw
     loadUsers().catch(() => {});
     loadSessions().catch(() => {});
+    loadConnections().catch(() => {});
     loadSync().catch(() => {});
     loadErrors().catch(() => {});
   }, 2000);
@@ -407,6 +481,7 @@ refreshMe()
     if (authed) {
       loadUsers().catch(() => {});
       loadSessions().catch(() => {});
+      loadConnections().catch(() => {});
       loadDriveRoot().catch(() => {});
       loadSync().catch(() => {});
       loadParseErrors().catch(() => {});

@@ -24,7 +24,7 @@ async function apiJson(url, method, body) {
 
 function showAuthed(on) {
   $('loginCard').style.display = on ? 'none' : 'block';
-  ['meCard', 'sessionsCard', 'syncCard', 'trafficCard'].forEach((id) => {
+  ['meCard', 'sessionsCard', 'syncCard', 'trafficCard', 'errorsCard'].forEach((id) => {
     const el = $(id);
     if (el) el.style.display = on ? 'block' : 'none';
   });
@@ -104,12 +104,31 @@ async function resetTraffic() {
   $('trafficJson').textContent = JSON.stringify(r.data || r, null, 2);
 }
 
+async function loadErrors() {
+  $('errorsOut').textContent = '로딩 중...';
+  const r = await apiGet('/api/dev/errors');
+  if (!r.ok) {
+    $('errorsOut').textContent = `실패: ${r.error || ''}`;
+    return;
+  }
+  const items = Array.isArray(r.items) ? r.items : [];
+  $('errorsOut').textContent = `총 ${items.length}건`;
+  $('errorsJson').textContent = JSON.stringify(items.slice(0, 50), null, 2);
+}
+
+async function clearErrors() {
+  await apiJson('/api/dev/errors/clear', 'POST', {});
+  await loadErrors();
+}
+
 $('devLoginBtn').onclick = () => login().catch(() => {});
 $('devLogoutBtn').onclick = () => logout().catch(() => {});
 $('reloadSessionsBtn').onclick = () => loadSessions().catch(() => {});
 $('reloadSyncBtn').onclick = () => loadSync().catch(() => {});
 $('reloadTrafficBtn').onclick = () => loadTraffic().catch(() => {});
 $('resetTrafficBtn').onclick = () => resetTraffic().catch(() => {});
+$('reloadErrorsBtn').onclick = () => loadErrors().catch(() => {});
+$('clearErrorsBtn').onclick = () => clearErrors().catch(() => {});
 
 refreshMe()
   .then((authed) => {
@@ -117,6 +136,7 @@ refreshMe()
       loadSessions().catch(() => {});
       loadSync().catch(() => {});
       loadTraffic().catch(() => {});
+      loadErrors().catch(() => {});
     }
   })
   .catch(() => {});

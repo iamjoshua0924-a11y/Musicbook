@@ -4,6 +4,7 @@ const { z } = require('zod');
 const { requireDev } = require('../middleware/devAuth');
 const { getJson, KEYS } = require('../services/syncStatus');
 const { getTrafficMetrics, resetTrafficMetrics } = require('../services/trafficMetrics');
+const { listErrors, clearErrors } = require('../services/errorLog');
 const { store } = require('../sockets');
 
 const router = express.Router();
@@ -70,7 +71,7 @@ router.get(
           currentFileId: room.currentFileId || '',
           currentPageNo: room.currentPageNo || 1,
           rehearsalActive: Boolean(room.rehearsalActive),
-          ageMs: room.createdAt ? Date.now() - room.createdAt.getTime() : null
+          ageMs: room.createdAt ? Date.now() - Number(room.createdAt || 0) : null
         });
       }
     } catch {}
@@ -102,6 +103,23 @@ router.get(
   asyncHandler(async (_req, res) => {
     const status = await getJson(KEYS.driveSyncStatus, null);
     res.json({ ok: true, status });
+  })
+);
+
+// GET /api/dev/errors (T-14)
+router.get(
+  '/errors',
+  requireDev,
+  asyncHandler(async (_req, res) => {
+    res.json({ ok: true, items: listErrors() });
+  })
+);
+router.post(
+  '/errors/clear',
+  requireDev,
+  asyncHandler(async (_req, res) => {
+    clearErrors();
+    res.json({ ok: true });
   })
 );
 

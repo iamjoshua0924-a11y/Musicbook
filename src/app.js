@@ -7,6 +7,7 @@ const cookieParser = require('cookie-parser');
 const session = require('express-session');
 
 const { env, sessionSecret } = require('./config/env');
+const { pushError } = require('./services/errorLog');
 
 function requireMemberPage(req, res, next) {
   const role = req.session?.user?.role;
@@ -66,6 +67,9 @@ function createApp() {
   // Static assets
   app.use('/public', express.static(path.join(__dirname, '..', 'public')));
 
+  // Health (no session)
+  app.use(require('./routes/health'));
+
   // Pages
   app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'public', 'musicbook', 'index.html'));
@@ -109,6 +113,16 @@ function createApp() {
       message: err?.message,
       stack: String(err?.stack || '').split('\n').slice(0, 6).join('\n')
     });
+    try {
+      pushError({
+        method: req.method,
+        path: req.path,
+        message: err?.message || String(err),
+        code: err?.code || '',
+        status: err?.status || err?.statusCode || 500,
+        stack: String(err?.stack || '').split('\n').slice(0, 10).join('\n')
+      });
+    } catch {}
     if (res.headersSent) return;
     res.status(err?.status || err?.statusCode || 500).json({
       ok: false,

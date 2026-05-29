@@ -95,7 +95,8 @@ async function runDriveSync({ latestDays = 1, limit = 5000, pruneMissing = true,
         incremental,
         processed: result.processed ?? 0,
         skipped: result.skipped ?? 0,
-        hiddenCount: result.hiddenCount ?? 0
+        hiddenCount: result.hiddenCount ?? 0,
+        diff: result.diff || null
       };
       await setJson(KEYS.driveSyncStatus, status);
       return status;
@@ -114,7 +115,8 @@ async function runDriveSync({ latestDays = 1, limit = 5000, pruneMissing = true,
       processed: result.processed,
       skipped: result.skipped,
       hiddenCount: result.hiddenCount,
-      reachedLimit: result.reachedLimit
+      reachedLimit: result.reachedLimit,
+      diff: result.diff || null
     };
     await setJson(KEYS.driveSyncStatus, status);
     await setJson(KEYS.driveSyncLastAt, { endedAt });

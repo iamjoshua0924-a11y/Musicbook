@@ -60,6 +60,32 @@ async function syncDriveFolderTree({
   const drive = getDriveClient();
   const artistFreqMap = await buildArtistFreqMap();
 
+  // T-07: diff summary (added/changed/removed)
+  // NOTE: "removed" is derived from pruneMissing step (hiddenCount).
+  const prevMap = new Map(); // googleFileId -> driveModifiedTimeMs
+  try {
+    const prevRows = await Song.find({ syncRootId: rootFolderId }, { googleFileId: 1, driveModifiedTime: 1 })
+      .limit(30_000)
+      .lean();
+    (prevRows || []).forEach((r) => {
+      const id = String(r.googleFileId || '').trim();
+      if (!id) return;
+      const ms = r.driveModifiedTime ? new Date(r.driveModifiedTime).getTime() : 0;
+      prevMap.set(id, Number.isFinite(ms) ? ms : 0);
+    });
+  } catch {
+    // best-effort only
+  }
+  const diff = {
+    addedCount: 0,
+    changedCount: 0,
+    removedCount: 0,
+    // small sample for UI/debug
+    added: [],
+    changed: [],
+    removed: []
+  };
+
   const queue = [{ folderId: rootFolderId, path: '' }];
   let processed = 0;
   let skipped = 0;
@@ -70,7 +96,7 @@ async function syncDriveFolderTree({
 
   while (queue.length) {
     if (typeof shouldAbort === 'function' && shouldAbort()) {
-      return { processed, skipped, hiddenCount: 0, reachedLimit: false, aborted: true, startedAt };
+      return { processed, skipped, hiddenCount: 0, reachedLimit: false, aborted: true, startedAt, diff };
     }
     const { folderId, path } = queue.shift();
     try {
@@ -80,16 +106,16 @@ async function syncDriveFolderTree({
 
     do {
       if (typeof shouldAbort === 'function' && shouldAbort()) {
-        return { processed, skipped, hiddenCount: 0, reachedLimit: false, aborted: true, startedAt };
+        return { processed, skipped, hiddenCount: 0, reachedLimit: false, aborted: true, startedAt, diff };
       }
       const data = await listChildren(drive, folderId, pageToken);
       const files = data.files || [];
 
       for (const f of files) {
         if (typeof shouldAbort === 'function' && shouldAbort()) {
-          return { processed, skipped, hiddenCount: 0, reachedLimit: false, aborted: true, startedAt };
+          return { processed, skipped, hiddenCount: 0, reachedLimit: false, aborted: true, startedAt, diff };
         }
-        if (processed >= limit) return { processed, reachedLimit: true };
+        if (processed >= limit) return { processed, reachedLimit: true, diff };
         const mime = f.mimeType || '';
         if (mime === 'application/vnd.google-apps.folder') {
           queue.push({ folderId: f.id, path: path ? `${path}/${f.name}` : f.name });
@@ -110,6 +136,8 @@ async function syncDriveFolderTree({
         const displayTitle = title;
         const driveModifiedTime = f.modifiedTime ? new Date(f.modifiedTime) : null;
         const isLatest = driveModifiedTime ? driveModifiedTime.getTime() >= latestThreshold : false;
+        const prevMs = prevMap.has(String(f.id)) ? prevMap.get(String(f.id)) : null;
+        const nextMs = driveModifiedTime ? driveModifiedTime.getTime() : 0;
 
         if (incSinceDate && driveModifiedTime && driveModifiedTime.getTime() <= incSinceDate.getTime()) {
           // still mark as seen to avoid pruning when scanning the same root repeatedly
@@ -215,6 +243,17 @@ async function syncDriveFolderTree({
           { upsert: true }
         );
 
+        // diff counting (best-effort)
+        try {
+          if (prevMs === null) {
+            diff.addedCount += 1;
+            if (diff.added.length < 20) diff.added.push({ googleFileId: f.id, name: f.name || '', folderPath: path });
+          } else if (Number.isFinite(prevMs) && Number.isFinite(nextMs) && nextMs && prevMs && nextMs !== prevMs) {
+            diff.changedCount += 1;
+            if (diff.changed.length < 20) diff.changed.push({ googleFileId: f.id, name: f.name || '', folderPath: path });
+          }
+        } catch {}
+
         processed += 1;
         try {
           onProgress?.({ phase: 'file', processed, skipped, currentPath: path, fileName: f.name || '' });
@@ -228,16 +267,18 @@ async function syncDriveFolderTree({
   let hiddenCount = 0;
   if (pruneMissing) {
     if (typeof shouldAbort === 'function' && shouldAbort()) {
-      return { processed, skipped, hiddenCount: 0, reachedLimit: false, aborted: true, startedAt };
+      return { processed, skipped, hiddenCount: 0, reachedLimit: false, aborted: true, startedAt, diff };
     }
     const r = await Song.updateMany(
       { syncRootId: rootFolderId, lastSeenAt: { $lt: startedAt }, hidden: { $ne: true } },
       { $set: { hidden: true } }
     );
     hiddenCount = r.modifiedCount || r.nModified || 0;
+    diff.removedCount = hiddenCount;
+    // removed list is expensive; skip for now (could be derived from query if needed)
   }
 
-  return { processed, skipped, hiddenCount, reachedLimit: false, startedAt };
+  return { processed, skipped, hiddenCount, reachedLimit: false, startedAt, diff };
 }
 
 module.exports = { syncDriveFolderTree };

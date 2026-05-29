@@ -242,19 +242,20 @@ function compactBlocksV2(blocks) {
   return { format: 'mb_chord_compact_v2', lines };
 }
 
-async function createChordDoc({ blocks, meta }) {
+async function createChordDoc({ blocks, meta, rawText = '' }) {
   const docId = `chord:${nanoid(12)}`;
   let toStore = blocks || [];
   if (shouldCompactBlocks(toStore)) toStore = compactBlocksV2(toStore);
+  const rawTextNorm = String(rawText || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
   // 1) ALWAYS: 메모리 저장(즉시 응답 보장) - 2시간 TTL
   // => DB 상태/지연과 무관하게 docId 발급이 된다.
-  setTempDoc(docId, { meta: meta || {}, blocks: toStore }, 2 * 60 * 60 * 1000);
+  setTempDoc(docId, { meta: meta || {}, blocks: toStore, rawText: rawTextNorm }, 2 * 60 * 60 * 1000);
 
   // 2) BEST-EFFORT: DB 저장은 백그라운드로 시도하고, 실패는 절대 요청을 망치지 않게 삼킨다.
   // (중요) await 하지 않는다 + catch로 unhandled rejection 방지
   Promise.resolve()
-    .then(() => ChordDoc.create({ _id: docId, meta: meta || {}, blocks: toStore }))
+    .then(() => ChordDoc.create({ _id: docId, meta: meta || {}, blocks: toStore, rawText: rawTextNorm }))
     .catch(() => {});
 
   return docId;
@@ -381,7 +382,7 @@ router.get(
     blocks
   };
   try {
-    value.docId = await createChordDoc({ blocks, meta: value.meta });
+    value.docId = await createChordDoc({ blocks, meta: value.meta, rawText });
   } catch (e) {
     return res.status(502).json({ ok: false, error: 'DOC_STORE_FAILED' });
   }

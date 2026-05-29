@@ -2702,7 +2702,8 @@ function renderChordBlocks(blocks) {
     lineNo += 1;
   }
   pre.innerHTML = outHtml.trimEnd();
-  state.chordEditText = outText.trimEnd();
+  // chordEditText는 서버의 rawText를 우선 사용한다.
+  if (!String(state.chordEditText || '').trim()) state.chordEditText = outText.trimEnd();
   wrap.appendChild(pre);
   try {
     // 텍스트 렌더 후 캔버스(주석) 레이어를 덮는다.
@@ -2997,7 +2998,8 @@ function renderChordCompact(compact) {
     lineNo += 1;
   }
   pre.innerHTML = outHtml.trimEnd();
-  state.chordEditText = outText.trimEnd();
+  // chordEditText는 서버의 rawText를 우선 사용한다.
+  if (!String(state.chordEditText || '').trim()) state.chordEditText = outText.trimEnd();
   wrap.appendChild(pre);
   try {
     // 텍스트 렌더 후 캔버스(주석) 레이어를 덮는다.
@@ -3265,6 +3267,12 @@ async function openChordByDocId(docId, { broadcast } = { broadcast: true }) {
       if (meta.source) lines.push(`source: ${String(meta.source)}`);
       setCwMeta(lines.join('\n'));
     } catch {}
+    // NOTE: 편집용 원문은 서버의 rawText를 그대로 사용(렌더 결과에서 역산하면 공백 폭발/자간 문제 발생)
+    try {
+      const rt = String(r?.rawText || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      if (rt.trim()) state.chordEditText = rt;
+    } catch {}
+
     const blocksObj = r.blocks || [];
     const isCompact =
       blocksObj && typeof blocksObj === 'object' && !Array.isArray(blocksObj) && String(blocksObj.format || '').startsWith('mb_chord_compact_');
@@ -5382,7 +5390,16 @@ document.getElementById('chordEditBtn')?.addEventListener('click', async () => {
   const beforeText = String(state.chordEditText || '');
   const next = await openChordEditModal({ value: state.chordEditText || '' });
   if (next == null) return;
-  const rawText = String(next || '');
+  // 저장 전 정규화:
+  // - 줄 끝 공백 제거(폭발 방지)
+  // - 탭을 스페이스로 치환
+  const rawText = String(next || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/\t/g, '  ')
+    .split('\n')
+    .map((ln) => ln.replace(/[ \t]+$/g, ''))
+    .join('\n');
   if (!rawText.trim()) return flashHud('비어있습니다', 1000);
   if (!confirm(`저장하면 기존 코드위키 데이터가 덮어씌워집니다.\n(docId: ${state.chordDocId})\n저장할까요?`)) return;
 
@@ -5524,6 +5541,31 @@ document.getElementById('chordHistoryBtn')?.addEventListener('click', () => {
   openChordHistoryModal({ docId: state.chordDocId });
 });
 document.getElementById('chordHistoryCloseBtn')?.addEventListener('click', () => setHiddenModal('chordHistoryModal', true));
+document.getElementById('chordHistoryResetBtn')?.addEventListener('click', async () => {
+  if (state.mode !== 'chord' || !state.chordDocId) return;
+  const can =
+    (state.isInSession && state.isPageTurner) || (!state.isInSession && ['admin', 'session'].includes(String(authState?.role || '')));
+  if (!can) return flashHud('페이지터너/관리자만 가능합니다', 1200);
+  if (!confirm(`편집 이력을 전부 삭제하고 "최초 상태"로 초기화할까요?\n(docId: ${state.chordDocId})`)) return;
+  flashHud('초기화 중...', 900);
+  try {
+    const rr = await fetch(apiUrl('/api/chord-doc/reset'), {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ docId: state.chordDocId })
+    }).then((x) => x.json());
+    if (!rr?.ok) throw new Error(rr?.error || 'RESET_FAILED');
+    setHiddenModal('chordHistoryModal', true);
+    state.chordEditText = '';
+    await openChordByDocId(String(state.chordDocId), { broadcast: false });
+    flashHud('초기화 완료', 1000);
+  } catch (e) {
+    const msg = String(e?.message || 'ERROR');
+    if (msg === 'NO_HISTORY') return flashHud('초기화할 이력이 없습니다', 1200);
+    flashHud(`초기화 실패: ${msg}`, 1400);
+  }
+});
 document.getElementById('chordHistoryModal')?.addEventListener('click', (e) => {
   if (e.target?.id === 'chordHistoryModal') setHiddenModal('chordHistoryModal', true);
 });

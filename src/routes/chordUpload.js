@@ -91,7 +91,7 @@ router.post(
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
 
-    const rawText = parsed.data.rawText;
+    const rawText = String(parsed.data.rawText || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     const sourceUrl = String(parsed.data.sourceUrl || '').trim();
     const meta = { source: 'clientRawText', sourceUrl };
 
@@ -106,7 +106,11 @@ router.post(
             await ChordDoc.updateOne({ _id: existing._id }, { $set: { createdAt: new Date() } });
           } catch {}
           // memory cache (옵션)
-          setTempDoc(String(existing._id), { meta: existing.meta || {}, blocks: existing.blocks || [] }, 2 * 60 * 60 * 1000); // 2h
+          setTempDoc(
+            String(existing._id),
+            { meta: existing.meta || {}, blocks: existing.blocks || [], rawText: String(existing.rawText || '') },
+            2 * 60 * 60 * 1000
+          ); // 2h
           return res.json({
             ok: true,
             docId: String(existing._id),
@@ -130,7 +134,7 @@ router.post(
     // - 실패/타임아웃이면 ok:false로 반환(조회 불가능 docId 방출 금지)
     try {
       await Promise.race([
-        ChordDoc.create({ _id: docId, meta, blocks: toStore }),
+        ChordDoc.create({ _id: docId, meta, blocks: toStore, rawText }),
         new Promise((_, reject) => setTimeout(() => reject(new Error('DB_WRITE_TIMEOUT')), 2500))
       ]);
     } catch (e) {
@@ -139,7 +143,7 @@ router.post(
     }
 
     // memory cache (옵션)
-    setTempDoc(docId, { meta, blocks: toStore }, 2 * 60 * 60 * 1000); // 2h
+    setTempDoc(docId, { meta, blocks: toStore, rawText }, 2 * 60 * 60 * 1000); // 2h
 
     return res.json({
       ok: true,

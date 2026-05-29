@@ -24,14 +24,14 @@ router.get(
   const docId = String(parsed.data.docId);
   // 메모리 임시 저장소를 1순위로 조회(502/DB 장애 시에도 chord 문서 열기 보장)
   const v = getTempDoc(docId);
-  if (v) return res.json({ ok: true, docId, meta: v.meta || {}, blocks: v.blocks || [] });
+  if (v) return res.json({ ok: true, docId, meta: v.meta || {}, blocks: v.blocks || [], rawText: String(v.rawText || '') });
   try {
     const doc = await Promise.race([
       ChordDoc.findById(docId).lean(),
       new Promise((_, reject) => setTimeout(() => reject(new Error('MONGO_READ_TIMEOUT')), 2500))
     ]);
     if (!doc) return res.status(404).json({ ok: false, error: 'DOC_NOT_FOUND' });
-    return res.json({ ok: true, docId, meta: doc.meta || {}, blocks: doc.blocks || [] });
+    return res.json({ ok: true, docId, meta: doc.meta || {}, blocks: doc.blocks || [], rawText: String(doc.rawText || '') });
   } catch (e) {
     const msg = String(e?.message || e);
     if (msg === 'MONGO_READ_TIMEOUT') return res.status(504).json({ ok: false, error: 'DOC_LOAD_TIMEOUT' });
@@ -117,7 +117,8 @@ router.post(
     }
 
     // apply rollback
-    const blocksRaw = await parseRawTextToBlocks(String(target.rawText));
+    const baseRawText = String(target.rawText || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const blocksRaw = await parseRawTextToBlocks(baseRawText);
     const toStore = shouldCompactBlocks(blocksRaw) ? compactBlocksV2(blocksRaw) : blocksRaw;
     const meta = {
       ...(doc.meta || {}),
@@ -126,15 +127,69 @@ router.post(
       source: 'rollback',
       rollbackFrom: targetSavedAt
     };
-    await ChordDoc.updateOne({ _id: docId }, { $set: { blocks: toStore, rawText: String(target.rawText), meta, createdAt: new Date() } });
+    await ChordDoc.updateOne({ _id: docId }, { $set: { blocks: toStore, rawText: baseRawText, meta, createdAt: new Date() } });
 
     // cache refresh (best effort)
     try {
       const { setTempDoc } = require('../services/chordDocTempStore');
-      setTempDoc(docId, { meta, blocks: toStore }, 2 * 60 * 60 * 1000);
+      setTempDoc(docId, { meta, blocks: toStore, rawText: baseRawText }, 2 * 60 * 60 * 1000);
     } catch {}
 
     return res.json({ ok: true, docId, rolledBackTo: targetSavedAt, meta });
+  })
+);
+
+// POST /api/chord-doc/reset {docId}
+// - 편집본/롤백본을 "최초 상태"로 되돌리고, 이력도 제거한다.
+router.post(
+  '/chord-doc/reset',
+  asyncHandler(async (req, res) => {
+    const role = req.session?.user?.role;
+    if (role !== 'admin' && role !== 'session') return res.status(401).json({ ok: false, error: 'UNAUTHORIZED' });
+
+    const schema = z
+      .object({
+        docId: z.string().min(1).max(200)
+      })
+      .strict();
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+
+    const docId = String(parsed.data.docId);
+    const [doc, hist] = await Promise.all([ChordDoc.findById(docId).lean(), ChordDocHistory.findById(docId).lean()]);
+    if (!doc) return res.status(404).json({ ok: false, error: 'DOC_NOT_FOUND' });
+
+    const items = Array.isArray(hist?.items) ? hist.items : [];
+    if (!items.length) return res.status(409).json({ ok: false, error: 'NO_HISTORY' });
+
+    // 가장 오래된 rawText를 "원본"으로 간주(첫 편집 직전 버전)
+    const oldest = items.slice().sort((a, b) => Number(a?.savedAt || 0) - Number(b?.savedAt || 0))[0];
+    const rawText = String(oldest?.rawText || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    if (!rawText.trim()) return res.status(409).json({ ok: false, error: 'EMPTY_ORIGINAL' });
+
+    const blocksRaw = await parseRawTextToBlocks(rawText);
+    const toStore = shouldCompactBlocks(blocksRaw) ? compactBlocksV2(blocksRaw) : blocksRaw;
+    const userId = String(req.session?.user?.userId || '');
+    const meta = {
+      ...(doc.meta || {}),
+      editedAt: new Date().toISOString(),
+      editedBy: userId || 'member',
+      source: 'reset',
+      resetFrom: Number(oldest?.savedAt || 0)
+    };
+
+    await Promise.all([
+      ChordDoc.updateOne({ _id: docId }, { $set: { blocks: toStore, rawText, meta, createdAt: new Date() } }),
+      ChordDocHistory.deleteOne({ _id: docId })
+    ]);
+
+    // cache refresh (best effort)
+    try {
+      const { setTempDoc } = require('../services/chordDocTempStore');
+      setTempDoc(docId, { meta, blocks: toStore, rawText }, 2 * 60 * 60 * 1000);
+    } catch {}
+
+    return res.json({ ok: true, docId, meta });
   })
 );
 
@@ -293,7 +348,15 @@ router.put(
       }
     } catch {}
 
-    const blocksRaw = await parseRawTextToBlocks(parsed.data.rawText);
+    const rawText = String(parsed.data.rawText || '')
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      // 줄 끝 공백은 편집/렌더 반복 시 폭발하기 쉬워서 제거(정렬은 내부 공백으로 충분)
+      .split('\n')
+      .map((ln) => ln.replace(/[ \t]+$/g, ''))
+      .join('\n');
+
+    const blocksRaw = await parseRawTextToBlocks(rawText);
     const toStore = shouldCompactBlocks(blocksRaw) ? compactBlocksV2(blocksRaw) : blocksRaw;
     const userId = String(req.session?.user?.userId || '');
     const meta = {
@@ -305,14 +368,14 @@ router.put(
 
     await ChordDoc.updateOne(
       { _id: docId },
-      { $set: { blocks: toStore, rawText: String(parsed.data.rawText), meta, createdAt: new Date() } },
+      { $set: { blocks: toStore, rawText, meta, createdAt: new Date() } },
       { upsert: false }
     );
 
     // cache refresh (best effort)
     try {
       const { setTempDoc } = require('../services/chordDocTempStore');
-      setTempDoc(docId, { meta, blocks: toStore }, 2 * 60 * 60 * 1000);
+      setTempDoc(docId, { meta, blocks: toStore, rawText }, 2 * 60 * 60 * 1000);
     } catch {}
 
     return res.json({ ok: true, docId, meta, blocksCount: Array.isArray(blocksRaw) ? blocksRaw.length : 0 });

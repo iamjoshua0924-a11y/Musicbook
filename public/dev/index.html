@@ -31,6 +31,10 @@
         <div class="title" style="font-size:16px;">세션 라이브</div>
         <div class="row" style="margin-top:10px;">
           <button id="reloadSessionsBtn" class="light">새로고침</button>
+          <label class="muted" style="display:flex; align-items:center; gap:8px;">
+            <input id="autoRefreshToggle" type="checkbox" />
+            자동 새로고침(2초)
+          </label>
           <span class="muted" id="sessionsOut"></span>
         </div>
         <div class="list" id="sessionsList" style="margin-top:10px;"></div>
@@ -107,6 +111,6 @@
     </div>
 
     <script src="../config.js"></script>
-    <script src="dev.js?v=20260529_4"></script>
+    <script src="dev.js?v=20260529_5"></script>
   </body>
 </html>

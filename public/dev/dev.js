@@ -1,5 +1,6 @@
 const $ = (id) => document.getElementById(id);
 let syncRunning = false;
+let autoPoller = null;
 
 const API_URL = String(window.API_URL || window.MB_API || window.location.origin || '').replace(/\/$/, '');
 const apiUrl = (path) => {
@@ -55,13 +56,16 @@ async function logout() {
 async function loadSessions() {
   $('sessionsOut').textContent = '로딩 중...';
   $('sessionsList').innerHTML = '';
-  const r = await apiGet('/api/dev/sessions');
+  const [r, sr] = await Promise.all([apiGet('/api/dev/sessions'), apiGet('/api/dev/sessions/stats')]);
   if (!r.ok) {
     $('sessionsOut').textContent = `실패: ${r.error || ''}`;
     return;
   }
   const rooms = Array.isArray(r.rooms) ? r.rooms : [];
-  $('sessionsOut').textContent = `총 ${rooms.length}개`;
+  const st = sr?.ok ? sr.stats : null;
+  $('sessionsOut').textContent = st
+    ? `룸 ${st.roomsCount} · 멤버 ${st.totalMembers} · unique ${st.uniqueMemberIds} · TURNER ${st.pageTurnerCount} · TOOL ${st.toolAuthorizedCount} · 요청 ${st.toolRequestedCount} · 합주 ${st.rehearsalEligibleCount}/${st.rehearsalReadyCount}`
+    : `총 ${rooms.length}개`;
   rooms.forEach((x) => {
     const el = document.createElement('div');
     el.className = 'item';
@@ -106,7 +110,27 @@ async function openSessionDetail(roomCode) {
   }
   const room = r.room || {};
   const members = Array.isArray(r.members) ? r.members : [];
-  $('sessionDetailRoom').textContent = JSON.stringify(room, null, 2);
+  // Pretty render (keep JSON-ish but more readable)
+  const lines = [];
+  lines.push(`roomCode: ${room.roomCode || ''}`);
+  lines.push(`ageSec: ${room.ageMs != null ? Math.round(Number(room.ageMs) / 1000) : '-'}`);
+  lines.push(`memberCount: ${room.memberCount ?? '-'}`);
+  lines.push(`pageTurnerSocketId: ${room.pageTurnerSocketId ? String(room.pageTurnerSocketId).slice(0, 10) : '-'}`);
+  lines.push(`currentFileId: ${room.currentFileId || '-'}`);
+  lines.push(`currentPageNo: ${room.currentPageNo || 1}`);
+  lines.push(`scrollRatio: ${room.currentScrollRatio != null ? Number(room.currentScrollRatio).toFixed(3) : '-'}`);
+  lines.push(`rehearsalActive: ${room.rehearsalActive ? 'ON' : 'OFF'}`);
+  lines.push(`toolAuthorizedCount: ${room.toolAuthorizedCount ?? 0}`);
+  lines.push(`toolRequestedCount: ${room.toolRequestedCount ?? 0}`);
+  if (Array.isArray(room.annotationsFiles) && room.annotationsFiles.length) {
+    lines.push(`annotationsFiles:`);
+    room.annotationsFiles.slice(0, 30).forEach((f) => {
+      lines.push(`  - ${String(f.fileId).slice(0, 10)}…  pages=${f.pageCount ?? 0}  updatedAt=${f.updatedAt || '-'}`);
+    });
+  } else {
+    lines.push(`annotationsFiles: -`);
+  }
+  $('sessionDetailRoom').textContent = lines.join('\n');
 
   const wrap = $('sessionDetailMembers');
   wrap.innerHTML = '';
@@ -305,6 +329,32 @@ $('sessionDetailCloseBtn')?.addEventListener?.('click', () => setHidden('session
 $('sessionDetailModal')?.addEventListener?.('click', (e) => {
   if (e.target?.id === 'sessionDetailModal') setHidden('sessionDetailModal', true);
 });
+
+function setAutoRefresh(on) {
+  const enabled = Boolean(on);
+  try {
+    localStorage.setItem('mb_dev_auto_refresh', enabled ? '1' : '0');
+  } catch {}
+  if (autoPoller) {
+    clearInterval(autoPoller);
+    autoPoller = null;
+  }
+  if (!enabled) return;
+  autoPoller = setInterval(() => {
+    // best-effort: these should not throw
+    loadSessions().catch(() => {});
+    loadSync().catch(() => {});
+    loadErrors().catch(() => {});
+  }, 2000);
+}
+
+try {
+  const v = localStorage.getItem('mb_dev_auto_refresh') === '1';
+  if ($('autoRefreshToggle')) $('autoRefreshToggle').checked = v;
+  setAutoRefresh(v);
+} catch {}
+
+$('autoRefreshToggle')?.addEventListener?.('change', (e) => setAutoRefresh(Boolean(e.target?.checked)));
 
 refreshMe()
   .then((authed) => {

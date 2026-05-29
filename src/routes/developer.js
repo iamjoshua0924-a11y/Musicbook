@@ -84,6 +84,58 @@ router.get(
   })
 );
 
+// GET /api/dev/sessions/stats (summary metrics)
+router.get(
+  '/sessions/stats',
+  requireDev,
+  asyncHandler(async (_req, res) => {
+    let roomsCount = 0;
+    let totalMembers = 0;
+    let pageTurnerCount = 0;
+    let rehearsalActiveCount = 0;
+    let toolAuthorizedCount = 0;
+    let toolRequestedCount = 0;
+    let rehearsalEligibleCount = 0;
+    let rehearsalReadyCount = 0;
+    /** @type {Set<string>} */
+    const uniqueMemberIds = new Set();
+
+    try {
+      for (const room of store.rooms.values()) {
+        roomsCount += 1;
+        totalMembers += room.members?.size || 0;
+        if (room.pageTurnerSocketId) pageTurnerCount += 1;
+        if (room.rehearsalActive) rehearsalActiveCount += 1;
+        toolAuthorizedCount += room.toolAuthorizedSocketIds?.size || 0;
+        toolRequestedCount += room.toolRequestSocketIds?.size || 0;
+        rehearsalEligibleCount += room.rehearsalEligibleMemberIds?.size || 0;
+        rehearsalReadyCount += room.rehearsalReadyMemberIds?.size || 0;
+        try {
+          for (const m of room.members?.values?.() || []) {
+            const id = String(m?.memberId || '').trim();
+            if (id) uniqueMemberIds.add(id);
+          }
+        } catch {}
+      }
+    } catch {}
+
+    res.json({
+      ok: true,
+      stats: {
+        roomsCount,
+        totalMembers,
+        uniqueMemberIds: uniqueMemberIds.size,
+        pageTurnerCount,
+        rehearsalActiveCount,
+        toolAuthorizedCount,
+        toolRequestedCount,
+        rehearsalEligibleCount,
+        rehearsalReadyCount
+      }
+    });
+  })
+);
+
 // GET /api/dev/sessions/:roomCode  (detail)
 router.get(
   '/sessions/:roomCode',

@@ -70,22 +70,28 @@ body.light{
 
 /* ready / rehearsal buttons (top emphasis) */
 #readyBtn{
-  border-color: rgba(122,162,255,0.55);
-  background: rgba(122,162,255,0.14);
+  /* before click: green (call-to-action) */
+  border-color: rgba(54,220,120,0.72);
+  background: rgba(54,220,120,0.32);
+  color: rgba(235,255,245,0.98);
 }
 #readyBtn.ready-on{
-  border-color: rgba(54,220,120,0.6);
-  background: rgba(54,220,120,0.22);
+  /* after click: red (so you notice "already ready" / can toggle off) */
+  border-color: rgba(255,107,107,0.75);
+  background: rgba(255,107,107,0.30);
+  color: rgba(255,240,240,0.98);
 }
 #readyBtn.disabled{ opacity: 0.78; }
 
 #rehearsalToggleBtn{
-  border-color: rgba(255,195,90,0.55);
-  background: rgba(255,195,90,0.14);
+  border-color: rgba(255,195,90,0.70);
+  background: rgba(255,195,90,0.30);
+  color: rgba(255,250,235,0.98);
 }
 #rehearsalToggleBtn.rehearsal-on{
-  border-color: rgba(255,107,107,0.62);
-  background: rgba(255,107,107,0.18);
+  border-color: rgba(255,107,107,0.75);
+  background: rgba(255,107,107,0.28);
+  color: rgba(255,240,240,0.98);
 }
 
 /* participant states (rehearsal) */

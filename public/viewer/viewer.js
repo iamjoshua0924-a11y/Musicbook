@@ -715,11 +715,9 @@ function openParticipantMenu(anchorEl, m) {
     if (!items.length) return flashHud('권한이 없습니다', 900);
     const menu = document.createElement('div');
     menu.className = 'participantMenu';
+    // labels are hard-coded strings; avoid dependency on an escape helper
     menu.innerHTML = items
-      .map(
-        (it, i) =>
-          `<button type="button" data-idx="${i}" class="${it.danger ? 'danger' : ''}">${escHtml(String(it.label))}</button>`
-      )
+      .map((it, i) => `<button type="button" data-idx="${i}" class="${it.danger ? 'danger' : ''}">${String(it.label)}</button>`)
       .join('');
     document.body.appendChild(menu);
     _participantMenuEl = menu;
@@ -755,6 +753,9 @@ function openParticipantMenu(anchorEl, m) {
     };
   } catch (e) {
     closeParticipantMenu();
+    try {
+      console.error('openParticipantMenu failed', e);
+    } catch {}
     flashHud(`메뉴 열기 실패`, 1100);
   }
 }

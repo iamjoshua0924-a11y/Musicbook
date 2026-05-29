@@ -2,6 +2,7 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const User = require('../models/User');
+const Availability = require('../models/Availability');
 const Setting = require('../models/Setting');
 const Song = require('../models/Song');
 const { requireLogin, requireAdmin, requireSessionOrAdmin } = require('../middleware/auth');
@@ -204,6 +205,23 @@ router.patch('/admin/users/:userId', requireAdmin, async (req, res) => {
       mustChangePassword: doc.mustChangePassword
     }
   });
+});
+
+// Admin only: delete user (hard delete; also removes related availability docs)
+router.delete('/admin/users/:userId', requireAdmin, async (req, res) => {
+  const userId = String(req.params?.userId || '').trim();
+  if (!userId) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+  // Safety: don't let admin delete self by mistake
+  if (String(req.session?.user?.userId || '') === userId) {
+    return res.status(400).json({ ok: false, error: 'CANNOT_DELETE_SELF' });
+  }
+
+  const existed = await User.findOne({ userId }).lean();
+  if (!existed) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
+
+  await Availability.deleteMany({ userId });
+  await User.deleteOne({ userId });
+  res.json({ ok: true });
 });
 
 // Drive sync (admin/session only; for now admin only)

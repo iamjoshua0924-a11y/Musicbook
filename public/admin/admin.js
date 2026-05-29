@@ -81,6 +81,7 @@ async function loadUsers() {
       <div class="row" style="justify-content:flex-end;">
         <button class="light" data-action="reset">비번 1234</button>
         <button class="light" data-action="toggle">${u.active === false ? '활성화' : '비활성'}</button>
+        <button class="light" data-action="delete" style="border-color: rgba(255,107,107,0.5); color:#ffb3b3;">삭제</button>
       </div>
     `;
     el.querySelector('[data-action="reset"]').onclick = async () => {
@@ -92,6 +93,14 @@ async function loadUsers() {
       const next = !(u.active === false);
       const rr = await apiJson(`/api/admin/users/${encodeURIComponent(u.userId)}`, 'PATCH', { active: !next });
       if (!rr.ok) return alert('실패');
+      await loadUsers();
+    };
+    el.querySelector('[data-action="delete"]').onclick = async () => {
+      if (!confirm(`정말 삭제할까요?\n- userId: ${u.userId}\n- 관련 가능곡(availability) 데이터도 함께 삭제됩니다.`)) return;
+      const rr = await fetch(apiUrl(`/api/admin/users/${encodeURIComponent(u.userId)}`), { method: 'DELETE', credentials: 'include' }).then((x) =>
+        x.json()
+      );
+      if (!rr.ok) return alert(`실패: ${rr.error || ''}`);
       await loadUsers();
     };
     wrap.appendChild(el);

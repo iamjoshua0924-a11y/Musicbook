@@ -5,7 +5,7 @@
     <title>밍긴어게인 노래책</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="https://www.gstatic.com/images/branding/product/1x/drive_2020q4_32dp.png" />
-    <link rel="stylesheet" href="musicbook.css?v=20260529_1" />
+    <link rel="stylesheet" href="musicbook.css?v=20260529_2" />
   </head>
 
   <body class="preload">
@@ -385,6 +385,10 @@
       <div class="availability-edit-title" id="availabilityEditTitle">
         가능곡 선택모드 <span id="availabilityEditCount" class="muted" style="margin-left:8px;"></span>
       </div>
+      <label class="muted" style="display:flex; align-items:center; gap:8px; font-weight:900;">
+        <input id="availabilityHideExistingToggle" type="checkbox" />
+        기존 가능곡 안보기
+      </label>
       <div class="availability-edit-actions">
         <button class="floating-btn compact-btn" id="availabilityEditCancelBtn" type="button">취소</button>
         <button class="floating-btn black-btn" id="availabilityEditSaveBtn" type="button">저장</button>
@@ -543,6 +547,6 @@
 
     <script src="../config.js"></script>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
-    <script src="musicbook.js?v=20260529_1"></script>
+    <script src="musicbook.js?v=20260529_2"></script>
   </body>
 </html>

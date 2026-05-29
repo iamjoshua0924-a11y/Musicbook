@@ -86,7 +86,7 @@ function buildParticipantsPayload(room) {
       isRehearsalReady: Boolean(memberId) && ready.has(memberId)
     };
   });
-  return { roomCode: room.roomCode, members };
+  return { roomCode: room.roomCode, rehearsalActive: Boolean(room.rehearsalActive), members };
 }
 
 function canUseTools(room, socketId) {
@@ -108,7 +108,8 @@ function emitRoomState(io, room) {
     currentFileRev: Number(room.currentFileRev || 0),
     currentPageNo: room.currentPageNo,
     currentOriginalLink: room.currentOriginalLink || '',
-    currentScrollRatio: Number(room.currentScrollRatio || 0)
+    currentScrollRatio: Number(room.currentScrollRatio || 0),
+    rehearsalActive: Boolean(room.rehearsalActive)
   });
 }
 
@@ -223,6 +224,28 @@ function attachSockets(io) {
     });
 
     // --- Rehearsal readiness --------------------------------------------------------
+    socket.on('session:rehearsal:active:set', (payload, ack) => {
+      const roomCode = String(payload?.roomCode || '').trim().toUpperCase();
+      const active = Boolean(payload?.active);
+      const room = store.rooms.get(roomCode);
+      if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
+      if (room.pageTurnerSocketId !== socket.id) return ack?.({ ok: false, error: 'FORBIDDEN' });
+      room.rehearsalActive = active;
+      // 합주시작/종료 시점에 준비는 항상 초기화
+      room.rehearsalReadyMemberIds?.clear?.();
+      io.to(toSessionRoomName(roomCode)).emit('session:participants', buildParticipantsPayload(room));
+      io.to(toSessionRoomName(roomCode)).emit('session:state', {
+        roomCode,
+        currentFileId: room.currentFileId,
+        currentFileRev: Number(room.currentFileRev || 0),
+        currentPageNo: room.currentPageNo,
+        currentOriginalLink: room.currentOriginalLink || '',
+        currentScrollRatio: Number(room.currentScrollRatio || 0),
+        rehearsalActive: Boolean(room.rehearsalActive)
+      });
+      ack?.({ ok: true, rehearsalActive: Boolean(room.rehearsalActive) });
+    });
+
     socket.on('session:rehearsal:eligible:set', (payload, ack) => {
       const roomCode = String(payload?.roomCode || '').trim().toUpperCase();
       const targetSocketId = String(payload?.targetSocketId || '').trim();
@@ -246,8 +269,12 @@ function attachSockets(io) {
       const room = store.rooms.get(roomCode);
       if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
       if (!room.members.has(socket.id)) return ack?.({ ok: false, error: 'NOT_IN_ROOM' });
+      if (!room.rehearsalActive) return ack?.({ ok: false, error: 'REHEARSAL_NOT_ACTIVE' });
       const memberId = String(room.members.get(socket.id)?.memberId || '').trim();
       if (!memberId) return ack?.({ ok: false, error: 'MEMBER_ID_REQUIRED' });
+      // only eligible members can set ready=true
+      const eligibleSet = room.rehearsalEligibleMemberIds || new Set();
+      if (ready && !eligibleSet.has(memberId)) return ack?.({ ok: false, error: 'NOT_ELIGIBLE' });
       if (ready) room.rehearsalReadyMemberIds?.add?.(memberId);
       else room.rehearsalReadyMemberIds?.delete?.(memberId);
       io.to(toSessionRoomName(roomCode)).emit('session:participants', buildParticipantsPayload(room));
@@ -255,7 +282,6 @@ function attachSockets(io) {
 
       // Notify turner when all eligible (connected) members are ready
       try {
-        const eligibleSet = room.rehearsalEligibleMemberIds || new Set();
         if (!eligibleSet.size) return;
         const connectedMemberIds = new Set(
           Array.from(room.members.values())
@@ -311,7 +337,8 @@ function attachSockets(io) {
         currentFileRev: Number(room.currentFileRev || 0),
         currentPageNo: room.currentPageNo,
         currentOriginalLink: room.currentOriginalLink || '',
-        currentScrollRatio: Number(room.currentScrollRatio || 0)
+        currentScrollRatio: Number(room.currentScrollRatio || 0),
+        rehearsalActive: Boolean(room.rehearsalActive)
       });
     });
 
@@ -420,8 +447,14 @@ function attachSockets(io) {
       if (room.pageTurnerSocketId !== socket.id) return ack?.({ ok: false, error: 'FORBIDDEN' });
       if (!fileId) return ack?.({ ok: false, error: 'FILE_REQUIRED' });
 
+      const prevFileId = String(room.currentFileId || '');
       room.currentFileId = fileId;
       room.currentPageNo = pageNo;
+      // 곡(파일)이 바뀌면 준비 상태는 초기화(합주 진행 중일 때만)
+      if (room.rehearsalActive && prevFileId && prevFileId !== fileId) {
+        room.rehearsalReadyMemberIds?.clear?.();
+        io.to(toSessionRoomName(roomCode)).emit('session:participants', buildParticipantsPayload(room));
+      }
 
       io.to(toSessionRoomName(roomCode)).emit('viewer:page_change', { fileId, pageNo });
       io.to(toSessionRoomName(roomCode)).emit('session:state', {
@@ -430,7 +463,8 @@ function attachSockets(io) {
         currentFileRev: Number(room.currentFileRev || 0),
         currentPageNo: pageNo,
         currentOriginalLink: room.currentOriginalLink || '',
-        currentScrollRatio: Number(room.currentScrollRatio || 0)
+        currentScrollRatio: Number(room.currentScrollRatio || 0),
+        rehearsalActive: Boolean(room.rehearsalActive)
       });
       ack?.({ ok: true });
     });

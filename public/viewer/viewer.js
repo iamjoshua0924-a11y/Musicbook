@@ -102,11 +102,20 @@ function safeRoomCode(v) {
 // NOTE: preview 환경에서 prompt()가 지원되지 않아 모달 기반으로 입력을 받는다.
 function getOrCreateNickname() {
   // 메인(노래책)과 동일한 키를 우선 사용
-  const shared = localStorage.getItem('mb_presence_nick');
-  if (shared) return shared;
-  const legacy = localStorage.getItem('mb_nickname');
-  if (legacy) return legacy;
-  return '';
+  const key = 'mb_presence_nick';
+  const shared = String(localStorage.getItem(key) || '').trim();
+  const legacy = String(localStorage.getItem('mb_nickname') || '').trim();
+  const picked = shared || legacy;
+  if (picked && picked !== '익명') return picked;
+  // 익명 금지: 자동 임시 고유 닉네임 생성(프롬프트 없음)
+  const memberId = String(localStorage.getItem('mb_member_id') || '').trim() || getOrCreateMemberId();
+  const suffix = memberId.replace(/[^a-zA-Z0-9]/g, '').slice(-4) || String(Math.random()).slice(2, 6);
+  const nick = `게스트-${suffix}`;
+  try {
+    localStorage.setItem(key, nick);
+    localStorage.setItem('mb_nickname', nick);
+  } catch {}
+  return nick;
 }
 
 function getOrCreateMemberId() {
@@ -631,8 +640,17 @@ function updateReadyBtnUI() {
   const btn = document.getElementById('readyBtn');
   if (!btn) return;
   btn.classList.toggle('hidden', !state.isInSession);
-  btn.classList.toggle('ready-on', Boolean(state.rehearsalReady));
-  btn.textContent = state.rehearsalReady ? '준비됨' : '준비';
+  btn.classList.toggle('disabled', state.isInSession && !state.rehearsalActive);
+  btn.classList.toggle('ready-on', Boolean(state.rehearsalReady) && state.rehearsalActive);
+  if (!state.rehearsalActive) btn.textContent = '준비(대기)';
+  else btn.textContent = state.rehearsalReady ? '준비됨' : '준비';
+}
+
+function updateRehearsalToggleUI() {
+  const btn = document.getElementById('rehearsalToggleBtn');
+  if (!btn) return;
+  btn.classList.toggle('hidden', !(state.isInSession && state.isPageTurner));
+  btn.textContent = state.rehearsalActive ? '합주종료' : '합주시작';
 }
 
 // ---- Participant (⋯) menu ---------------------------------------------------------
@@ -1237,6 +1255,7 @@ const state = {
   cursorShareOn: false,
   memberId: getOrCreateMemberId(),
   // rehearsal
+  rehearsalActive: false,
   rehearsalReady: false,
 
   // BPM/metronome (local only)
@@ -1440,6 +1459,7 @@ function joinSession(roomCode) {
       if (btn) btn.classList.remove('hidden');
     } catch {}
     updateReadyBtnUI();
+    updateRehearsalToggleUI();
   }
   );
 }
@@ -1449,6 +1469,7 @@ function leaveSession() {
   state.roomCode = null;
   state.isInSession = false;
   state.isPageTurner = false;
+  state.rehearsalActive = false;
   state.rehearsalReady = false;
   document.getElementById('sessionFloatBtn').textContent = '세션참여';
   setHidden('sessionBadge', true);
@@ -1458,6 +1479,10 @@ function leaveSession() {
   setHidden('participantsPanel', true);
   try {
     const btn = document.getElementById('readyBtn');
+    if (btn) btn.classList.add('hidden');
+  } catch {}
+  try {
+    const btn = document.getElementById('rehearsalToggleBtn');
     if (btn) btn.classList.add('hidden');
   } catch {}
   if (roomCode) socket.emit('session:leave', { roomCode });
@@ -2826,11 +2851,34 @@ document.getElementById('sessionMenuJoinBtn')?.addEventListener('click', () => {
   document.getElementById('sessionFloatBtn')?.click?.();
 });
 
+document.getElementById('rehearsalToggleBtn')?.addEventListener('click', () => {
+  if (!state.isInSession || !state.roomCode) return;
+  if (!state.isPageTurner) return;
+  const next = !state.rehearsalActive;
+  socket.emit('session:rehearsal:active:set', { roomCode: state.roomCode, active: next }, (ack) => {
+    if (!ack?.ok) return flashHud('합주 상태 변경 실패', 1200);
+    // server is source of truth; but optimistic feedback is OK
+    state.rehearsalActive = Boolean(ack.rehearsalActive);
+    state.rehearsalReady = false;
+    updateRehearsalToggleUI();
+    updateReadyBtnUI();
+    flashHud(state.rehearsalActive ? '합주 시작됨 (준비 체크 시작)' : '합주 종료됨 (준비 초기화)', 1200);
+  });
+});
+
 document.getElementById('readyBtn')?.addEventListener('click', () => {
   if (!state.isInSession || !state.roomCode) return;
+  if (!state.rehearsalActive) return flashHud('턴너가 합주시작을 눌러야 준비 체크가 됩니다', 1400);
   const next = !state.rehearsalReady;
   socket.emit('session:rehearsal:ready:set', { roomCode: state.roomCode, ready: next }, (ack) => {
-    if (!ack?.ok) flashHud('준비 상태 변경 실패', 1200);
+    if (!ack?.ok) {
+      // server is source of truth; rollback optimistic toggle
+      state.rehearsalReady = !next;
+      updateReadyBtnUI();
+      if (ack?.error === 'NOT_ELIGIBLE') return flashHud('합주멤버로 등록된 사람만 준비를 누를 수 있습니다', 1400);
+      if (ack?.error === 'REHEARSAL_NOT_ACTIVE') return flashHud('턴너가 합주시작을 눌러야 합니다', 1400);
+      flashHud('준비 상태 변경 실패', 1200);
+    }
   });
   // optimistic UI (will be corrected by session:participants)
   state.rehearsalReady = next;
@@ -4893,10 +4941,12 @@ socket.on('session:pageTurner:state', (p) => {
   updateCursorShareUI();
   updateToolActiveUI();
   updatePageLabels();
+  updateRehearsalToggleUI();
 });
 
 socket.on('session:participants', (p) => {
   if (!state.isInSession) return;
+  state.rehearsalActive = Boolean(p?.rehearsalActive);
   try {
     const me = (p?.members || []).find((m) => m.socketId === socket.id);
     if (me) {
@@ -4905,6 +4955,7 @@ socket.on('session:participants', (p) => {
       updateReadyBtnUI();
     }
   } catch {}
+  updateRehearsalToggleUI();
   updateTurnerToggleAccess();
   updateCursorShareUI();
   const list = document.getElementById('participantsList');
@@ -4953,9 +5004,13 @@ socket.on('session:participants', (p) => {
     const labelName = name === '익명' ? `익명(${(anonNo += 1)})` : name;
     const initial = String(labelName || '').trim().slice(0, 1) || '?';
     const photo = normalizeProfilePhotoUrl(m.profilePhoto || '', 80);
-    const isEligible = Boolean(m.isRehearsalEligible);
-    const isReady = Boolean(m.isRehearsalReady);
-    row.classList.add(isEligible ? (isReady ? 'reh-green' : 'reh-red') : 'reh-gray');
+    if (!state.rehearsalActive) {
+      row.classList.add('reh-gray');
+    } else {
+      const isEligible = Boolean(m.isRehearsalEligible);
+      const isReady = Boolean(m.isRehearsalReady);
+      row.classList.add(isEligible ? (isReady ? 'reh-green' : 'reh-red') : 'reh-gray');
+    }
     row.innerHTML = `
       <span class="participant-left">
         ${
@@ -5022,6 +5077,11 @@ socket.on('session:rehearsal:all_ready', (p) => {
 socket.on('session:state', (p) => {
   if (!state.isInSession) return;
   if (p?.roomCode && String(p.roomCode).toUpperCase() !== String(state.roomCode || '').toUpperCase()) return;
+  if (p?.rehearsalActive !== undefined) {
+    state.rehearsalActive = Boolean(p.rehearsalActive);
+    updateReadyBtnUI();
+    updateRehearsalToggleUI();
+  }
   const fileId = String(p?.currentFileId || '').trim();
   const pageNo = Number(p?.currentPageNo || 0);
   // rev 동기화(있으면)

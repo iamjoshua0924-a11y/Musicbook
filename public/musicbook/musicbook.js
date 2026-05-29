@@ -48,6 +48,7 @@ const state = {
   availabilityEditMode: false,
   availabilityOriginalSet: null, // Set<googleFileId>
   availabilityDraftSet: null, // Set<googleFileId>
+  availabilityHideExisting: false,
 
   sessionRoomCode: '',
   isPageTurner: false,
@@ -333,18 +334,44 @@ async function chzzkStop() {
 
 async function loadSongs(force = false) {
   if (!force && state.songCardsAll.length) return;
-  const data = await apiGet('/api/songs/cards');
-  if (!data.ok) throw new Error('songs load failed');
-  state.songCardsTotal = Number(data.totalCards || 0) || Number(data.total || 0) || 0;
-  state.songCardsAll = (data.items || []).map((c) => ({
-    ...c,
-    keyLabel: (c.keys || []).filter(Boolean).join('/') || '-',
-    _searchNorm: normSearch(c.searchText || ''),
-    _titleNorm: normSearch(c.title || ''),
-    _artistNorm: normSearch(c.artist || '')
-  }));
-  if (!state.songCardsAll.length) {
-    $('resultCount').textContent = '곡 데이터가 없습니다. /admin에서 Drive 동기화를 실행해 주세요.';
+  const firstLoad = !state.songCardsAll.length;
+  try {
+    if (firstLoad) showLoading(true);
+    if ($('resultCount')) $('resultCount').textContent = '로딩 중...';
+    if (firstLoad) {
+      // simple skeleton (prevents "empty flash")
+      const wrap = $('songCardList');
+      if (wrap) {
+        wrap.innerHTML = Array.from({ length: 8 })
+          .map(
+            () =>
+              `<div class="song-card" style="opacity:0.55;">
+                 <div class="song-card-header">
+                   <div class="song-card-top">
+                     <div class="song-card-title"><span style="display:inline-block; width:60%; height:14px; background:rgba(140,150,170,0.25); border-radius:6px;"></span></div>
+                   </div>
+                   <div class="song-card-artist" style="margin-top:8px;"><span style="display:inline-block; width:45%; height:12px; background:rgba(140,150,170,0.18); border-radius:6px;"></span></div>
+                 </div>
+               </div>`
+          )
+          .join('');
+      }
+    }
+    const data = await apiGet('/api/songs/cards');
+    if (!data.ok) throw new Error('songs load failed');
+    state.songCardsTotal = Number(data.totalCards || 0) || Number(data.total || 0) || 0;
+    state.songCardsAll = (data.items || []).map((c) => ({
+      ...c,
+      keyLabel: (c.keys || []).filter(Boolean).join('/') || '-',
+      _searchNorm: normSearch(c.searchText || ''),
+      _titleNorm: normSearch(c.title || ''),
+      _artistNorm: normSearch(c.artist || '')
+    }));
+    if (!state.songCardsAll.length) {
+      $('resultCount').textContent = '곡 데이터가 없습니다. /admin에서 Drive 동기화를 실행해 주세요.';
+    }
+  } finally {
+    if (firstLoad) showLoading(false);
   }
 }
 
@@ -578,6 +605,12 @@ function applySongFilters() {
           return set.has(fid);
         });
       });
+    }
+
+    // 옵션: 기존 가능곡(이미 체크된 곡) 숨기기
+    if (state.availabilityHideExisting && state.availabilityDraftSet) {
+      const set = state.availabilityDraftSet;
+      list = list.filter((s) => !set.has(String(s.googleFileId || '')));
     }
 
     const f = state.sortField;
@@ -1688,6 +1721,10 @@ function wireEvents() {
       state.availabilityOriginalSet = new Set(Array.from(state.myAvailabilitySet || []));
       state.availabilityDraftSet = new Set(Array.from(state.myAvailabilitySet || []));
       state.availabilityEditMode = true;
+      state.availabilityHideExisting = false;
+      try {
+        $('availabilityHideExistingToggle').checked = false;
+      } catch {}
       // 선택모드는 "최신곡" 정렬이 기본
       state.sortField = 'createdAt';
       state.sortDir = 'desc';
@@ -1707,6 +1744,7 @@ function wireEvents() {
   $('availabilityEditCancelBtn').onclick = () => {
     state.availabilityEditMode = false;
     state.availabilityDraftSet = null;
+    state.availabilityHideExisting = false;
     state.myAvailabilitySet = state.availabilityOriginalSet ? new Set(Array.from(state.availabilityOriginalSet)) : state.myAvailabilitySet;
     state.availabilityOriginalSet = null;
     $('availabilityEditBar').style.display = 'none';
@@ -1736,11 +1774,18 @@ function wireEvents() {
     state.availabilityEditMode = false;
     state.availabilityOriginalSet = null;
     state.availabilityDraftSet = null;
+    state.availabilityHideExisting = false;
     $('availabilityEditBar').style.display = 'none';
     $('availabilityEditToggleBtn').style.display = state.role === 'admin' || state.role === 'session' ? 'inline-flex' : 'none';
     updateAvailabilityEditCount();
     applySongFilters();
     toast('저장 완료');
+  };
+
+  $('availabilityHideExistingToggle').onchange = () => {
+    state.availabilityHideExisting = Boolean($('availabilityHideExistingToggle')?.checked);
+    state.page = 1;
+    applySongFilters();
   };
 
   const debouncedFilter = (() => {
@@ -1952,12 +1997,23 @@ function renderSessionStatus() {
 
 function getOrCreatePresenceNickname() {
   const key = 'mb_presence_nick';
-  const saved = localStorage.getItem(key);
-  if (saved) return saved;
-  // 첫 접속 UX: 입력 요구하지 않고 기본값으로 진행
-  const v = '익명';
-  localStorage.setItem(key, v);
-  return v;
+  const saved = String(localStorage.getItem(key) || '').trim();
+  if (saved && saved !== '익명') return saved;
+  // 익명 금지: 자동 임시 고유 닉네임 생성(프롬프트 없음)
+  const midKey = 'mb_member_id';
+  let memberId = String(localStorage.getItem(midKey) || '').trim();
+  if (!memberId) {
+    memberId = `m_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    try {
+      localStorage.setItem(midKey, memberId);
+    } catch {}
+  }
+  const suffix = memberId.replace(/[^a-zA-Z0-9]/g, '').slice(-4) || String(Math.random()).slice(2, 6);
+  const nick = `게스트-${suffix}`;
+  try {
+    localStorage.setItem(key, nick);
+  } catch {}
+  return nick;
 }
 
 function renderPresence(items) {

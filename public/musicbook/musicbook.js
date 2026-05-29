@@ -156,8 +156,56 @@ function highlightHtml(text, q) {
   const raw = String(text ?? '');
   const query = String(q || '').trim();
   if (!query) return esc(raw);
-  if (isChoseongQuery(query)) return esc(raw);
-  // very small/obvious safety: cap query length
+  const qNoSpace = query.replace(/\s+/g, '').slice(0, 64);
+  // 초성 검색 하이라이트 (T-22)
+  if (isChoseongQuery(qNoSpace)) {
+    const chars = Array.from(raw);
+    // build choseong string + mapping(repIndex -> rawCharIndex)
+    let rep = '';
+    /** @type {number[]} */
+    const map = [];
+    chars.forEach((ch, rawIdx) => {
+      if (/\s/.test(ch)) return;
+      const code = ch.charCodeAt(0);
+      if (code >= 0xac00 && code <= 0xd7a3) {
+        const idx = Math.floor((code - 0xac00) / 588);
+        rep += CHOSEONG[idx] || '';
+        map.push(rawIdx);
+        return;
+      }
+      rep += normLower(ch);
+      map.push(rawIdx);
+    });
+    const marks = new Set();
+    let pos = rep.indexOf(qNoSpace);
+    while (pos !== -1) {
+      for (let i = pos; i < pos + qNoSpace.length; i += 1) {
+        const rawIdx = map[i];
+        if (rawIdx !== undefined) marks.add(rawIdx);
+      }
+      pos = rep.indexOf(qNoSpace, pos + 1);
+    }
+    if (!marks.size) return esc(raw);
+    // render with mark groups
+    let out = '';
+    let inMark = false;
+    chars.forEach((ch, rawIdx) => {
+      const on = marks.has(rawIdx);
+      if (on && !inMark) {
+        out += '<mark class="hl">';
+        inMark = true;
+      }
+      if (!on && inMark) {
+        out += '</mark>';
+        inMark = false;
+      }
+      out += esc(ch);
+    });
+    if (inMark) out += '</mark>';
+    return out;
+  }
+
+  // 일반 문자열 하이라이트
   const qq = query.slice(0, 64);
   try {
     const re = new RegExp(qq.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'ig');
@@ -169,6 +217,13 @@ function highlightHtml(text, q) {
 
 function showLoading(on) {
   $('loadingScreen').classList.toggle('active', Boolean(on));
+}
+
+// T-21: 로딩 중 이전 결과 유지(리스트 흐림 처리)
+function setListDimLoading(on) {
+  const wrap = $('songCardList');
+  if (!wrap) return;
+  wrap.classList.toggle('loading-dim', Boolean(on));
 }
 
 let toastTimer = null;
@@ -428,7 +483,9 @@ async function loadAvailableVocalSet(userId) {
   state.filterAvailableVocalUserId = userId || '';
   state.filterAvailableVocalSet = null;
   if (!userId) return;
+  setListDimLoading(true);
   const data = await apiGet(`/api/availability?userId=${encodeURIComponent(userId)}`);
+  setListDimLoading(false);
   if (!data.ok) return;
   const set = new Set();
   (data.items || []).forEach((a) => {
@@ -445,10 +502,14 @@ async function loadAvailableVocalSets(userIds) {
     if (!selected.has(k)) state.filterAvailableVocalSetsByUserId.delete(k);
   }
   const missing = ids.filter((uid) => !state.filterAvailableVocalSetsByUserId.has(uid));
+  if (missing.length) setListDimLoading(true);
   await Promise.all(
     missing.map(async (uid) => {
       const data = await apiGet(`/api/availability?userId=${encodeURIComponent(uid)}`);
-      if (!data.ok) return;
+      if (!data.ok) {
+        toast('가능보컬 데이터 로딩 실패(이전 결과 유지)');
+        return;
+      }
       const set = new Set();
       (data.items || []).forEach((a) => {
         if (a.available) set.add(a.googleFileId);
@@ -456,6 +517,7 @@ async function loadAvailableVocalSets(userIds) {
       state.filterAvailableVocalSetsByUserId.set(uid, set);
     })
   );
+  if (missing.length) setListDimLoading(false);
 }
 
 function getSelectedAvailableVocalUserIds() {
@@ -559,6 +621,8 @@ function applySongFilters() {
   // renderer에서 하이라이트/표시용
   state._lastSearchRaw = qRaw;
   state._lastSearchIsCho = qIsCho;
+  // 기본은 로딩 dim 해제(필요 시 아래에서 다시 켠다)
+  setListDimLoading(false);
   const genre = $('genreFilter').value;
   const mood = $('moodFilter').value;
   const vocal = $('vocalFilter').value;
@@ -597,6 +661,12 @@ function applySongFilters() {
     // 가능보컬(AND) 필터도 편집모드(파일 단위)에 동일 적용
     if (availableVocalUserIds.length) {
       const ids = availableVocalUserIds;
+      const hasMissing = ids.some((uid) => !state.filterAvailableVocalSetsByUserId.get(uid));
+      if (hasMissing) {
+        setListDimLoading(true);
+        $('resultCount').textContent = '로딩 중...(가능보컬 필터)';
+        return;
+      }
       list = list.filter((s) => {
         const fid = String(s.googleFileId || '');
         return ids.every((uid) => {
@@ -657,6 +727,13 @@ function applySongFilters() {
   // 가능보컬 필터(AND): 선택된 유저 "모두"가 가능한 곡만 노출
   if (availableVocalUserIds.length) {
     const ids = availableVocalUserIds;
+    // T-21: 아직 로딩되지 않은 uid가 있으면 이전 결과 유지 + dim 처리
+    const hasMissing = ids.some((uid) => !state.filterAvailableVocalSetsByUserId.get(uid));
+    if (hasMissing) {
+      setListDimLoading(true);
+      $('resultCount').textContent = '로딩 중...(가능보컬 필터)';
+      return;
+    }
     list = list.filter((c) => {
       const vars = Array.isArray(c.variants) ? c.variants : [];
       return ids.every((uid) => {

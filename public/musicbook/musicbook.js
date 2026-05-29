@@ -311,14 +311,46 @@ async function loadSongs(force = false) {
 
 async function loadSongFiles(force = false) {
   if (!force && state.songFilesAll.length) return;
-  const data = await apiGet('/api/songs?limit=5000');
+  // NOTE:
+  // - file 단위 목록과 card 단위 목록이 서로 다른 API(/api/songs vs /api/songs/cards)를 사용하면
+  //   5000 cap 환경에서 "한쪽에는 있는데 다른 쪽에는 없는" 불일치가 발생할 수 있다(정렬/limit 기준 차이).
+  // - 따라서 file 목록도 cards 응답을 펼쳐서 생성해 UI/정렬/노출을 일관되게 유지한다.
+  const data = await apiGet('/api/songs/cards');
   if (!data.ok) throw new Error('songs load failed');
-  state.songFilesTotal = Number(data.total || 0) || 0;
-  state.songFilesAll = (data.items || []).map((s) => ({
+  state.songFilesTotal = Number(data.totalDocs || 0) || 0;
+  const files = [];
+  (data.items || []).forEach((c) => {
+    const title = String(c.title || '').trim();
+    const displayTitle = String(c.title || '').trim(); // cards는 title을 기준으로 노출
+    const artist = String(c.artist || '').trim();
+    const genre = String(c.genre || '').trim();
+    const mood = String(c.mood || '').trim();
+    const vocal = String(c.vocal || '').trim();
+    const baseSearch = String(c.searchText || `${title} ${artist} ${genre} ${mood} ${vocal}` || '').trim();
+    (c.variants || []).forEach((v) => {
+      if (!v?.googleFileId) return;
+      const key = String(v.key || '').trim();
+      const driveModifiedMs = Number(v.driveModifiedMs || 0) || 0;
+      files.push({
+        googleFileId: v.googleFileId,
+        driveUrl: v.driveUrl || '',
+        driveModifiedTime: driveModifiedMs ? new Date(driveModifiedMs).toISOString() : '',
+        driveModifiedMs,
+        // createdAt 정렬은 "드라이브 수정일" 기반으로 통일
+        createdAtMs: driveModifiedMs,
+        title,
+        displayTitle,
+        artist,
+        key,
+        genre,
+        mood,
+        vocal,
+        searchText: `${baseSearch} ${key}`.trim()
+      });
+    });
+  });
+  state.songFilesAll = files.map((s) => ({
     ...s,
-    // 최신곡 정렬 버튼(createdAt)을 "드라이브 수정일" 기반으로 쓰기 위해 ms 필드 추가
-    driveModifiedMs: s.driveModifiedTime ? toMs(s.driveModifiedTime) : 0,
-    createdAtMs: s.driveModifiedTime ? toMs(s.driveModifiedTime) : toMs(s.createdAt),
     _searchNorm: normSearch(s.searchText || ''),
     _titleNorm: normSearch(s.title || ''),
     _displayTitleNorm: normSearch(s.displayTitle || ''),

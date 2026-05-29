@@ -66,6 +66,10 @@ function createApp() {
 
   // Static assets
   app.use('/public', express.static(path.join(__dirname, '..', 'public')));
+  // Backward-compatible config path for /admin/, /dev/ pages
+  app.get('/config.js', (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'public', 'config.js'));
+  });
 
   // Health (no session)
   app.use(require('./routes/health'));
@@ -86,12 +90,16 @@ function createApp() {
   });
 
   app.get('/admin', (req, res) => {
-    res.sendFile(path.join(__dirname, '..', 'public', 'admin', 'index.html'));
+    res.redirect('/admin/');
   });
 
   app.get('/dev', (req, res) => {
-    res.sendFile(path.join(__dirname, '..', 'public', 'dev', 'index.html'));
+    res.redirect('/dev/');
   });
+
+  // Static sub-apps (so relative asset paths work)
+  app.use('/admin', express.static(path.join(__dirname, '..', 'public', 'admin')));
+  app.use('/dev', express.static(path.join(__dirname, '..', 'public', 'dev')));
 
   // Public request board (pop-out)
   app.get('/requests', (req, res) => {

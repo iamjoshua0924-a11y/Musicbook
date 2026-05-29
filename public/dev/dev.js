@@ -1,4 +1,5 @@
 const $ = (id) => document.getElementById(id);
+let syncRunning = false;
 
 const API_URL = String(window.API_URL || window.MB_API || window.location.origin || '').replace(/\/$/, '');
 const apiUrl = (path) => {
@@ -24,7 +25,7 @@ async function apiJson(url, method, body) {
 
 function showAuthed(on) {
   $('loginCard').style.display = on ? 'none' : 'block';
-  ['meCard', 'sessionsCard', 'syncCard', 'trafficCard', 'errorsCard'].forEach((id) => {
+  ['meCard', 'sessionsCard', 'syncCard', 'parseErrorCard', 'trafficCard', 'errorsCard'].forEach((id) => {
     const el = $(id);
     if (el) el.style.display = on ? 'block' : 'none';
   });
@@ -76,16 +77,126 @@ async function loadSessions() {
 }
 
 async function loadSync() {
-  $('syncOut').textContent = '로딩 중...';
   const r = await apiGet('/api/dev/sync/status');
   if (!r.ok) {
-    $('syncOut').textContent = `실패: ${r.error || ''}`;
     return;
   }
   const s = r.status || null;
-  const diff = s?.diff;
-  $('syncOut').textContent = diff ? `+${diff.addedCount || 0} ~${diff.changedCount || 0} -${diff.removedCount || 0}` : '-';
+  const msg = s?.running
+    ? `RUNNING · processed=${s.processed ?? 0} skipped=${s.skipped ?? 0}${s.currentPath ? ` · path=${s.currentPath}` : ''}${s.currentFile ? ` · file=${s.currentFile}` : ''}`
+    : `endedAt=${s?.endedAt || '-'} · processed=${s?.processed ?? '-'} · skipped=${s?.skipped ?? '-'} · hidden=${s?.hiddenCount ?? '-'}${
+        s?.diff ? ` · +${s.diff.addedCount ?? 0} ~${s.diff.changedCount ?? 0} -${s.diff.removedCount ?? 0}` : ''
+      }`;
+  if ($('syncStatusLine')) $('syncStatusLine').textContent = msg;
+  syncRunning = Boolean(s?.running);
+  const btn = $('syncBtn');
+  if (btn) btn.textContent = syncRunning ? '동기화 중지' : '동기화 실행';
   $('syncJson').textContent = JSON.stringify(s, null, 2);
+}
+
+async function loadDriveRoot() {
+  const r = await apiGet('/api/dev/drive-root');
+  if (!r.ok) return;
+  if ($('rootFolderId')) $('rootFolderId').value = r.rootFolderId || '';
+}
+
+async function saveDriveRoot() {
+  const rootFolderId = ($('rootFolderId')?.value || '').trim();
+  const r = await apiJson('/api/dev/drive-root', 'PATCH', { rootFolderId });
+  if (!r.ok) return alert('저장 실패');
+  if ($('rootFolderId')) $('rootFolderId').value = r.rootFolderId || '';
+}
+
+async function syncDrive() {
+  const payload = {
+    rootFolderId: ($('rootFolderId')?.value || '').trim(),
+    latestDays: Number($('latestDays')?.value || 30),
+    limit: 5000,
+    incremental: Boolean($('incrementalToggle')?.checked),
+    pruneMissing: Boolean($('pruneToggle')?.checked)
+  };
+  const r = await apiJson('/api/dev/sync/drive', 'POST', payload);
+  $('syncJson').textContent = JSON.stringify(r, null, 2);
+  await loadSync();
+}
+
+async function toggleSync() {
+  if (syncRunning) {
+    const r = await apiJson('/api/dev/sync/stop', 'POST', {});
+    $('syncJson').textContent = JSON.stringify(r, null, 2);
+    await loadSync();
+    return;
+  }
+  await syncDrive();
+}
+
+async function loadParseErrors() {
+  const r = await apiGet('/api/dev/songs/parse-errors?limit=200');
+  if (!r.ok) return;
+  const wrap = $('parseErrorList');
+  if (wrap) wrap.innerHTML = '';
+  if ($('parseErrorOut')) $('parseErrorOut').textContent = `총 ${r.items?.length || 0}건`;
+
+  const escapeHtml = (str) =>
+    String(str || '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+
+  (r.items || []).forEach((s) => {
+    const parseLabel = (() => {
+      const code = String(s.parseError || '').trim();
+      if (!code) return '-';
+      if (code === 'EMPTY_NAME') return '제목 인식 안됨';
+      if (code === 'HIDDEN_BAD_PATTERN') return '패턴 불량(숨김)';
+      if (code.startsWith('AMBIGUOUS')) return '제목/가수 모호';
+      if (code.startsWith('NO_HYPHEN')) return '구분자(-) 없음';
+      if (code.includes('KEY')) return '조성 인식 안됨';
+      return code;
+    })();
+    const el = document.createElement('div');
+    el.className = 'item';
+    el.style.alignItems = 'flex-start';
+    const driveName = String(s.driveName || '').trim() || '(원본 파일명 없음)';
+    const driveUrl = String(s.driveUrl || '').trim();
+    el.innerHTML = `
+      <div style="flex:1; display:grid; gap:6px;">
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <b>원본파일명:</b> <span class="kbd">${escapeHtml(driveName)}</span>
+          ${driveUrl ? `<a href="${escapeHtml(driveUrl)}" target="_blank" class="muted">파일 열기</a>` : ''}
+        </div>
+        <div class="muted"><b>오류형태:</b> ${escapeHtml(parseLabel)}</div>
+        <div class="row" style="margin-top:6px;">
+          <input data-k="title" placeholder="title" value="${escapeHtml(s.title || '')}" />
+          <input data-k="key" placeholder="key(옵션)" value="${escapeHtml(s.key || '')}" style="max-width:110px;" />
+          <input data-k="artist" placeholder="artist" value="${escapeHtml(s.artist || '')}" />
+          <input data-k="displayTitle" placeholder="displayTitle(옵션)" value="${escapeHtml(s.displayTitle || '')}" />
+        </div>
+        <label class="muted" style="display:flex; align-items:center; gap:8px; margin-top:6px;">
+          <input type="checkbox" data-k="renameDriveName" checked />
+          원본 파일명도 변경
+        </label>
+        ${s.folderPath ? `<div class="muted">${escapeHtml(s.folderPath)}</div>` : ''}
+      </div>
+      <div>
+        <button class="light" data-action="save">저장</button>
+      </div>
+    `;
+    el.querySelector('[data-action="save"]').onclick = async () => {
+      const payload = {};
+      el.querySelectorAll('input[data-k]').forEach((inp) => {
+        if (inp.type === 'checkbox') payload[inp.dataset.k] = Boolean(inp.checked);
+        else payload[inp.dataset.k] = inp.value;
+      });
+      const rr = await apiJson(`/api/dev/songs/${encodeURIComponent(s._id)}`, 'PATCH', payload);
+      if (!rr.ok) return alert('저장 실패');
+      if (rr.renameError) alert(`저장은 됐는데 파일명 변경 실패: ${rr.renameError}`);
+      el.remove();
+    };
+    if (wrap) wrap.appendChild(el);
+  });
 }
 
 async function loadTraffic() {
@@ -124,7 +235,9 @@ async function clearErrors() {
 $('devLoginBtn').onclick = () => login().catch(() => {});
 $('devLogoutBtn').onclick = () => logout().catch(() => {});
 $('reloadSessionsBtn').onclick = () => loadSessions().catch(() => {});
-$('reloadSyncBtn').onclick = () => loadSync().catch(() => {});
+$('saveRootFolderBtn')?.addEventListener?.('click', () => saveDriveRoot().catch(() => {}));
+$('syncBtn')?.addEventListener?.('click', () => toggleSync().catch(() => {}));
+$('reloadParseErrorsBtn')?.addEventListener?.('click', () => loadParseErrors().catch(() => {}));
 $('reloadTrafficBtn').onclick = () => loadTraffic().catch(() => {});
 $('resetTrafficBtn').onclick = () => resetTraffic().catch(() => {});
 $('reloadErrorsBtn').onclick = () => loadErrors().catch(() => {});
@@ -134,7 +247,9 @@ refreshMe()
   .then((authed) => {
     if (authed) {
       loadSessions().catch(() => {});
+      loadDriveRoot().catch(() => {});
       loadSync().catch(() => {});
+      loadParseErrors().catch(() => {});
       loadTraffic().catch(() => {});
       loadErrors().catch(() => {});
     }

@@ -6,6 +6,10 @@ const { getJson, KEYS } = require('../services/syncStatus');
 const { getTrafficMetrics, resetTrafficMetrics } = require('../services/trafficMetrics');
 const { listErrors, clearErrors } = require('../services/errorLog');
 const { store } = require('../sockets');
+const Setting = require('../models/Setting');
+const Song = require('../models/Song');
+const { getDriveRootFolderId, restartDriveSync, stopDriveSync } = require('../services/driveSyncRunner');
+const { getFileMetadata, renameFile } = require('../services/drive');
 
 const router = express.Router();
 
@@ -103,6 +107,169 @@ router.get(
   asyncHandler(async (_req, res) => {
     const status = await getJson(KEYS.driveSyncStatus, null);
     res.json({ ok: true, status });
+  })
+);
+
+// Drive root folder config (dev)
+router.get(
+  '/drive-root',
+  requireDev,
+  asyncHandler(async (_req, res) => {
+    const value = await getDriveRootFolderId();
+    res.json({ ok: true, rootFolderId: value });
+  })
+);
+router.patch(
+  '/drive-root',
+  requireDev,
+  asyncHandler(async (req, res) => {
+    const schema = z.object({ rootFolderId: z.string().max(300).optional().default('') }).strict();
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+    const value = String(parsed.data.rootFolderId || '').trim();
+    await Setting.findOneAndUpdate({ key: 'driveRootFolderId' }, { $set: { key: 'driveRootFolderId', value } }, { upsert: true });
+    res.json({ ok: true, rootFolderId: value });
+  })
+);
+
+// Drive sync controls (dev)
+router.post(
+  '/sync/drive',
+  requireDev,
+  asyncHandler(async (req, res) => {
+    const latestDays = Number(req.body?.latestDays || 1);
+    const limit = Number(req.body?.limit || 5000);
+    const pruneMissing = req.body?.pruneMissing !== undefined ? Boolean(req.body.pruneMissing) : true;
+    const incremental = Boolean(req.body?.incremental);
+    const rootFolderId = String(req.body?.rootFolderId || '').trim();
+    const r = await restartDriveSync({ latestDays, limit, pruneMissing, incremental, rootFolderId });
+    if (!r.ok) return res.status(400).json({ ok: false, error: r.error || 'SYNC_FAILED' });
+    res.json({ ok: true, ...r });
+  })
+);
+router.post(
+  '/sync/stop',
+  requireDev,
+  asyncHandler(async (_req, res) => {
+    const r = stopDriveSync();
+    res.json({ ok: true, ...r });
+  })
+);
+
+// Parse errors list (dev)
+router.get(
+  '/songs/parse-errors',
+  requireDev,
+  asyncHandler(async (req, res) => {
+    const limit = Math.max(1, Math.min(500, Number(req.query?.limit || 100)));
+    const items = await Song.find({ parseError: { $ne: '' } })
+      .sort({ updatedAt: -1 })
+      .limit(limit)
+      .lean();
+
+    const withDriveName = [];
+    const conc = 8;
+    for (let i = 0; i < items.length; i += conc) {
+      const chunk = items.slice(i, i + conc);
+      // eslint-disable-next-line no-await-in-loop
+      const metas = await Promise.all(
+        chunk.map(async (s) => {
+          try {
+            const meta = await getFileMetadata(String(s.googleFileId || '').trim());
+            return meta?.name || '';
+          } catch {
+            return '';
+          }
+        })
+      );
+      chunk.forEach((s, idx) => withDriveName.push({ ...s, driveName: metas[idx] || '' }));
+    }
+
+    res.json({
+      ok: true,
+      items: withDriveName.map((s) => ({
+        _id: String(s._id),
+        googleFileId: s.googleFileId,
+        driveName: s.driveName || '',
+        title: s.title,
+        displayTitle: s.displayTitle,
+        artist: s.artist,
+        key: s.key,
+        driveUrl: s.driveUrl,
+        folderPath: s.folderPath,
+        parseError: s.parseError
+      }))
+    });
+  })
+);
+
+// Patch song for parse-error fixing (dev)
+router.patch(
+  '/songs/:id',
+  requireDev,
+  asyncHandler(async (req, res) => {
+    const id = String(req.params.id || '').trim();
+    const title = req.body?.title !== undefined ? String(req.body.title || '').trim() : undefined;
+    const displayTitle = req.body?.displayTitle !== undefined ? String(req.body.displayTitle || '').trim() : undefined;
+    const artist = req.body?.artist !== undefined ? String(req.body.artist || '').trim() : undefined;
+    const key = req.body?.key !== undefined ? String(req.body.key || '').trim() : undefined;
+    const renameDriveName = req.body?.renameDriveName !== undefined ? Boolean(req.body.renameDriveName) : false;
+    if (!id) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+
+    const update = {};
+    if (title !== undefined) update.title = title;
+    if (displayTitle !== undefined) update.displayTitle = displayTitle;
+    if (artist !== undefined) update.artist = artist;
+    if (key !== undefined) update.key = key;
+    update.parseError = '';
+    update.updatedAt = new Date();
+
+    const before = await Song.findById(id).lean();
+    if (!before) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
+    const merged = {
+      title: update.title ?? before.title ?? '',
+      displayTitle: update.displayTitle ?? before.displayTitle ?? '',
+      artist: update.artist ?? before.artist ?? '',
+      key: update.key ?? before.key ?? ''
+    };
+    update.searchText = `${merged.displayTitle} ${merged.title} ${merged.artist} ${merged.key}`.toLowerCase().trim();
+
+    const buildDriveName = (merged2, existingName) => {
+      const extM = String(existingName || '').match(/\.[^.]+$/);
+      const ext = extM ? extM[0] : '.pdf';
+      const t0 = String(merged2.displayTitle || merged2.title || '').trim() || '제목없음';
+      const k0 = String(merged2.key || '').trim();
+      const a0 = String(merged2.artist || '').trim();
+      const safe = (s) => String(s || '').replace(/[\\\\/]/g, '_').trim();
+      const t = safe(t0);
+      const k = safe(k0);
+      const a = safe(a0);
+      const base = `${t}${k ? `(${k})` : ''}${a ? `-${a}` : ''}`;
+      return `${base}${ext}`;
+    };
+
+    let renameError = '';
+    const doc = await Song.findByIdAndUpdate(id, { $set: update }, { new: true }).lean();
+    if (!doc) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
+
+    if (renameDriveName) {
+      try {
+        const fileId = String(before.googleFileId || '').trim();
+        if (fileId) {
+          const meta = await getFileMetadata(fileId);
+          const desired = buildDriveName(merged, meta?.name || '');
+          await renameFile(fileId, desired);
+        }
+      } catch (e) {
+        renameError = String(e?.message || e || 'DRIVE_RENAME_FAILED');
+      }
+    }
+
+    res.json({
+      ok: true,
+      renameError: renameError || undefined,
+      item: { _id: String(doc._id), title: doc.title, displayTitle: doc.displayTitle, artist: doc.artist, key: doc.key, parseError: doc.parseError }
+    });
   })
 );
 

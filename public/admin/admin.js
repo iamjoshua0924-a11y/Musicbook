@@ -42,9 +42,9 @@ try {
 function showAuthed(on) {
   setDisplay('loginCard', on ? 'none' : 'block');
   // CSV 임포트 기능은 더 이상 사용하지 않으므로 UI에서 제거
-  ['meCard', 'mainCard', 'usersCard', 'syncCard', 'parseErrorCard', 'trafficCard'].forEach((id) =>
-    setDisplay(id, on ? 'block' : 'none')
-  );
+  // 진단/운영 콘솔은 /dev로 이관됨
+  ['meCard', 'mainCard', 'usersCard'].forEach((id) => setDisplay(id, on ? 'block' : 'none'));
+  ['syncCard', 'parseErrorCard', 'trafficCard'].forEach((id) => setDisplay(id, 'none'));
 }
 
 async function refreshMe() {
@@ -392,11 +392,8 @@ async function boot() {
   if (me) {
     await loadMain();
     if (me.role === 'admin') await loadUsers();
-    await loadDriveRoot();
-    await loadSyncStatus();
-    await loadParseErrors();
-    await loadTraffic();
-    startSyncPolling();
+    // 진단/운영 기능은 /dev로 이관됨
+    stopSyncPolling();
   } else {
     stopSyncPolling();
   }

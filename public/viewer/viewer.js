@@ -5663,8 +5663,9 @@ socket.on('session:participants', (p) => {
     row.className = 'participant-row';
     const name = m.displayName || m.nickname || '익명';
     const labelName = name === '익명' ? `익명(${(anonNo += 1)})` : name;
-    const initial = String(labelName || '').trim().slice(0, 1) || '?';
     const photo = normalizeProfilePhotoUrl(m.profilePhoto || '', 80);
+    const bg = window.mbAvatar?.color ? window.mbAvatar.color(labelName) : 'rgba(0,0,0,0.18)';
+    const initial = window.mbAvatar?.initial ? window.mbAvatar.initial(labelName) : (String(labelName || '').trim().slice(0, 1) || '?');
     const isEligible = Boolean(m.isRehearsalEligible);
     const isReady = Boolean(m.isRehearsalReady);
     row.classList.add(isEligible ? (isReady ? 'reh-green' : 'reh-red') : 'reh-gray');
@@ -5673,7 +5674,7 @@ socket.on('session:participants', (p) => {
         ${
           photo
             ? `<span class="participant-avatar"><img src="${String(photo)}" alt="" /></span>`
-            : `<span class="participant-avatar">${initial}</span>`
+            : `<span class="participant-avatar" style="background:${String(bg)}">${initial}</span>`
         }
         <span class="participant-name" title="${String(labelName)}">${labelName}</span>
       </span>

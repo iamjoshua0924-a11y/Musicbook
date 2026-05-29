@@ -2076,10 +2076,11 @@ function renderPresence(items) {
 
   const avatarCircle = (name, photo) => {
     const n = String(name || '').trim();
-    const initial = n ? n.slice(0, 1) : '?';
+    const initial = window.mbAvatar?.initial ? window.mbAvatar.initial(n) : (n ? n.slice(0, 1) : '?');
+    const bg = window.mbAvatar?.color ? window.mbAvatar.color(n) : 'rgba(0,0,0,0.18)';
     const finalPhoto = normalizeProfilePhotoUrl(photo || '', 80);
     if (finalPhoto) return `<span class="presence-avatar"><img src="${esc(finalPhoto)}" alt="" /></span>`;
-    return `<span class="presence-avatar">${esc(initial)}</span>`;
+    return `<span class="presence-avatar" style="background:${esc(bg)}">${esc(initial)}</span>`;
   };
 
   members.forEach((p) => {

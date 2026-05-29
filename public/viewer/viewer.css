@@ -1054,6 +1054,7 @@ body.light .participantsBulkRow{
   overflow:hidden;
   font-size: 12px;
   font-weight: 1000;
+  color: #fff;
 }
 .participant-avatar img{
   width:100%;

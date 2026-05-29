@@ -174,10 +174,12 @@ function openJoinModal({ nickname = '', roomCode = '' } = {}) {
   const cancelBtn = document.getElementById('joinCancelBtn');
   if (!overlay || !nickField || !roomField || !okBtn || !cancelBtn) return Promise.resolve(null);
 
-  nickField.value = String(nickname || '');
+  // 정책: 사용자가 직접 입력 (자동 채움 금지)
+  nickField.value = '';
+  nickField.placeholder = '닉네임(필수)';
   roomField.value = String(roomCode || '');
   overlay.classList.remove('hidden');
-  setTimeout(() => (nickField.value ? roomField.focus() : nickField.focus()), 0);
+  setTimeout(() => nickField.focus(), 0);
 
   return new Promise((resolve) => {
     const cleanup = (v) => {
@@ -211,11 +213,8 @@ function openJoinModal({ nickname = '', roomCode = '' } = {}) {
 }
 
 async function ensureNickname() {
-  // 사용자가 한번이라도 저장한 닉네임이면 그대로 사용
-  const saved = localStorage.getItem('mb_presence_nick') || localStorage.getItem('mb_nickname');
-  // NOTE: 과거 버전에서 자동으로 '익명'을 저장해둔 케이스는 "설정한 닉네임"으로 보지 않는다.
-  if (saved && !/^익명(\(\d+\))?$/.test(String(saved).trim())) return saved;
-  const input = await openInputModalRequired({ title: '닉네임 입력', placeholder: '세션에서 표시할 닉네임을 입력하세요', value: saved || '' });
+  // 정책: 세션 참여/생성 시에는 항상 사용자가 닉네임을 직접 입력해야 한다.
+  const input = await openInputModalRequired({ title: '닉네임 입력', placeholder: '닉네임(필수)', value: '' });
   const nick = String(input || '').trim();
   localStorage.setItem('mb_presence_nick', nick);
   // legacy 키도 같이 저장(호환)
@@ -224,10 +223,10 @@ async function ensureNickname() {
 }
 
 async function ensureNicknameForVisitorAlways() {
-  const saved = localStorage.getItem('mb_presence_nick') || localStorage.getItem('mb_nickname') || '';
+  const saved = '';
   // 모바일에서는 닉네임 + 세션코드까지 한 번에 입력할 수 있게 한다.
   if (isMobileLike()) {
-    const v = await openJoinModal({ nickname: saved || '', roomCode: safeRoomCode(qs('room')) || '' });
+    const v = await openJoinModal({ nickname: '', roomCode: safeRoomCode(qs('room')) || '' });
     const finalNick = String(v?.nick || saved || '').trim() || '익명';
     localStorage.setItem('mb_presence_nick', finalNick);
     localStorage.setItem('mb_nickname', finalNick);
@@ -246,7 +245,7 @@ async function ensureNicknameForVisitorAlways() {
     return finalNick;
   }
 
-  const nick = await openInputModalRequired({ title: '닉네임 설정', placeholder: '닉네임을 입력하세요', value: saved || '익명', minLen: 1 });
+  const nick = await openInputModalRequired({ title: '닉네임 입력', placeholder: '닉네임(필수)', value: '', minLen: 1 });
   const finalNick = String(nick || '').trim() || '익명';
   localStorage.setItem('mb_presence_nick', finalNick);
   localStorage.setItem('mb_nickname', finalNick);
@@ -2831,8 +2830,10 @@ document.getElementById('participantsToggleBtn')?.addEventListener('click', () =
 document.getElementById('participantsBtn')?.addEventListener('click', () => toggleParticipantsPanel());
 document.getElementById('touchMenuBtn')?.addEventListener('click', () => toggleParticipantsPanel());
 // delegated participant menu handler (mobile click reliability)
-document.getElementById('participantsList')?.addEventListener('click', (e) => {
-  const btn = e?.target?.closest?.('button[data-action="pmenu"]');
+function _handleParticipantMenuTrigger(e) {
+  const t = e?.target;
+  const el = t && t.nodeType === 3 ? t.parentElement : t; // Text node -> element
+  const btn = el?.closest?.('button[data-action="pmenu"]');
   if (!btn) return;
   e?.preventDefault?.();
   e?.stopPropagation?.();
@@ -2844,7 +2845,9 @@ document.getElementById('participantsList')?.addEventListener('click', (e) => {
   } catch (err) {
     flashHud('메뉴 열기 실패', 1000);
   }
-});
+}
+document.getElementById('participantsList')?.addEventListener('click', _handleParticipantMenuTrigger);
+document.getElementById('participantsList')?.addEventListener('pointerup', _handleParticipantMenuTrigger);
 
 // Session menu modal (single entry point)
 function setSessionMenuOpen(open) {
@@ -3061,8 +3064,7 @@ document.getElementById('sessionFloatBtn')?.addEventListener('click', async () =
   const urlRoom = safeRoomCode(qs('room'));
   // 모바일에서는 닉+룸 동시 입력 지원
   if (isMobileLike()) {
-    const savedNick = localStorage.getItem('mb_presence_nick') || localStorage.getItem('mb_nickname') || state.nickname || '';
-    const v = await openJoinModal({ nickname: savedNick, roomCode: urlRoom || '' });
+    const v = await openJoinModal({ nickname: '', roomCode: urlRoom || '' });
     if (!v) return;
     const nick = String(v.nick || '').trim();
     state.nickname = nick;

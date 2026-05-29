@@ -1591,7 +1591,85 @@ function setTextPresetPaletteOpen(open) {
   const el = document.getElementById('textPresetPalette');
   if (!el) return;
   el.classList.toggle('hidden', !open);
-  if (open) renderTextPresetPalette();
+  if (open) {
+    // restore last position (draggable palette)
+    try {
+      const raw = localStorage.getItem('mb_text_preset_palette_pos_v1') || '';
+      const p = raw ? JSON.parse(raw) : null;
+      if (p && Number.isFinite(p.left) && Number.isFinite(p.top)) {
+        el.style.left = `${Math.round(p.left)}px`;
+        el.style.top = `${Math.round(p.top)}px`;
+      }
+    } catch {}
+    renderTextPresetPalette();
+  }
+}
+
+function initTextPresetPaletteDrag() {
+  const el = document.getElementById('textPresetPalette');
+  if (!el) return;
+  const header = el.querySelector('.textPresetHeader');
+  if (!header) return;
+
+  let dragging = false;
+  let startX = 0;
+  let startY = 0;
+  let startLeft = 0;
+  let startTop = 0;
+
+  const onDown = (e) => {
+    // allow button clicks (닫기) without starting drag
+    if (e?.target?.closest?.('button')) return;
+    dragging = true;
+    const pt = 'touches' in e && e.touches?.[0] ? e.touches[0] : e;
+    startX = Number(pt.clientX || 0);
+    startY = Number(pt.clientY || 0);
+    startLeft = parseFloat(el.style.left || '') || el.getBoundingClientRect().left;
+    startTop = parseFloat(el.style.top || '') || el.getBoundingClientRect().top;
+    try {
+      header.setPointerCapture?.(e.pointerId);
+    } catch {}
+    e.preventDefault?.();
+  };
+
+  const onMove = (e) => {
+    if (!dragging) return;
+    const pt = 'touches' in e && e.touches?.[0] ? e.touches[0] : e;
+    const dx = Number(pt.clientX || 0) - startX;
+    const dy = Number(pt.clientY || 0) - startY;
+    // clamp inside viewport
+    const w = el.offsetWidth || 230;
+    const h = el.offsetHeight || 240;
+    const maxL = Math.max(4, window.innerWidth - w - 4);
+    const maxT = Math.max(4, window.innerHeight - h - 4);
+    const nextL = Math.max(4, Math.min(maxL, startLeft + dx));
+    const nextT = Math.max(4, Math.min(maxT, startTop + dy));
+    el.style.left = `${Math.round(nextL)}px`;
+    el.style.top = `${Math.round(nextT)}px`;
+    e.preventDefault?.();
+  };
+
+  const onUp = () => {
+    if (!dragging) return;
+    dragging = false;
+    try {
+      const left = parseFloat(el.style.left || '') || el.getBoundingClientRect().left;
+      const top = parseFloat(el.style.top || '') || el.getBoundingClientRect().top;
+      localStorage.setItem('mb_text_preset_palette_pos_v1', JSON.stringify({ left, top }));
+    } catch {}
+  };
+
+  header.addEventListener('pointerdown', onDown);
+  header.addEventListener('pointermove', onMove);
+  header.addEventListener('pointerup', onUp);
+  header.addEventListener('pointercancel', onUp);
+  // fallback
+  header.addEventListener('mousedown', onDown);
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup', onUp);
+  header.addEventListener('touchstart', onDown, { passive: false });
+  window.addEventListener('touchmove', onMove, { passive: false });
+  window.addEventListener('touchend', onUp);
 }
 
 function getActiveFabricCanvas() {
@@ -4873,7 +4951,7 @@ function syncBrushOptionUI() {
   const fontEl = document.getElementById('fontSize');
   if (sizeEl) sizeEl.value = String(state.brushSize || 3);
   if (colorEl) colorEl.value = String(state.brushColor || '#ff2d55');
-  if (fontEl) fontEl.value = String(state.textFontSize || 22);
+  if (fontEl) fontEl.value = String(state.textFontSize || 16);
 }
 
 function setTool(tool, shape = null) {
@@ -4886,6 +4964,10 @@ function setTool(tool, shape = null) {
   state.shape = shape;
   document.body.dataset.tool = tool;
   document.body.classList.toggle('tool-text', tool === 'text');
+  // 텍스트 도구를 빠져나오면 프리셋 팔레트도 닫는다(요구사항).
+  try {
+    if (tool !== 'text') setTextPresetPaletteOpen(false);
+  } catch {}
   // chord mode: select일 때는 스크롤/드래그가 우선이므로 캔버스 입력을 막는다.
   const cwHost = document.getElementById('cwAnnoHost');
   if (cwHost) cwHost.style.pointerEvents = state.mode === 'chord' && tool === 'select' && !state.cursorShareOn ? 'none' : 'auto';
@@ -4925,6 +5007,7 @@ document.getElementById('textBtn').addEventListener('click', () => {
   setTextPresetPaletteOpen(true);
 });
 document.getElementById('textPresetCloseBtn')?.addEventListener('click', () => setTextPresetPaletteOpen(false));
+initTextPresetPaletteDrag();
 
 document.getElementById('chordEditBtn')?.addEventListener('click', async () => {
   if (state.mode !== 'chord' || !state.chordDocId) return;

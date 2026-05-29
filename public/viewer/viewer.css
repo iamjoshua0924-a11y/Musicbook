@@ -787,11 +787,13 @@ body.light .modalTextarea{
 .textPresetPalette{
   position: fixed;
   left: 10px;
-  top: 92px;
+  top: 132px;
   z-index: 7200;
   width: 230px;
-  max-height: min(70vh, 520px);
+  max-height: min(72vh, 560px);
   overflow: hidden;
+  display:flex;
+  flex-direction:column;
   border: 1px solid var(--border);
   border-radius: 14px;
   background: rgba(18, 19, 22, 0.92);
@@ -811,9 +813,10 @@ body.light .textPresetPalette{ background: rgba(255,255,255,0.92); }
 .textPresetTitle{ font-weight: 900; font-size: 13px; }
 .textPresetHint{ padding:8px 10px; font-size: 12px; }
 .textPresetList{
-  padding: 6px 8px 10px;
+  padding: 6px 8px 16px;
   overflow:auto;
-  max-height: calc(min(70vh, 520px) - 92px);
+  /* flex layout: header/hint occupy fixed height; list takes remaining */
+  flex: 1 1 auto;
   display:flex;
   flex-direction:column;
   gap:6px;

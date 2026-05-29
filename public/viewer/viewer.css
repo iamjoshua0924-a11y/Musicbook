@@ -86,6 +86,33 @@ body.light .rehearsalFx{ mix-blend-mode: multiply; opacity: 0; }
   opacity: 1;
   animation: rehearsalWave 900ms ease-out both;
 }
+.rehearsalFxText{
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translate(-120%, -50%) rotate(-10deg);
+  font-family: "Black Han Sans", system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans KR", Arial, sans-serif;
+  font-size: clamp(64px, 18vw, 220px);
+  letter-spacing: 0.02em;
+  line-height: 1;
+  white-space: nowrap;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.92);
+  text-shadow: 0 8px 40px rgba(0,0,0,0.45);
+  opacity: 0;
+}
+.rehearsalFx.start .rehearsalFxText{ color: rgba(255,255,255,0.94); }
+.rehearsalFx.finish .rehearsalFxText{ color: rgba(255,255,255,0.92); }
+.rehearsalFx.on .rehearsalFxText{
+  opacity: 1;
+  animation: rehearsalTextSweep 900ms ease-out both;
+}
+@keyframes rehearsalTextSweep{
+  0%{ transform: translate(-120%, -50%) rotate(-10deg); filter: blur(6px); opacity: 0; }
+  20%{ opacity: 1; filter: blur(0px); }
+  70%{ opacity: 1; }
+  100%{ transform: translate(120%, -50%) rotate(8deg); filter: blur(6px); opacity: 0; }
+}
 @keyframes rehearsalWave{
   0%{ opacity: 0; transform: scale(0.92) rotate(-8deg); filter: blur(6px); }
   35%{ opacity: 0.95; transform: scale(1.00) rotate(0deg); filter: blur(1px); }

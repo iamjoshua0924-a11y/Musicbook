@@ -504,19 +504,30 @@ function setHidden(id, hidden) {
   el.classList.toggle('hidden', hidden);
 }
 
+function updateParticipantsBulkRowVisibility() {
+  const el = document.getElementById('participantsBulkRow');
+  if (!el) return;
+  const show = Boolean(state.isInSession && state.isPageTurner);
+  el.classList.toggle('hidden', !show);
+  // 일부 환경에서 class 토글이 늦게 반영되는 듯하여 style로도 강제
+  el.style.display = show ? 'flex' : 'none';
+}
+
 // 네트워크 디버그 배지(UI 노이즈) 제거됨.
 function setNetBadge(_label, _opts = {}) {}
 
 function setParticipantsOpen(open) {
   setHidden('participantsPanel', !open);
+  try {
+    updateParticipantsBulkRowVisibility();
+  } catch {}
 }
 
 function toggleParticipantsPanel() {
   const panel = document.getElementById('participantsPanel');
   if (!panel) return;
-  // '전원 합주멤버' 등 벌크 컨트롤은 턴너에게만 노출
   try {
-    setHidden('participantsBulkRow', !(state.isInSession && state.isPageTurner));
+    updateParticipantsBulkRowVisibility();
   } catch {}
   setParticipantsOpen(panel.classList.contains('hidden'));
 }
@@ -1606,6 +1617,9 @@ function joinSession(roomCode) {
     setHidden('participantsPanel', false);
     // 모바일에서는 기본으로 패널을 접어둠(필요 시 '세션목록' 버튼으로 열기)
     if (isMobileLike()) setHidden('participantsPanel', true);
+    try {
+      updateParticipantsBulkRowVisibility();
+    } catch {}
     // 세션의 최신 상태(현재 악보/페이지)를 재요청해서 동기화 보장
     socket.emit('session:participants:refresh', { roomCode: state.roomCode });
     // request initial annotations
@@ -3461,7 +3475,7 @@ document.getElementById('rehearsalToggleBtn')?.addEventListener('click', () => {
     } catch {}
     try {
       // 더 강한 페이지 전체 이펙트
-      triggerRehearsalFx();
+      triggerRehearsalFx(state.rehearsalActive ? 'start' : 'finish');
     } catch {}
     try {
       if (navigator?.vibrate) navigator.vibrate(state.rehearsalActive ? [30, 40, 30] : [40]);
@@ -3671,6 +3685,13 @@ function pulseBpmBar() {
 function triggerRehearsalFx() {
   const el = document.getElementById('rehearsalFx');
   if (!el) return;
+  const textEl = document.getElementById('rehearsalFxText');
+  const kind = String(arguments?.[0] || 'start');
+  try {
+    el.classList.toggle('start', kind === 'start');
+    el.classList.toggle('finish', kind === 'finish');
+    if (textEl) textEl.textContent = kind === 'finish' ? 'FINISH!' : 'START!';
+  } catch {}
   el.classList.remove('hidden');
   // restart animation
   el.classList.remove('on');
@@ -5851,6 +5872,9 @@ socket.on('session:pageTurner:state', (p) => {
   if (!state.isInSession) return;
   state.isPageTurner = p?.pageTurnerSocketId === socket.id;
   if (state.isPageTurner) state.isToolAuthorized = true;
+  try {
+    updateParticipantsBulkRowVisibility();
+  } catch {}
   if (state.isPageTurner) {
     // turner 안내 배지(UI 노이즈) 제거됨.
     // 턴너가 된 순간 현재 보기설정도 동기화(요구사항)
@@ -5892,10 +5916,8 @@ socket.on('session:participants', (p) => {
   updateTurnerToggleAccess();
   updateCursorShareUI();
   updateReactionUI();
-  // T-03: 전원 합주멤버 지정/해제 버튼(턴너 전용)
   try {
-    const bulk = document.getElementById('participantsBulkRow');
-    if (bulk) bulk.classList.toggle('hidden', !(state.isInSession && state.isPageTurner));
+    updateParticipantsBulkRowVisibility();
   } catch {}
   const list = document.getElementById('participantsList');
   list.innerHTML = '';

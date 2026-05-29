@@ -5,9 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes" />
     <title>Score Viewer</title>
     <link rel="icon" href="https://www.gstatic.com/images/branding/product/1x/drive_2020q4_32dp.png" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&display=swap" />
     <!-- cache-bust for mobile browsers -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/naver/d2codingfont@master/D2Coding.css" />
-    <link rel="stylesheet" href="viewer.css?v=20260529_16" />
+    <link rel="stylesheet" href="viewer.css?v=20260529_17" />
   </head>
   <body>
     <div id="viewer-wrapper">
@@ -231,7 +232,9 @@
       <main id="stage">
         <div id="topNotice" class="topNotice hidden"></div>
         <div id="bpmPulse" class="bpmPulse hidden" aria-hidden="true"></div>
-        <div id="rehearsalFx" class="rehearsalFx hidden" aria-hidden="true"></div>
+        <div id="rehearsalFx" class="rehearsalFx hidden" aria-hidden="true">
+          <div id="rehearsalFxText" class="rehearsalFxText">START!</div>
+        </div>
         <!-- touch-mode header/bottom (원본) -->
         <div id="touchHeader">
           <div class="touchRow">
@@ -456,6 +459,6 @@
     <script src="../config.js"></script>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
     <script src="../common/avatar.js?v=20260529_1"></script>
-    <script src="viewer.js?v=20260529_18"></script>
+    <script src="viewer.js?v=20260529_19"></script>
   </body>
 </html>

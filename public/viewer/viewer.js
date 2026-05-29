@@ -741,7 +741,9 @@ function updateReadyBtnUI() {
   const btn = document.getElementById('readyBtn');
   if (!btn) return;
   btn.classList.toggle('hidden', !state.isInSession);
-  btn.classList.toggle('disabled', false);
+  // 합주 진행 중에는 준비 해제를 못하게(요구사항)
+  btn.disabled = Boolean(state.rehearsalActive && state.rehearsalReady);
+  btn.classList.toggle('disabled', btn.disabled);
   btn.classList.toggle('ready-on', Boolean(state.rehearsalReady));
   btn.textContent = state.rehearsalReady ? '준비됨' : '준비';
 }
@@ -1403,6 +1405,7 @@ const state = {
   // rehearsal
   rehearsalActive: false,
   rehearsalReady: false,
+  _rehPrevActive: null, // null=초기 미설정, boolean=직전 브로드캐스트 상태
   _rehPrevReadyMap: {}, // memberId -> boolean (turner feedback)
   _rehEligibleCount: 0,
   _rehReadyCount: 0,
@@ -1713,6 +1716,7 @@ function toChoseongString(s) {
 
 // ---- Text presets (annotation helper) ---------------------------------------------
 const TEXT_PRESETS = [
+  { group: 'ETC', value: '자유텍스트' },
   // 기본 cue
   { group: 'CUE', value: 'section' },
   { group: 'CUE', value: 'band in' },
@@ -3467,24 +3471,14 @@ document.getElementById('rehearsalToggleBtn')?.addEventListener('click', () => {
     state.rehearsalActive = Boolean(ack.rehearsalActive);
     updateRehearsalToggleUI();
     updateReadyBtnUI();
-    flashHud(state.rehearsalActive ? '합주 시작됨' : '합주 종료됨 (준비 초기화)', 1200);
-    // 작은 피드백(연출)
-    try {
-      pulseBpmBar();
-      if (state.rehearsalActive) setTimeout(() => pulseBpmBar(), 220);
-    } catch {}
-    try {
-      // 더 강한 페이지 전체 이펙트
-      triggerRehearsalFx(state.rehearsalActive ? 'start' : 'finish');
-    } catch {}
-    try {
-      if (navigator?.vibrate) navigator.vibrate(state.rehearsalActive ? [30, 40, 30] : [40]);
-    } catch {}
+    // FX/사운드/진동 등은 브로드캐스트(session:participants)에서 모두가 보도록 처리
   });
 });
 
 document.getElementById('readyBtn')?.addEventListener('click', () => {
   if (!state.isInSession || !state.roomCode) return;
+  // 합주 진행 중에는 준비 해제를 못하게(요구사항)
+  if (state.rehearsalActive && state.rehearsalReady) return flashHud('합주 중에는 준비 해제 불가', 1200);
   const next = !state.rehearsalReady;
   socket.emit('session:rehearsal:ready:set', { roomCode: state.roomCode, ready: next }, (ack) => {
     if (!ack?.ok) {
@@ -3492,6 +3486,7 @@ document.getElementById('readyBtn')?.addEventListener('click', () => {
       state.rehearsalReady = !next;
       updateReadyBtnUI();
       if (ack?.error === 'NOT_ELIGIBLE') return flashHud('합주멤버로 등록된 사람만 준비를 누를 수 있습니다', 1400);
+      if (ack?.error === 'REHEARSAL_ACTIVE_LOCK') return flashHud('합주 중에는 준비 해제 불가', 1200);
       flashHud('준비 상태 변경 실패', 1200);
     }
   });
@@ -5901,7 +5896,27 @@ socket.on('session:pageTurner:state', (p) => {
 
 socket.on('session:participants', (p) => {
   if (!state.isInSession) return;
-  state.rehearsalActive = Boolean(p?.rehearsalActive);
+  const nextActive = Boolean(p?.rehearsalActive);
+  // rehearsal active transition FX (broadcast)
+  try {
+    if (state._rehPrevActive === null) {
+      state._rehPrevActive = nextActive;
+    } else if (Boolean(state._rehPrevActive) !== nextActive) {
+      state._rehPrevActive = nextActive;
+      flashHud(nextActive ? '합주 START!' : '합주 FINISH!', 1200);
+      try {
+        pulseBpmBar();
+        if (nextActive) setTimeout(() => pulseBpmBar(), 220);
+      } catch {}
+      try {
+        triggerRehearsalFx(nextActive ? 'start' : 'finish');
+      } catch {}
+      try {
+        if (navigator?.vibrate) navigator.vibrate(nextActive ? [30, 40, 30] : [40]);
+      } catch {}
+    }
+  } catch {}
+  state.rehearsalActive = nextActive;
   try {
     const me = (p?.members || []).find((m) => m.socketId === socket.id);
     if (me) {

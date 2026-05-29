@@ -318,6 +318,8 @@ function attachSockets(io) {
       if (!room.members.has(socket.id)) return ack?.({ ok: false, error: 'NOT_IN_ROOM' });
       const memberId = String(room.members.get(socket.id)?.memberId || '').trim();
       if (!memberId) return ack?.({ ok: false, error: 'MEMBER_ID_REQUIRED' });
+      // 합주 진행 중에는 "준비 해제"를 막는다(요구사항)
+      if (!ready && room.rehearsalActive) return ack?.({ ok: false, error: 'REHEARSAL_ACTIVE_LOCK' });
       // only eligible members can set ready=true
       const eligibleSet = room.rehearsalEligibleMemberIds || new Set();
       if (ready && !eligibleSet.has(memberId)) return ack?.({ ok: false, error: 'NOT_ELIGIBLE' });

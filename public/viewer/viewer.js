@@ -109,6 +109,23 @@ function getOrCreateNickname() {
   return '';
 }
 
+function getOrCreateMemberId() {
+  const key = 'mb_member_id';
+  const saved = localStorage.getItem(key);
+  if (saved) return saved;
+  let id = '';
+  try {
+    id = crypto?.randomUUID?.() || '';
+  } catch {}
+  if (!id) {
+    id = `m_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  }
+  try {
+    localStorage.setItem(key, id);
+  } catch {}
+  return id;
+}
+
 function isMobileLike() {
   const isCoarse = window.matchMedia('(pointer: coarse)').matches;
   return window.matchMedia('(max-width: 980px)').matches || isCoarse;
@@ -607,6 +624,115 @@ function flashHud(msg, ms = 1200) {
       updatePageLabels();
     } catch {}
   }, ms);
+}
+
+// ---- Rehearsal ready button -------------------------------------------------------
+function updateReadyBtnUI() {
+  const btn = document.getElementById('readyBtn');
+  if (!btn) return;
+  btn.classList.toggle('hidden', !state.isInSession);
+  btn.classList.toggle('ready-on', Boolean(state.rehearsalReady));
+  btn.textContent = state.rehearsalReady ? '준비됨' : '준비';
+}
+
+// ---- Participant (⋯) menu ---------------------------------------------------------
+let _participantMenuEl = null;
+let _participantMenuCleanup = null;
+function closeParticipantMenu() {
+  try {
+    if (_participantMenuCleanup) _participantMenuCleanup();
+  } catch {}
+  _participantMenuCleanup = null;
+  if (_participantMenuEl) _participantMenuEl.remove();
+  _participantMenuEl = null;
+}
+function openParticipantMenu(anchorEl, m) {
+  closeParticipantMenu();
+  if (!anchorEl || !m || !state.isInSession || !state.roomCode) return;
+
+  const items = [];
+  const canManage = Boolean(state.isPageTurner);
+  const isSelf = String(m.socketId) === String(socket.id);
+  const isTurner = Boolean(m.isPageTurner);
+
+  if (canManage && !isSelf && !isTurner) {
+    items.push({
+      label: '권한양도',
+      onClick: () => socket.emit('session:pageTurner:transfer', { roomCode: state.roomCode, targetSocketId: m.socketId })
+    });
+  }
+  if (canManage && !isSelf) {
+    items.push({
+      label: m.isToolAuthorized ? '도구승인 해제' : '도구승인',
+      onClick: () =>
+        socket.emit('session:tool:grant', { roomCode: state.roomCode, targetSocketId: m.socketId, allow: !m.isToolAuthorized })
+    });
+    items.push({
+      label: m.isRehearsalEligible ? '합주멤버 해제' : '합주멤버 등록',
+      onClick: () =>
+        socket.emit(
+          'session:rehearsal:eligible:set',
+          { roomCode: state.roomCode, targetSocketId: m.socketId, eligible: !m.isRehearsalEligible },
+          (ack) => {
+            if (!ack?.ok) flashHud('합주멤버 설정 실패', 1200);
+          }
+        )
+    });
+  }
+  if (canManage && !isSelf) {
+    items.push({
+      label: '추방하기',
+      danger: true,
+      onClick: () => {
+        if (!confirm(`${String(m.displayName || m.nickname || '익명')} 님을 추방할까요?`)) return;
+        socket.emit('session:member:kick', { roomCode: state.roomCode, targetSocketId: m.socketId }, (ack) => {
+          if (!ack?.ok) flashHud('추방 실패', 1200);
+        });
+      }
+    });
+  }
+
+  if (!items.length) return;
+  const menu = document.createElement('div');
+  menu.className = 'participantMenu';
+  menu.innerHTML = items
+    .map(
+      (it, i) =>
+        `<button type="button" data-idx="${i}" class="${it.danger ? 'danger' : ''}">${escHtml(String(it.label))}</button>`
+    )
+    .join('');
+  document.body.appendChild(menu);
+  _participantMenuEl = menu;
+
+  const r = anchorEl.getBoundingClientRect();
+  const mw = menu.offsetWidth;
+  const mh = menu.offsetHeight;
+  const left = clamp(r.left - mw + r.width, 8, window.innerWidth - mw - 8);
+  const top = clamp(r.bottom + 6, 52, window.innerHeight - mh - 8);
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+
+  const onDocClick = (e) => {
+    if (menu.contains(e.target) || anchorEl.contains(e.target)) return;
+    closeParticipantMenu();
+  };
+  const onKey = (e) => {
+    if (e.key === 'Escape') closeParticipantMenu();
+  };
+  const onMenuClick = (e) => {
+    const idx = Number(e.target?.dataset?.idx);
+    if (!Number.isFinite(idx)) return;
+    closeParticipantMenu();
+    items[idx]?.onClick?.();
+  };
+  menu.addEventListener('click', onMenuClick);
+  document.addEventListener('click', onDocClick, true);
+  window.addEventListener('keydown', onKey, true);
+  _participantMenuCleanup = () => {
+    menu.removeEventListener('click', onMenuClick);
+    document.removeEventListener('click', onDocClick, true);
+    window.removeEventListener('keydown', onKey, true);
+  };
 }
 
 // ---- Top notice (save banner etc.) ------------------------------------------------
@@ -1109,9 +1235,18 @@ const state = {
   isPageTurner: false,
   isToolAuthorized: false,
   cursorShareOn: false,
+  memberId: getOrCreateMemberId(),
+  // rehearsal
+  rehearsalReady: false,
+
+  // BPM/metronome (local only)
+  bpm: clamp(Number(localStorage.getItem('mb_viewer_bpm') || '120'), 40, 240),
+  metronomeOn: false,
   // 커서공유 디폴트: 한줄전체(row)
   cursorShareMode: String(localStorage.getItem('mb_viewer_cursorMode') || 'row') === 'line' ? 'line' : 'row',
   nickname: getOrCreateNickname(),
+  nickname: getOrCreateNickname(),
+  overlapPx: 0,
   overlapPx: 0,
 
   pdfDoc: null,
@@ -1209,7 +1344,8 @@ function emitSessionJoin(roomCode) {
     nickname: state.nickname || '익명',
     role: authState.role,
     displayName: authState.displayName || state.nickname || '익명',
-    profilePhoto: authState.profilePhoto || ''
+    profilePhoto: authState.profilePhoto || '',
+    memberId: state.memberId || ''
   });
 }
 
@@ -1277,7 +1413,8 @@ function joinSession(roomCode) {
       nickname: state.nickname,
       role: authState.role,
       displayName: authState.displayName,
-      profilePhoto: authState.profilePhoto
+      profilePhoto: authState.profilePhoto,
+      memberId: state.memberId || ''
     },
     (ack) => {
     if (!ack?.ok) {
@@ -1297,6 +1434,12 @@ function joinSession(roomCode) {
     setSessionUiDefaultsIfNeeded();
     updateTurnerToggleAccess();
     updateSongBookPickVisibility();
+    // Ready button is visible only in session mode
+    try {
+      const btn = document.getElementById('readyBtn');
+      if (btn) btn.classList.remove('hidden');
+    } catch {}
+    updateReadyBtnUI();
   }
   );
 }
@@ -1306,12 +1449,17 @@ function leaveSession() {
   state.roomCode = null;
   state.isInSession = false;
   state.isPageTurner = false;
+  state.rehearsalReady = false;
   document.getElementById('sessionFloatBtn').textContent = '세션참여';
   setHidden('sessionBadge', true);
   setHidden('turnerBadge', true);
   setHidden('touchRoomBadge', true);
   setHidden('touchTurnerBadge', true);
   setHidden('participantsPanel', true);
+  try {
+    const btn = document.getElementById('readyBtn');
+    if (btn) btn.classList.add('hidden');
+  } catch {}
   if (roomCode) socket.emit('session:leave', { roomCode });
   setRoomToUrl('');
   if (state.fileId) clearLastRoomForFile(state.fileId);
@@ -2648,6 +2796,47 @@ document.getElementById('participantsToggleBtn')?.addEventListener('click', () =
 document.getElementById('participantsBtn')?.addEventListener('click', () => toggleParticipantsPanel());
 document.getElementById('touchMenuBtn')?.addEventListener('click', () => toggleParticipantsPanel());
 
+// Session menu modal (single entry point)
+function setSessionMenuOpen(open) {
+  setHidden('sessionMenuModal', !open);
+}
+function syncSessionMenuJoinLabel() {
+  const btn = document.getElementById('sessionMenuJoinBtn');
+  if (!btn) return;
+  btn.textContent = state.isInSession ? '나가기' : '참여';
+}
+document.getElementById('sessionMenuBtn')?.addEventListener('click', () => {
+  syncSessionMenuJoinLabel();
+  setSessionMenuOpen(true);
+});
+document.getElementById('sessionMenuCloseBtn')?.addEventListener('click', () => setSessionMenuOpen(false));
+document.getElementById('sessionMenuModal')?.addEventListener('click', (e) => {
+  if (e.target?.id === 'sessionMenuModal') setSessionMenuOpen(false);
+});
+document.getElementById('sessionMenuParticipantsBtn')?.addEventListener('click', () => {
+  setSessionMenuOpen(false);
+  setHidden('participantsPanel', false);
+});
+document.getElementById('sessionMenuCreateBtn')?.addEventListener('click', () => {
+  setSessionMenuOpen(false);
+  document.getElementById('createSessionFloatBtn')?.click?.();
+});
+document.getElementById('sessionMenuJoinBtn')?.addEventListener('click', () => {
+  setSessionMenuOpen(false);
+  document.getElementById('sessionFloatBtn')?.click?.();
+});
+
+document.getElementById('readyBtn')?.addEventListener('click', () => {
+  if (!state.isInSession || !state.roomCode) return;
+  const next = !state.rehearsalReady;
+  socket.emit('session:rehearsal:ready:set', { roomCode: state.roomCode, ready: next }, (ack) => {
+    if (!ack?.ok) flashHud('준비 상태 변경 실패', 1200);
+  });
+  // optimistic UI (will be corrected by session:participants)
+  state.rehearsalReady = next;
+  updateReadyBtnUI();
+});
+
 document.getElementById('songBookPickBtn')?.addEventListener('click', () => {
   // 멤버+세션 상태에서만 노출되므로 별도 권한 체크는 생략
   openSongPickModal();
@@ -2689,6 +2878,98 @@ if (overlapRange) {
     updateUrlState();
   });
 }
+
+// ---- BPM / metronome (local only) -------------------------------------------------
+let _metroTimer = null;
+let _metroAudio = null; // AudioContext
+let _tapTimes = [];
+function setBpm(v) {
+  const next = clamp(Number(v || 0), 40, 240);
+  state.bpm = next;
+  try {
+    localStorage.setItem('mb_viewer_bpm', String(next));
+  } catch {}
+  const input = document.getElementById('bpmInput');
+  if (input) input.value = String(next);
+}
+function pulseBpmBar() {
+  const el = document.getElementById('bpmPulse');
+  if (!el) return;
+  el.classList.remove('hidden');
+  el.classList.add('on');
+  setTimeout(() => el.classList.remove('on'), 70);
+}
+function playMetronomeClick() {
+  try {
+    if (!_metroAudio) _metroAudio = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = _metroAudio;
+    const t0 = ctx.currentTime;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'square';
+    o.frequency.setValueAtTime(1200, t0);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.12, t0 + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.06);
+    o.connect(g);
+    g.connect(ctx.destination);
+    o.start(t0);
+    o.stop(t0 + 0.07);
+  } catch {}
+}
+function stopMetronome() {
+  clearInterval(_metroTimer);
+  _metroTimer = null;
+  state.metronomeOn = false;
+  const btn = document.getElementById('bpmToggleBtn');
+  if (btn) btn.textContent = 'Start';
+  const el = document.getElementById('bpmPulse');
+  if (el) el.classList.add('hidden');
+}
+function startMetronome() {
+  stopMetronome();
+  state.metronomeOn = true;
+  const btn = document.getElementById('bpmToggleBtn');
+  if (btn) btn.textContent = 'Stop';
+  const interval = Math.max(150, Math.round((60_000 / Math.max(40, Number(state.bpm || 120))) * 1));
+  // immediate tick for feedback
+  pulseBpmBar();
+  playMetronomeClick();
+  _metroTimer = setInterval(() => {
+    pulseBpmBar();
+    playMetronomeClick();
+  }, interval);
+}
+try {
+  const bpmInput = document.getElementById('bpmInput');
+  const bpmToggleBtn = document.getElementById('bpmToggleBtn');
+  const bpmTapBtn = document.getElementById('bpmTapBtn');
+  if (bpmInput) bpmInput.value = String(state.bpm || 120);
+  bpmInput?.addEventListener('change', (e) => {
+    setBpm(e.target.value);
+    if (state.metronomeOn) startMetronome();
+  });
+  bpmToggleBtn?.addEventListener('click', () => {
+    if (state.metronomeOn) stopMetronome();
+    else startMetronome();
+  });
+  bpmTapBtn?.addEventListener('click', () => {
+    const now = Date.now();
+    _tapTimes = _tapTimes.filter((t) => now - t < 2500);
+    _tapTimes.push(now);
+    if (_tapTimes.length >= 2) {
+      const diffs = [];
+      for (let i = 1; i < _tapTimes.length; i += 1) diffs.push(_tapTimes[i] - _tapTimes[i - 1]);
+      const avg = diffs.reduce((a, b) => a + b, 0) / Math.max(1, diffs.length);
+      const bpm = clamp(Math.round(60_000 / Math.max(120, avg)), 40, 240);
+      setBpm(bpm);
+      if (state.metronomeOn) startMetronome();
+    }
+    // always provide immediate feedback
+    pulseBpmBar();
+    playMetronomeClick();
+  });
+} catch {}
 
 // initial spread button active
 [1, 2, 3, 4].forEach((x) => document.getElementById(`spread${x}Btn`)?.classList.toggle('active', x === state.spreadCount));
@@ -3708,7 +3989,7 @@ function isAnyTextEditing() {
     const tag = String(ae?.tagName || '').toUpperCase();
     if (tag === 'INPUT' || tag === 'TEXTAREA' || ae?.isContentEditable) return true;
     // 모달이 열려 있으면 기본적으로 입력/선택 중이므로 단축키를 막는다.
-    const openModalIds = ['songPickModal', 'inputModal', 'joinModal', 'chordEditModal', 'cacheModal'];
+    const openModalIds = ['songPickModal', 'inputModal', 'joinModal', 'chordEditModal', 'cacheModal', 'sessionMenuModal'];
     for (const id of openModalIds) {
       const el = document.getElementById(id);
       if (el && !el.classList.contains('hidden')) return true;
@@ -4618,7 +4899,11 @@ socket.on('session:participants', (p) => {
   if (!state.isInSession) return;
   try {
     const me = (p?.members || []).find((m) => m.socketId === socket.id);
-    if (me) state.isToolAuthorized = Boolean(me.isToolAuthorized) || state.isPageTurner;
+    if (me) {
+      state.isToolAuthorized = Boolean(me.isToolAuthorized) || state.isPageTurner;
+      state.rehearsalReady = Boolean(me.isRehearsalReady);
+      updateReadyBtnUI();
+    }
   } catch {}
   updateTurnerToggleAccess();
   updateCursorShareUI();
@@ -4659,12 +4944,18 @@ socket.on('session:participants', (p) => {
     });
   });
 
-  Array.from(mergedMap.values()).forEach((m) => {
+  const values = Array.from(mergedMap.values());
+  let anonNo = 0;
+  values.forEach((m) => {
     const row = document.createElement('div');
     row.className = 'participant-row';
     const name = m.displayName || m.nickname || '익명';
-    const initial = String(name || '').trim().slice(0, 1) || '?';
+    const labelName = name === '익명' ? `익명(${(anonNo += 1)})` : name;
+    const initial = String(labelName || '').trim().slice(0, 1) || '?';
     const photo = normalizeProfilePhotoUrl(m.profilePhoto || '', 80);
+    const isEligible = Boolean(m.isRehearsalEligible);
+    const isReady = Boolean(m.isRehearsalReady);
+    row.classList.add(isEligible ? (isReady ? 'reh-green' : 'reh-red') : 'reh-gray');
     row.innerHTML = `
       <span class="participant-left">
         ${
@@ -4672,7 +4963,7 @@ socket.on('session:participants', (p) => {
             ? `<span class="participant-avatar"><img src="${String(photo)}" alt="" /></span>`
             : `<span class="participant-avatar">${initial}</span>`
         }
-        <span class="participant-name" title="${String(name)}">${name}</span>
+        <span class="participant-name" title="${String(labelName)}">${labelName}</span>
       </span>
       <span class="participant-actions"></span>
     `;
@@ -4682,18 +4973,6 @@ socket.on('session:participants', (p) => {
       badge.className = 'participant-badge';
       badge.textContent = 'TURNER';
       actions?.appendChild(badge);
-    }
-
-    if (state.isPageTurner && !m.isPageTurner) {
-      const btn = document.createElement('button');
-      btn.textContent = '양도';
-      btn.title = '권한 양도';
-      btn.onclick = () => {
-        socket.emit('session:pageTurner:transfer', { roomCode: state.roomCode, targetSocketId: m.socketId }, (ack) => {
-          if (!ack?.ok) alert('양도 실패');
-        });
-      };
-      actions?.appendChild(btn);
     }
 
     // tool permission UI
@@ -4710,22 +4989,32 @@ socket.on('session:participants', (p) => {
         actions?.appendChild(badge);
       }
     }
-    if (state.isPageTurner && !m.isPageTurner) {
-      const toolBtn = document.createElement('button');
-      toolBtn.textContent = m.isToolAuthorized ? '해제' : '승인';
-      toolBtn.title = m.isToolAuthorized ? '도구 해제' : '도구 승인';
-      toolBtn.onclick = () => {
-        socket.emit(
-          'session:tool:grant',
-          { roomCode: state.roomCode, targetSocketId: m.socketId, allow: !m.isToolAuthorized },
-          (ack) => {
-            if (!ack?.ok) alert('처리 실패');
-          }
-        );
+    // unified menu (⋯)
+    if (state.isPageTurner && !m.isPageTurner && String(m.socketId) !== String(socket.id)) {
+      const menuBtn = document.createElement('button');
+      menuBtn.textContent = '⋯';
+      menuBtn.title = '옵션';
+      menuBtn.onclick = (e) => {
+        e?.preventDefault?.();
+        e?.stopPropagation?.();
+        openParticipantMenu(menuBtn, m);
       };
-      actions?.appendChild(toolBtn);
+      actions?.appendChild(menuBtn);
     }
     list.appendChild(row);
+  });
+});
+
+socket.on('session:rehearsal:all_ready', (p) => {
+  if (!state.isInSession) return;
+  if (p?.roomCode && String(p.roomCode).toUpperCase() !== String(state.roomCode || '').toUpperCase()) return;
+  if (!state.isPageTurner) return;
+  const n = Number(p?.count || 0);
+  showTopNotice({
+    title: '모든 세션이 합주 준비가 되었습니다',
+    sub: n ? `합주멤버 ${n}명 준비 완료` : '',
+    timeoutMs: 6000,
+    actions: []
   });
 });
 

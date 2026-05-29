@@ -23,9 +23,11 @@ class SessionStore {
       currentScrollRatio: 0,
       viewerSettings: null,
       currentPageNo: 1,
-      members: new Map(), // socketId -> { nickname, role, displayName, profilePhoto }
+      members: new Map(), // socketId -> { nickname, role, displayName, profilePhoto, memberId }
       toolAuthorizedSocketIds: new Set(), // socketIds allowed to use tools (besides pageTurner)
       toolRequestSocketIds: new Set(), // pending requests
+      rehearsalEligibleMemberIds: new Set(), // memberIds (selected by page turner)
+      rehearsalReadyMemberIds: new Set(), // memberIds (ready toggle)
       // annotations: Map<fileId, { pages: { [pageNo]: {json,w,h}}, updatedAt }>
       annotationsByFile: new Map()
     });
@@ -47,6 +49,8 @@ class SessionStore {
         members: new Map(),
         toolAuthorizedSocketIds: new Set(),
         toolRequestSocketIds: new Set(),
+        rehearsalEligibleMemberIds: new Set(),
+        rehearsalReadyMemberIds: new Set(),
         annotationsByFile: new Map()
       });
     }

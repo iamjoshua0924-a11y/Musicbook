@@ -51,6 +51,57 @@ body.light{
   user-select: none;
 }
 
+/* bpm pulse bar */
+.bpmPulse{
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 44px; /* below topbar */
+  height: 3px;
+  background: rgba(122,162,255,0.0);
+  z-index: 6400;
+  pointer-events: none;
+}
+.bpmPulse.hidden{ display:none; }
+.bpmPulse.on{
+  background: rgba(122,162,255,0.85);
+  box-shadow: 0 0 18px rgba(122,162,255,0.55);
+}
+
+/* ready button */
+#readyBtn.ready-on{
+  border-color: rgba(54,220,120,0.6);
+  background: rgba(54,220,120,0.22);
+}
+
+/* participant states (rehearsal) */
+.participant-row.reh-green{ border-color: rgba(54,220,120,0.55); box-shadow: 0 0 0 1px rgba(54,220,120,0.12) inset; }
+.participant-row.reh-red{ border-color: rgba(255,107,107,0.55); box-shadow: 0 0 0 1px rgba(255,107,107,0.12) inset; }
+.participant-row.reh-gray{ border-color: rgba(140,150,170,0.35); }
+
+/* participant menu */
+.participantMenu{
+  position: fixed;
+  z-index: 7000;
+  background: rgba(26,28,32,0.98);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px;
+  min-width: 170px;
+  box-shadow: 0 10px 34px rgba(0,0,0,0.35);
+}
+body.light .participantMenu{ background: rgba(255,255,255,0.98); }
+.participantMenu button{
+  width: 100%;
+  text-align: left;
+  height: 34px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  margin: 2px 0;
+  font-size: 12px;
+}
+.participantMenu .danger{ border-color: rgba(255,107,107,0.5); color: #ffb3b3; }
+
 /* top notice (save banner / cache notice etc.) */
 .topNotice{
   position: fixed;

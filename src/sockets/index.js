@@ -67,16 +67,25 @@ function toSessionRoomName(roomCode) {
 }
 
 function buildParticipantsPayload(room) {
-  const members = Array.from(room.members.entries()).map(([socketId, m]) => ({
-    socketId,
-    nickname: m.nickname,
-    role: m.role,
-    displayName: m.displayName,
-    profilePhoto: m.profilePhoto,
-    isPageTurner: socketId === room.pageTurnerSocketId,
-    isToolAuthorized: room.toolAuthorizedSocketIds?.has?.(socketId) || false,
-    toolRequested: room.toolRequestSocketIds?.has?.(socketId) || false
-  }));
+  const eligible = room.rehearsalEligibleMemberIds || new Set();
+  const ready = room.rehearsalReadyMemberIds || new Set();
+  const members = Array.from(room.members.entries()).map(([socketId, m]) => {
+    const memberId = String(m?.memberId || '').trim();
+    return {
+      socketId,
+      nickname: m.nickname,
+      role: m.role,
+      displayName: m.displayName,
+      profilePhoto: m.profilePhoto,
+      memberId,
+      isPageTurner: socketId === room.pageTurnerSocketId,
+      isToolAuthorized: room.toolAuthorizedSocketIds?.has?.(socketId) || false,
+      toolRequested: room.toolRequestSocketIds?.has?.(socketId) || false,
+      // rehearsal
+      isRehearsalEligible: Boolean(memberId) && eligible.has(memberId),
+      isRehearsalReady: Boolean(memberId) && ready.has(memberId)
+    };
+  });
   return { roomCode: room.roomCode, members };
 }
 
@@ -175,13 +184,14 @@ function attachSockets(io) {
       // displayName은 UI 식별용이므로 payload 우선(특히 익명 사용자 닉네임 변경 케이스)
       const displayName = String(payload?.displayName || '').trim() || nickname;
       const profilePhoto = String(payload?.profilePhoto || '');
+      const memberId = String(payload?.memberId || '').trim().slice(0, 64);
       if (!roomCode) return ack?.({ ok: false, error: 'ROOM_REQUIRED' });
 
       const room = store.getOrCreateRoom(roomCode);
 
       socket.data.nickname = nickname;
       socket.data.displayName = displayName;
-      room.members.set(socket.id, { nickname, role, displayName, profilePhoto });
+      room.members.set(socket.id, { nickname, role, displayName, profilePhoto, memberId });
       socket.data.joinedRooms.add(roomCode);
 
       await socket.join(toSessionRoomName(roomCode));
@@ -209,6 +219,84 @@ function attachSockets(io) {
       if (room.currentFileId) {
         const snap = await loadSnapshot(roomCode, room.currentFileId);
         if (snap) socket.emit('wb:sync', { fileId: room.currentFileId, snapshot: snap });
+      }
+    });
+
+    // --- Rehearsal readiness --------------------------------------------------------
+    socket.on('session:rehearsal:eligible:set', (payload, ack) => {
+      const roomCode = String(payload?.roomCode || '').trim().toUpperCase();
+      const targetSocketId = String(payload?.targetSocketId || '').trim();
+      const eligible = Boolean(payload?.eligible);
+      const room = store.rooms.get(roomCode);
+      if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
+      if (room.pageTurnerSocketId !== socket.id) return ack?.({ ok: false, error: 'FORBIDDEN' });
+      const target = room.members.get(targetSocketId);
+      if (!target) return ack?.({ ok: false, error: 'TARGET_NOT_FOUND' });
+      const memberId = String(target.memberId || '').trim();
+      if (!memberId) return ack?.({ ok: false, error: 'MEMBER_ID_REQUIRED' });
+      if (eligible) room.rehearsalEligibleMemberIds?.add?.(memberId);
+      else room.rehearsalEligibleMemberIds?.delete?.(memberId);
+      io.to(toSessionRoomName(roomCode)).emit('session:participants', buildParticipantsPayload(room));
+      ack?.({ ok: true });
+    });
+
+    socket.on('session:rehearsal:ready:set', (payload, ack) => {
+      const roomCode = String(payload?.roomCode || '').trim().toUpperCase();
+      const ready = Boolean(payload?.ready);
+      const room = store.rooms.get(roomCode);
+      if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
+      if (!room.members.has(socket.id)) return ack?.({ ok: false, error: 'NOT_IN_ROOM' });
+      const memberId = String(room.members.get(socket.id)?.memberId || '').trim();
+      if (!memberId) return ack?.({ ok: false, error: 'MEMBER_ID_REQUIRED' });
+      if (ready) room.rehearsalReadyMemberIds?.add?.(memberId);
+      else room.rehearsalReadyMemberIds?.delete?.(memberId);
+      io.to(toSessionRoomName(roomCode)).emit('session:participants', buildParticipantsPayload(room));
+      ack?.({ ok: true });
+
+      // Notify turner when all eligible (connected) members are ready
+      try {
+        const eligibleSet = room.rehearsalEligibleMemberIds || new Set();
+        if (!eligibleSet.size) return;
+        const connectedMemberIds = new Set(
+          Array.from(room.members.values())
+            .map((m) => String(m?.memberId || '').trim())
+            .filter(Boolean)
+        );
+        const eligibleConnected = Array.from(eligibleSet).filter((id) => connectedMemberIds.has(id));
+        if (!eligibleConnected.length) return;
+        const readySet = room.rehearsalReadyMemberIds || new Set();
+        const allReady = eligibleConnected.every((id) => readySet.has(id));
+        if (allReady && room.pageTurnerSocketId) {
+          io.to(room.pageTurnerSocketId).emit('session:rehearsal:all_ready', { roomCode, count: eligibleConnected.length });
+        }
+      } catch {}
+    });
+
+    // Kick (turner only): force disconnect target socket
+    socket.on('session:member:kick', async (payload, ack) => {
+      const roomCode = String(payload?.roomCode || '').trim().toUpperCase();
+      const targetSocketId = String(payload?.targetSocketId || '').trim();
+      const room = store.rooms.get(roomCode);
+      if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
+      if (room.pageTurnerSocketId !== socket.id) return ack?.({ ok: false, error: 'FORBIDDEN' });
+      if (!targetSocketId || !room.members.has(targetSocketId)) return ack?.({ ok: false, error: 'TARGET_NOT_FOUND' });
+
+      try {
+        const targetSocket = io.sockets.sockets.get(targetSocketId);
+        // remove membership first
+        room.members.delete(targetSocketId);
+        room.toolAuthorizedSocketIds?.delete?.(targetSocketId);
+        room.toolRequestSocketIds?.delete?.(targetSocketId);
+        if (room.pageTurnerSocketId === targetSocketId) room.pageTurnerSocketId = null;
+        if (!room.pageTurnerSocketId) room.pageTurnerSocketId = room.members.keys().next().value || null;
+        emitRoomState(io, room);
+        // then disconnect
+        try {
+          targetSocket?.disconnect?.(true);
+        } catch {}
+        ack?.({ ok: true });
+      } catch (e) {
+        ack?.({ ok: false, error: 'KICK_FAILED' });
       }
     });
 

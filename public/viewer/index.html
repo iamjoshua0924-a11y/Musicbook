@@ -30,9 +30,13 @@
             <button id="toggleViewBtn" title="보기/넘김/확대 줄 접기/펼치기">보기옵션</button>
             <button id="toggleToolBtn" title="주석 도구 줄 접기/펼치기">도구바</button>
             <span class="vsep" aria-hidden="true"></span>
-            <button id="createSessionFloatBtn" title="세션 만들기">세션만들기</button>
-            <button id="sessionFloatBtn" title="세션 참여/나가기">세션참여</button>
-            <button id="participantsBtn" type="button" class="mini">접속자</button>
+            <!-- legacy buttons (kept for compatibility; hidden via CSS) -->
+            <button id="createSessionFloatBtn" class="hidden" title="세션 만들기">세션만들기</button>
+            <button id="sessionFloatBtn" class="hidden" title="세션 참여/나가기">세션참여</button>
+            <button id="participantsBtn" type="button" class="mini hidden">접속자</button>
+            <!-- new session menu + ready -->
+            <button id="sessionMenuBtn" type="button" class="mini" title="세션 옵션">세션⋯</button>
+            <button id="readyBtn" type="button" class="mini hidden" title="합주 준비">준비</button>
             <span class="vsep" aria-hidden="true"></span>
             <button id="fullscreenBtn" type="button">전체화면</button>
             <button id="themeBtn" type="button">테마</button>
@@ -85,6 +89,13 @@
               <button id="mobileOnBtn" type="button" class="mini">on</button>
               <button id="mobileOffBtn" type="button" class="mini">off</button>
             </div>
+          </div>
+
+          <div class="group" id="bpmGroup">
+            <span class="label">BPM</span>
+            <input id="bpmInput" type="number" min="40" max="240" step="1" value="120" style="width:72px;" />
+            <button id="bpmToggleBtn" type="button" class="mini">Start</button>
+            <button id="bpmTapBtn" type="button" class="mini" title="Tap tempo">Tap</button>
           </div>
 
           <!-- 코드위키 모드: 편집만 노출 -->
@@ -204,6 +215,7 @@
 
       <main id="stage">
         <div id="topNotice" class="topNotice hidden"></div>
+        <div id="bpmPulse" class="bpmPulse hidden" aria-hidden="true"></div>
         <!-- touch-mode header/bottom (원본) -->
         <div id="touchHeader">
           <div class="touchRow">
@@ -333,12 +345,25 @@
       </div>
     </div>
 
+    <!-- 세션 옵션 -->
+    <div class="modalOverlay hidden" id="sessionMenuModal">
+      <div class="modalBox">
+        <div class="modalTitle">세션</div>
+        <div class="modalActions" style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
+          <button id="sessionMenuParticipantsBtn" type="button">접속자</button>
+          <button id="sessionMenuCreateBtn" type="button">세션 만들기</button>
+          <button id="sessionMenuJoinBtn" type="button" class="primary">참여/나가기</button>
+          <button id="sessionMenuCloseBtn" type="button">닫기</button>
+        </div>
+      </div>
+    </div>
+
     <!-- pdf.js + fabric.js (CDN, GAS 원본과 동일 계열) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
     <script src="../config.js"></script>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
-    <script src="viewer.js?v=20260529_2"></script>
+    <script src="viewer.js?v=20260529_3"></script>
   </body>
 </html>

@@ -734,6 +734,55 @@ body.light .modalTextarea{
   gap:10px;
   padding-right: 4px;
 }
+.songPickFilterRow{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  align-items:center;
+}
+.songPickSelect{
+  width: auto;
+  min-width: 140px;
+  height: 34px;
+  padding: 6px 10px;
+}
+.songPickVocalList{
+  margin-top:10px;
+  max-height: min(52vh, 420px);
+  overflow:auto;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  padding-right: 4px;
+}
+.songPickVocalRow{
+  border:1px solid var(--border);
+  background: var(--panel2);
+  border-radius:12px;
+  padding:8px 10px;
+  font-size:13px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.songPickChip{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:4px 8px;
+  border-radius:999px;
+  border:1px solid rgba(122,162,255,0.35);
+  background: rgba(122,162,255,0.12);
+  margin-left:6px;
+  font-size:12px;
+  font-weight:900;
+}
+.songPickChip button{
+  height:20px;
+  padding:0 6px;
+  border-radius:999px;
+  font-size:12px;
+}
 .songPickItem{
   border:1px solid var(--border);
   background: var(--panel2);

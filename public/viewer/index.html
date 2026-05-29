@@ -6,7 +6,7 @@
     <title>Score Viewer</title>
     <!-- cache-bust for mobile browsers -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/naver/d2codingfont@master/D2Coding.css" />
-    <link rel="stylesheet" href="viewer.css?v=20260529_7" />
+    <link rel="stylesheet" href="viewer.css?v=20260529_8" />
   </head>
   <body>
     <div id="viewer-wrapper">
@@ -303,11 +303,58 @@
     <div class="modalOverlay hidden" id="songPickModal">
       <div class="modalBox">
         <div class="modalTitle">노래책에서 고르기</div>
-        <input id="songPickSearch" class="modalInput" placeholder="곡명/가수 검색" />
+        <input id="songPickSearch" class="modalInput" placeholder="곡명 / 가수 검색 (초성 가능)" />
+
+        <div class="songPickFilterRow" style="margin-top:10px;">
+          <select id="songPickGenreFilter" class="modalInput songPickSelect">
+            <option value="">장르 전체</option>
+            <option>KPOP</option>
+            <option>JPOP</option>
+            <option>POP</option>
+            <option>OST</option>
+            <option>기타</option>
+          </select>
+          <select id="songPickMoodFilter" class="modalInput songPickSelect">
+            <option value="">분위기 전체</option>
+            <option>발라드</option>
+            <option>락발라드</option>
+            <option>밴드송</option>
+            <option>댄스</option>
+            <option>뮤지컬</option>
+            <option>힙합</option>
+            <option>동요</option>
+          </select>
+          <select id="songPickVocalFilter" class="modalInput songPickSelect">
+            <option value="">보컬 전체</option>
+            <option>남솔로</option>
+            <option>여솔로</option>
+            <option>듀엣</option>
+            <option>그룹곡</option>
+          </select>
+          <button id="songPickAvailableVocalOpenBtn" type="button" class="mini">가능보컬[선택]</button>
+        </div>
+
+        <div id="songPickAvailableVocalRow" class="muted hidden" style="margin-top:8px;">
+          <span style="font-weight:900;">선택됨:</span>
+          <span id="songPickAvailableVocalChips"></span>
+        </div>
+
         <div id="songPickHint" class="muted" style="margin-top:8px;">검색해서 곡을 선택하세요.</div>
         <div id="songPickList" class="songPickList"></div>
         <div class="modalActions">
           <button id="songPickCloseBtn" type="button">닫기</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 노래책: 가능보컬 선택 모달 -->
+    <div class="modalOverlay hidden" id="songPickAvailableVocalModal">
+      <div class="modalBox">
+        <div class="modalTitle">가능보컬 선택</div>
+        <input id="songPickAvailableVocalSearch" class="modalInput" placeholder="이름 검색" />
+        <div id="songPickAvailableVocalList" class="songPickVocalList"></div>
+        <div class="modalActions">
+          <button id="songPickAvailableVocalCloseBtn" type="button" class="primary">닫기</button>
         </div>
       </div>
     </div>
@@ -365,6 +412,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
     <script src="../config.js"></script>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
-    <script src="viewer.js?v=20260529_8"></script>
+    <script src="viewer.js?v=20260529_9"></script>
   </body>
 </html>

@@ -1535,6 +1535,26 @@ function normSearch(s) {
   return normLower(s).replace(/\s+/g, '');
 }
 
+// ---- SongPick: 초성 검색 -----------------------------------------------------------
+const CHOSEONG = ['ㄱ', 'ㄲ', 'ㄴ', 'ㄷ', 'ㄸ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅃ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅉ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
+function isChoseongQuery(q) {
+  return /^[ㄱ-ㅎ]+$/.test(String(q || '').trim());
+}
+function toChoseongString(s) {
+  const str = String(s ?? '');
+  let out = '';
+  for (const ch of Array.from(str)) {
+    const code = ch.charCodeAt(0);
+    if (code >= 0xac00 && code <= 0xd7a3) {
+      const idx = Math.floor((code - 0xac00) / 588);
+      out += CHOSEONG[idx] || '';
+      continue;
+    }
+    out += normLower(ch);
+  }
+  return out.replace(/\s+/g, '');
+}
+
 function openSongPickModal() {
   setHidden('songPickModal', false);
   const input = document.getElementById('songPickSearch');
@@ -1542,6 +1562,13 @@ function openSongPickModal() {
     input.value = '';
     setTimeout(() => input.focus(), 0);
   }
+  // reset filters UI (keep selection state for available vocal)
+  try {
+    document.getElementById('songPickGenreFilter') && (document.getElementById('songPickGenreFilter').value = songPickState.genre || '');
+    document.getElementById('songPickMoodFilter') && (document.getElementById('songPickMoodFilter').value = songPickState.mood || '');
+    document.getElementById('songPickVocalFilter') && (document.getElementById('songPickVocalFilter').value = songPickState.vocal || '');
+    renderSongPickAvailableVocalChips();
+  } catch {}
   renderSongPickList([]);
   document.getElementById('songPickHint').textContent = '불러오는 중...';
   loadSongCardsIfNeeded().catch(() => {
@@ -1564,18 +1591,118 @@ async function loadSongCardsIfNeeded() {
     ...c,
     _searchNorm: normSearch(c.searchText || ''),
     _titleNorm: normSearch(c.title || ''),
-    _artistNorm: normSearch(c.artist || '')
+    _artistNorm: normSearch(c.artist || ''),
+    _searchCho: toChoseongString(c.searchText || ''),
+    _titleCho: toChoseongString(c.title || ''),
+    _artistCho: toChoseongString(c.artist || '')
   }));
   document.getElementById('songPickHint').textContent = `총 ${songCardsCache.length}곡 · 검색해서 선택`;
 }
 
-function pickCardMatches(q) {
-  const qq = normSearch(String(q || '').trim());
+// ---- SongPick: filters -------------------------------------------------------------
+const songPickState = {
+  genre: '',
+  mood: '',
+  vocal: '',
+  availableUsers: [], // [{userId,displayName,profilePhoto}]
+  selectedAvailableVocalUserIds: [],
+  availableSetsByUserId: new Map() // userId -> Set<googleFileId>
+};
+
+async function loadSongPickAvailableVocalUsersIfNeeded() {
+  if (songPickState.availableUsers?.length) return songPickState.availableUsers;
+  const r = await apiGet('/api/availability/users');
+  if (!r?.ok) return [];
+  songPickState.availableUsers = Array.isArray(r.items) ? r.items : [];
+  return songPickState.availableUsers;
+}
+
+async function loadSongPickAvailableVocalSets(userIds) {
+  const ids = Array.isArray(userIds) ? userIds.map((x) => String(x || '').trim()).filter(Boolean) : [];
+  // drop old
+  const selected = new Set(ids);
+  for (const k of songPickState.availableSetsByUserId.keys()) {
+    if (!selected.has(k)) songPickState.availableSetsByUserId.delete(k);
+  }
+  const missing = ids.filter((uid) => !songPickState.availableSetsByUserId.has(uid));
+  for (const uid of missing) {
+    const r = await apiGet(`/api/availability?userId=${encodeURIComponent(uid)}`);
+    if (!r?.ok) continue;
+    const set = new Set();
+    (r.items || []).forEach((a) => {
+      if (a.available) set.add(String(a.googleFileId || '').trim());
+    });
+    songPickState.availableSetsByUserId.set(uid, set);
+  }
+}
+
+function renderSongPickAvailableVocalChips() {
+  const row = document.getElementById('songPickAvailableVocalRow');
+  const wrap = document.getElementById('songPickAvailableVocalChips');
+  if (!row || !wrap) return;
+  const ids = songPickState.selectedAvailableVocalUserIds || [];
+  row.classList.toggle('hidden', !ids.length);
+  wrap.innerHTML = '';
+  ids.forEach((uid) => {
+    const u = (songPickState.availableUsers || []).find((x) => String(x.userId) === String(uid));
+    const name = String(u?.displayName || uid);
+    const chip = document.createElement('span');
+    chip.className = 'songPickChip';
+    chip.innerHTML = `${name} <button type="button" data-uid="${uid}">×</button>`;
+    chip.querySelector('button')?.addEventListener('click', async () => {
+      songPickState.selectedAvailableVocalUserIds = (songPickState.selectedAvailableVocalUserIds || []).filter((x) => x !== uid);
+      await loadSongPickAvailableVocalSets(songPickState.selectedAvailableVocalUserIds);
+      renderSongPickAvailableVocalChips();
+      renderSongPickList(pickCardMatchesAdvanced(document.getElementById('songPickSearch')?.value || ''));
+    });
+    wrap.appendChild(chip);
+  });
+}
+
+function pickCardMatchesAdvanced(q) {
+  const raw = String(q || '').trim();
+  const qNorm = normSearch(raw);
+  const qCho = raw.replace(/\s+/g, '');
+  const qIsCho = isChoseongQuery(qCho);
   if (!songCardsCache) return [];
-  if (!qq) return songCardsCache.slice(0, 30);
-  return songCardsCache
-    .filter((c) => (c._searchNorm || '').includes(qq) || (c._titleNorm || '').includes(qq) || (c._artistNorm || '').includes(qq))
-    .slice(0, 40);
+
+  const genre = String(document.getElementById('songPickGenreFilter')?.value || '');
+  const mood = String(document.getElementById('songPickMoodFilter')?.value || '');
+  const vocal = String(document.getElementById('songPickVocalFilter')?.value || '');
+  songPickState.genre = genre;
+  songPickState.mood = mood;
+  songPickState.vocal = vocal;
+
+  let list = songCardsCache.slice();
+  if (genre) list = list.filter((c) => String(c.genre || '') === genre);
+  if (mood) list = list.filter((c) => String(c.mood || '') === mood);
+  if (vocal) list = list.filter((c) => String(c.vocal || '') === vocal);
+
+  if (raw) {
+    if (qIsCho) {
+      const qq = qCho;
+      list = list.filter((c) => String(c._searchCho || '').includes(qq) || String(c._titleCho || '').includes(qq) || String(c._artistCho || '').includes(qq));
+    } else if (qNorm) {
+      list = list.filter((c) => (c._searchNorm || '').includes(qNorm) || (c._titleNorm || '').includes(qNorm) || (c._artistNorm || '').includes(qNorm));
+    }
+  }
+
+  // available vocal AND filter: all selected must have at least one variant
+  const ids = Array.isArray(songPickState.selectedAvailableVocalUserIds) ? songPickState.selectedAvailableVocalUserIds : [];
+  if (ids.length) {
+    list = list.filter((c) => {
+      const vars = Array.isArray(c.variants) ? c.variants : [];
+      return ids.every((uid) => {
+        const set = songPickState.availableSetsByUserId.get(uid);
+        if (!set) return false;
+        return vars.some((v) => set.has(String(v.googleFileId || '')));
+      });
+    });
+  }
+
+  // keep list compact
+  const cap = raw || genre || mood || vocal || ids.length ? 80 : 30;
+  return list.slice(0, cap);
 }
 
 function openFileInRoom(fileId, originalLink = '') {
@@ -2942,7 +3069,7 @@ document.getElementById('songPickSearch')?.addEventListener(
   'input',
   debounce((e) => {
     const q = e.target.value || '';
-    const items = pickCardMatches(q);
+    const items = pickCardMatchesAdvanced(q);
     renderSongPickList(items);
   }, 120)
 );
@@ -2950,6 +3077,67 @@ document.getElementById('songPickSearch')?.addEventListener(
 document.getElementById('songPickSearch')?.addEventListener('keydown', (e) => {
   e.stopPropagation();
 });
+
+// SongPick: filters wiring
+['songPickGenreFilter', 'songPickMoodFilter', 'songPickVocalFilter'].forEach((id) => {
+  document.getElementById(id)?.addEventListener('change', () => {
+    const q = document.getElementById('songPickSearch')?.value || '';
+    renderSongPickList(pickCardMatchesAdvanced(q));
+  });
+});
+
+document.getElementById('songPickAvailableVocalOpenBtn')?.addEventListener('click', async () => {
+  await loadSongPickAvailableVocalUsersIfNeeded();
+  renderSongPickAvailableVocalModalList();
+  setHidden('songPickAvailableVocalModal', false);
+  document.getElementById('songPickAvailableVocalSearch')?.focus?.();
+});
+document.getElementById('songPickAvailableVocalCloseBtn')?.addEventListener('click', () => setHidden('songPickAvailableVocalModal', true));
+document.getElementById('songPickAvailableVocalModal')?.addEventListener('click', (e) => {
+  if (e.target?.id === 'songPickAvailableVocalModal') setHidden('songPickAvailableVocalModal', true);
+});
+document.getElementById('songPickAvailableVocalSearch')?.addEventListener(
+  'input',
+  debounce(() => renderSongPickAvailableVocalModalList(), 120)
+);
+
+function renderSongPickAvailableVocalModalList() {
+  const wrap = document.getElementById('songPickAvailableVocalList');
+  if (!wrap) return;
+  const q = String(document.getElementById('songPickAvailableVocalSearch')?.value || '').trim().toLowerCase();
+  const selected = new Set(songPickState.selectedAvailableVocalUserIds || []);
+  wrap.innerHTML = '';
+  (songPickState.availableUsers || [])
+    .filter((u) => {
+      if (!q) return true;
+      const name = String(u.displayName || u.userId || '').toLowerCase();
+      const uid = String(u.userId || '').toLowerCase();
+      return name.includes(q) || uid.includes(q);
+    })
+    .slice(0, 200)
+    .forEach((u) => {
+      const row = document.createElement('div');
+      row.className = 'songPickVocalRow';
+      const uid = String(u.userId || '').trim();
+      const name = String(u.displayName || uid).trim();
+      row.innerHTML = `<label style="display:flex; align-items:center; gap:10px; width:100%;">
+        <input type="checkbox" data-uid="${uid}" ${selected.has(uid) ? 'checked' : ''} />
+        <span style="font-weight:900;">${name}</span>
+      </label>`;
+      row.querySelector('input')?.addEventListener('change', async (e) => {
+        const on = Boolean(e.target.checked);
+        const cur = new Set(songPickState.selectedAvailableVocalUserIds || []);
+        if (on) cur.add(uid);
+        else cur.delete(uid);
+        songPickState.selectedAvailableVocalUserIds = Array.from(cur);
+        await loadSongPickAvailableVocalSets(songPickState.selectedAvailableVocalUserIds);
+        renderSongPickAvailableVocalChips();
+        const qq = document.getElementById('songPickSearch')?.value || '';
+        renderSongPickList(pickCardMatchesAdvanced(qq));
+      });
+      wrap.appendChild(row);
+    });
+}
 
 // overlap slider (GAS style)
 function setSpreadOverlapPx(px) {

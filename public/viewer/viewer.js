@@ -1307,6 +1307,17 @@ const state = {
   brushColor: '#ff2d55',
   // 텍스트 기본 크기(요구사항: 기존 디폴트(22)보다 작게)
   textFontSize: 16,
+  // 주석 색상 퀵 팔레트 (T-01)
+  quickColors: (() => {
+    try {
+      const raw = localStorage.getItem('mb_viewer_quick_colors_v1') || '';
+      const arr = raw ? JSON.parse(raw) : null;
+      const ok = Array.isArray(arr) && arr.length === 4 && arr.every((x) => typeof x === 'string' && x.trim());
+      return ok ? arr.map((x) => String(x).trim()) : ['#ff2d55', '#ffd60a', '#0a84ff', '#111111'];
+    } catch {
+      return ['#ff2d55', '#ffd60a', '#0a84ff', '#111111'];
+    }
+  })(),
   // 텍스트 프리셋(주석 텍스트 빠른 입력)
   textPreset: String(localStorage.getItem('mb_text_preset') || '').trim() || 'section',
 
@@ -4942,6 +4953,24 @@ function syncBrushOptionUI() {
   if (sizeEl) sizeEl.value = String(state.brushSize || 3);
   if (colorEl) colorEl.value = String(state.brushColor || '#ff2d55');
   if (fontEl) fontEl.value = String(state.textFontSize || 16);
+  syncQuickColorPaletteUI();
+}
+
+function syncQuickColorPaletteUI() {
+  const wrap = document.getElementById('quickColorPalette');
+  if (!wrap) return;
+  // ensure palette colors match state (and persist)
+  try {
+    const btns = Array.from(wrap.querySelectorAll('button.qc'));
+    const colors = Array.isArray(state.quickColors) && state.quickColors.length === 4 ? state.quickColors : ['#ff2d55', '#ffd60a', '#0a84ff', '#111111'];
+    btns.forEach((btn, i) => {
+      const c = String(colors[i] || btn.dataset.color || '').trim();
+      btn.dataset.color = c;
+      btn.style.background = c || 'rgba(255,255,255,0.08)';
+      btn.classList.toggle('active', String(state.brushColor || '').toLowerCase() === c.toLowerCase());
+    });
+    localStorage.setItem('mb_viewer_quick_colors_v1', JSON.stringify(colors));
+  } catch {}
 }
 
 function setTool(tool, shape = null) {
@@ -5071,6 +5100,7 @@ document.getElementById('brushSize')?.addEventListener('input', (e) => {
 document.getElementById('colorPicker')?.addEventListener('input', (e) => {
   state.brushColor = String(e.target?.value || '#ff2d55');
   applyToolToAll();
+  syncQuickColorPaletteUI();
 });
 document.getElementById('fontSize')?.addEventListener('input', (e) => {
   state.textFontSize = clamp(Number(e.target?.value || 22), 12, 60);
@@ -5086,6 +5116,27 @@ document.getElementById('fontSize')?.addEventListener('input', (e) => {
 });
 syncBrushOptionUI();
 updateToolActiveUI();
+
+// Quick color palette wiring (T-01)
+try {
+  const wrap = document.getElementById('quickColorPalette');
+  if (wrap) {
+    const btns = Array.from(wrap.querySelectorAll('button.qc'));
+    btns.forEach((btn, i) => {
+      btn.addEventListener('click', () => {
+        const colors = Array.isArray(state.quickColors) && state.quickColors.length === 4 ? state.quickColors : ['#ff2d55', '#ffd60a', '#0a84ff', '#111111'];
+        const c = String(btn.dataset.color || colors[i] || '').trim();
+        if (!c) return;
+        state.brushColor = c;
+        const picker = document.getElementById('colorPicker');
+        if (picker) picker.value = c;
+        applyToolToAll();
+        syncQuickColorPaletteUI();
+      });
+    });
+    syncQuickColorPaletteUI();
+  }
+} catch {}
 
 function undoForActivePage() {
   const pageNo = state.activeDrawPageNo || state.pageNo;

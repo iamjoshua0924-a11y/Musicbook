@@ -844,6 +844,27 @@ body.light .textPresetPalette{ background: rgba(255,255,255,0.92); }
   border-color: rgba(255, 45, 85, 0.55);
   background: rgba(255, 45, 85, 0.16);
 }
+
+/* Quick color palette */
+.quickColorPalette{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  margin-right:6px;
+}
+.quickColorPalette .qc{
+  width:18px;
+  height:18px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,0.25);
+  background: rgba(255,255,255,0.08);
+  padding:0;
+}
+.quickColorPalette .qc.active{
+  border-width:2px;
+  border-color: rgba(255,255,255,0.9);
+  box-shadow: 0 0 0 2px rgba(0,0,0,0.35) inset;
+}
 .songPickChip{
   display:inline-flex;
   align-items:center;

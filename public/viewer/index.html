@@ -6,7 +6,7 @@
     <title>Score Viewer</title>
     <!-- cache-bust for mobile browsers -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/naver/d2codingfont@master/D2Coding.css" />
-    <link rel="stylesheet" href="viewer.css?v=20260529_12" />
+    <link rel="stylesheet" href="viewer.css?v=20260529_13" />
   </head>
   <body>
     <div id="viewer-wrapper">
@@ -185,6 +185,12 @@
             <span class="kv">굵기</span>
             <input id="brushSize" type="range" min="1" max="20" value="3" />
             <span class="kv">색</span>
+            <div id="quickColorPalette" class="quickColorPalette" aria-label="색상 퀵 팔레트">
+              <button type="button" class="qc" data-color="#ff2d55" aria-label="빨강"></button>
+              <button type="button" class="qc" data-color="#ffd60a" aria-label="노랑"></button>
+              <button type="button" class="qc" data-color="#0a84ff" aria-label="파랑"></button>
+              <button type="button" class="qc" data-color="#111111" aria-label="검정"></button>
+            </div>
             <input id="colorPicker" type="color" value="#ff2d55" />
           </div>
 
@@ -419,6 +425,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
     <script src="../config.js"></script>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
-    <script src="viewer.js?v=20260529_13"></script>
+    <script src="viewer.js?v=20260529_14"></script>
   </body>
 </html>

@@ -1117,7 +1117,13 @@ function updateReactionUI() {
 
 function showReaction({ pageNo, xPageNorm, yPageNorm, emoji }) {
   const pn = Number(pageNo || 1);
-  const root = els.canvasStack?.querySelector?.(`.page-view[data-page-no="${pn}"]`);
+  // chord 모드에서는 page-view가 #cwAnnoHost 아래로 이동한다.
+  const root =
+    (state.mode === 'chord'
+      ? document.getElementById('cwAnnoHost')
+      : els.canvasStack
+    )?.querySelector?.(`.page-view[data-page-no="${pn}"]`) ||
+    document.querySelector?.(`.page-view[data-page-no="${pn}"]`);
   if (!root) return;
   const el = document.createElement('div');
   el.className = 'reactionEmoji';
@@ -2401,7 +2407,8 @@ function setMode(mode) {
   }
 
   const cwHost = document.getElementById('cwAnnoHost');
-  if (cwHost) cwHost.style.pointerEvents = state.mode === 'chord' && state.tool === 'select' && !state.cursorShareOn ? 'none' : 'auto';
+  // chord 모드 주석/선택/이모지 모두 입력을 받아야 하므로 항상 활성화
+  if (cwHost) cwHost.style.pointerEvents = state.mode === 'chord' ? 'auto' : 'none';
   updateToolActiveUI();
 }
 
@@ -5325,9 +5332,9 @@ function setTool(tool, shape = null) {
   try {
     if (tool !== 'text') setTextPresetPaletteOpen(false);
   } catch {}
-  // chord mode: select일 때는 스크롤/드래그가 우선이므로 캔버스 입력을 막는다.
+  // chord mode: 주석(선택 포함) + 이모지 입력을 위해 캔버스 입력을 항상 허용
   const cwHost = document.getElementById('cwAnnoHost');
-  if (cwHost) cwHost.style.pointerEvents = state.mode === 'chord' && tool === 'select' && !state.cursorShareOn ? 'none' : 'auto';
+  if (cwHost) cwHost.style.pointerEvents = state.mode === 'chord' ? 'auto' : 'none';
   applyToolToAll();
   updateToolActiveUI();
 }

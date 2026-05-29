@@ -479,7 +479,8 @@ button.danger{ background:rgba(255,107,107,0.14); border-color:rgba(255,107,107,
 #cwAnnoHost{
   position:absolute;
   inset:0;
-  pointer-events:none;
+  /* chord mode에서 주석/선택/이모지 클릭이 가능해야 함 */
+  pointer-events:auto;
 }
 .chord-sheet{
   font-family:

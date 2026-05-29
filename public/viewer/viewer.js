@@ -213,7 +213,12 @@ function openJoinModal({ nickname = '', roomCode = '' } = {}) {
 }
 
 async function ensureNickname() {
-  // 정책: 세션 참여/생성 시에는 항상 사용자가 닉네임을 직접 입력해야 한다.
+  // 로그인된 사용자는 닉네임 입력을 요구하지 않는다.
+  if (String(authState?.role || '') !== 'viewer') {
+    const dn = String(authState?.displayName || '').trim();
+    if (dn) return dn;
+  }
+  // 게스트(뷰어)만 직접 입력 필수
   const input = await openInputModalRequired({ title: '닉네임 입력', placeholder: '닉네임(필수)', value: '' });
   const nick = String(input || '').trim();
   localStorage.setItem('mb_presence_nick', nick);
@@ -640,10 +645,9 @@ function updateReadyBtnUI() {
   const btn = document.getElementById('readyBtn');
   if (!btn) return;
   btn.classList.toggle('hidden', !state.isInSession);
-  btn.classList.toggle('disabled', state.isInSession && !state.rehearsalActive);
-  btn.classList.toggle('ready-on', Boolean(state.rehearsalReady) && state.rehearsalActive);
-  if (!state.rehearsalActive) btn.textContent = '준비(대기)';
-  else btn.textContent = state.rehearsalReady ? '준비됨' : '준비';
+  btn.classList.toggle('disabled', false);
+  btn.classList.toggle('ready-on', Boolean(state.rehearsalReady));
+  btn.textContent = state.rehearsalReady ? '준비됨' : '준비';
 }
 
 function updateRehearsalToggleUI() {
@@ -652,6 +656,10 @@ function updateRehearsalToggleUI() {
   btn.classList.toggle('hidden', !(state.isInSession && state.isPageTurner));
   btn.classList.toggle('rehearsal-on', Boolean(state.rehearsalActive));
   btn.textContent = state.rehearsalActive ? '합주종료' : '합주시작';
+  // Flow: 모두 준비 -> 합주시작. 시작 전에는 "모두 준비"일 때만 활성화.
+  const canStart = Number(state._rehEligibleCount || 0) > 0 && Number(state._rehReadyCount || 0) >= Number(state._rehEligibleCount || 0);
+  btn.disabled = !state.rehearsalActive && !canStart;
+  btn.classList.toggle('disabled', btn.disabled);
 }
 
 // ---- Participant (⋯) menu ---------------------------------------------------------
@@ -1265,6 +1273,8 @@ const state = {
   rehearsalActive: false,
   rehearsalReady: false,
   _rehPrevReadyMap: {}, // memberId -> boolean (turner feedback)
+  _rehEligibleCount: 0,
+  _rehReadyCount: 0,
   _lastParticipants: [], // latest rendered participants (for delegated actions)
 
   // BPM/metronome (local only)
@@ -2889,19 +2899,22 @@ document.getElementById('rehearsalToggleBtn')?.addEventListener('click', () => {
   if (!state.isPageTurner) return;
   const next = !state.rehearsalActive;
   socket.emit('session:rehearsal:active:set', { roomCode: state.roomCode, active: next }, (ack) => {
-    if (!ack?.ok) return flashHud('합주 상태 변경 실패', 1200);
+    if (!ack?.ok) {
+      if (ack?.error === 'NO_ELIGIBLE') return flashHud('합주멤버를 먼저 등록해 주세요', 1400);
+      if (ack?.error === 'NO_ELIGIBLE_CONNECTED') return flashHud('접속 중인 합주멤버가 없습니다', 1400);
+      if (ack?.error === 'NOT_ALL_READY') return flashHud('모두 준비 완료 후 합주시작을 누르세요', 1500);
+      return flashHud('합주 상태 변경 실패', 1200);
+    }
     // server is source of truth; but optimistic feedback is OK
     state.rehearsalActive = Boolean(ack.rehearsalActive);
-    state.rehearsalReady = false;
     updateRehearsalToggleUI();
     updateReadyBtnUI();
-    flashHud(state.rehearsalActive ? '합주 시작됨 (준비 체크 시작)' : '합주 종료됨 (준비 초기화)', 1200);
+    flashHud(state.rehearsalActive ? '합주 시작됨' : '합주 종료됨 (준비 초기화)', 1200);
   });
 });
 
 document.getElementById('readyBtn')?.addEventListener('click', () => {
   if (!state.isInSession || !state.roomCode) return;
-  if (!state.rehearsalActive) return flashHud('턴너가 합주시작을 눌러야 준비 체크가 됩니다', 1400);
   const next = !state.rehearsalReady;
   socket.emit('session:rehearsal:ready:set', { roomCode: state.roomCode, ready: next }, (ack) => {
     if (!ack?.ok) {
@@ -2909,7 +2922,6 @@ document.getElementById('readyBtn')?.addEventListener('click', () => {
       state.rehearsalReady = !next;
       updateReadyBtnUI();
       if (ack?.error === 'NOT_ELIGIBLE') return flashHud('합주멤버로 등록된 사람만 준비를 누를 수 있습니다', 1400);
-      if (ack?.error === 'REHEARSAL_NOT_ACTIVE') return flashHud('턴너가 합주시작을 눌러야 합니다', 1400);
       flashHud('준비 상태 변경 실패', 1200);
     }
   });
@@ -3065,6 +3077,17 @@ document.getElementById('sessionFloatBtn')?.addEventListener('click', async () =
   const urlRoom = safeRoomCode(qs('room'));
   // 모바일에서는 닉+룸 동시 입력 지원
   if (isMobileLike()) {
+    // 로그인 사용자는 닉네임 입력 없이 본인 닉으로 들어가야 한다.
+    if (String(authState?.role || '') !== 'viewer') {
+      const roomInput = urlRoom || (await openInputModalRequired({ title: '세션 참여', placeholder: 'Room Code(필수)', value: '', minLen: 1 }));
+      const room = safeRoomCode(roomInput);
+      if (!room) return;
+      const nick = String(authState.displayName || '').trim() || 'member';
+      state.nickname = nick;
+      socket.auth = { ...(socket.auth || {}), nickname: nick };
+      return joinSession(room);
+    }
+
     const v = await openJoinModal({ nickname: '', roomCode: urlRoom || '' });
     if (!v) return;
     const nick = String(v.nick || '').trim();
@@ -5046,6 +5069,8 @@ socket.on('session:participants', (p) => {
     const eligibleIds = Object.keys(eligible);
     const eligibleCount = eligibleIds.length;
     const readyCount = eligibleIds.filter((id) => eligible[id].ready).length;
+    state._rehEligibleCount = eligibleCount;
+    state._rehReadyCount = readyCount;
 
     const badge = document.getElementById('rehearsalBadge');
     if (badge) {
@@ -5053,6 +5078,7 @@ socket.on('session:participants', (p) => {
       badge.classList.toggle('hidden', !show);
       if (show) badge.textContent = `준비 ${readyCount}/${eligibleCount}`;
     }
+    updateRehearsalToggleUI();
 
     if (state.isPageTurner && eligibleCount > 0) {
       const prev = state._rehPrevReadyMap || {};
@@ -5082,13 +5108,9 @@ socket.on('session:participants', (p) => {
     const labelName = name === '익명' ? `익명(${(anonNo += 1)})` : name;
     const initial = String(labelName || '').trim().slice(0, 1) || '?';
     const photo = normalizeProfilePhotoUrl(m.profilePhoto || '', 80);
-    if (!state.rehearsalActive) {
-      row.classList.add('reh-gray');
-    } else {
-      const isEligible = Boolean(m.isRehearsalEligible);
-      const isReady = Boolean(m.isRehearsalReady);
-      row.classList.add(isEligible ? (isReady ? 'reh-green' : 'reh-red') : 'reh-gray');
-    }
+    const isEligible = Boolean(m.isRehearsalEligible);
+    const isReady = Boolean(m.isRehearsalReady);
+    row.classList.add(isEligible ? (isReady ? 'reh-green' : 'reh-red') : 'reh-gray');
     row.innerHTML = `
       <span class="participant-left">
         ${

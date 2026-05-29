@@ -230,9 +230,26 @@ function attachSockets(io) {
       const room = store.rooms.get(roomCode);
       if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
       if (room.pageTurnerSocketId !== socket.id) return ack?.({ ok: false, error: 'FORBIDDEN' });
+      // Flow: 모두 준비 -> 합주시작 -> 합주종료
+      // - 합주시작 시점에는 준비 상태를 유지한다(준비 완료 후 시작이므로).
+      // - 합주종료 시점에만 준비를 초기화한다.
+      if (active) {
+        const eligibleSet = room.rehearsalEligibleMemberIds || new Set();
+        if (!eligibleSet.size) return ack?.({ ok: false, error: 'NO_ELIGIBLE' });
+        const connectedMemberIds = new Set(
+          Array.from(room.members.values())
+            .map((m) => String(m?.memberId || '').trim())
+            .filter(Boolean)
+        );
+        const eligibleConnected = Array.from(eligibleSet).filter((id) => connectedMemberIds.has(id));
+        if (!eligibleConnected.length) return ack?.({ ok: false, error: 'NO_ELIGIBLE_CONNECTED' });
+        const readySet = room.rehearsalReadyMemberIds || new Set();
+        const allReady = eligibleConnected.every((id) => readySet.has(id));
+        if (!allReady) return ack?.({ ok: false, error: 'NOT_ALL_READY' });
+      } else {
+        room.rehearsalReadyMemberIds?.clear?.();
+      }
       room.rehearsalActive = active;
-      // 합주시작/종료 시점에 준비는 항상 초기화
-      room.rehearsalReadyMemberIds?.clear?.();
       io.to(toSessionRoomName(roomCode)).emit('session:participants', buildParticipantsPayload(room));
       io.to(toSessionRoomName(roomCode)).emit('session:state', {
         roomCode,
@@ -269,7 +286,6 @@ function attachSockets(io) {
       const room = store.rooms.get(roomCode);
       if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
       if (!room.members.has(socket.id)) return ack?.({ ok: false, error: 'NOT_IN_ROOM' });
-      if (!room.rehearsalActive) return ack?.({ ok: false, error: 'REHEARSAL_NOT_ACTIVE' });
       const memberId = String(room.members.get(socket.id)?.memberId || '').trim();
       if (!memberId) return ack?.({ ok: false, error: 'MEMBER_ID_REQUIRED' });
       // only eligible members can set ready=true

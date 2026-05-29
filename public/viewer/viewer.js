@@ -667,91 +667,96 @@ function closeParticipantMenu() {
 }
 function openParticipantMenu(anchorEl, m) {
   closeParticipantMenu();
-  if (!anchorEl || !m || !state.isInSession || !state.roomCode) return;
+  try {
+    if (!anchorEl || !m || !state.isInSession || !state.roomCode) return;
 
-  const items = [];
-  const canManage = Boolean(state.isPageTurner);
-  const isSelf = String(m.socketId) === String(socket.id);
-  const isTurner = Boolean(m.isPageTurner);
+    const items = [];
+    const canManage = Boolean(state.isPageTurner);
+    const isSelf = String(m.socketId) === String(socket.id);
+    const isTurner = Boolean(m.isPageTurner);
 
-  if (canManage && !isSelf && !isTurner) {
-    items.push({
-      label: '권한양도',
-      onClick: () => socket.emit('session:pageTurner:transfer', { roomCode: state.roomCode, targetSocketId: m.socketId })
-    });
-  }
-  if (canManage && !isSelf) {
-    items.push({
-      label: m.isToolAuthorized ? '도구승인 해제' : '도구승인',
-      onClick: () =>
-        socket.emit('session:tool:grant', { roomCode: state.roomCode, targetSocketId: m.socketId, allow: !m.isToolAuthorized })
-    });
-    items.push({
-      label: m.isRehearsalEligible ? '합주멤버 해제' : '합주멤버 등록',
-      onClick: () =>
-        socket.emit(
-          'session:rehearsal:eligible:set',
-          { roomCode: state.roomCode, targetSocketId: m.socketId, eligible: !m.isRehearsalEligible },
-          (ack) => {
-            if (!ack?.ok) flashHud('합주멤버 설정 실패', 1200);
-          }
-        )
-    });
-  }
-  if (canManage && !isSelf) {
-    items.push({
-      label: '추방하기',
-      danger: true,
-      onClick: () => {
-        if (!confirm(`${String(m.displayName || m.nickname || '익명')} 님을 추방할까요?`)) return;
-        socket.emit('session:member:kick', { roomCode: state.roomCode, targetSocketId: m.socketId }, (ack) => {
-          if (!ack?.ok) flashHud('추방 실패', 1200);
-        });
-      }
-    });
-  }
+    if (canManage && !isSelf && !isTurner) {
+      items.push({
+        label: '권한양도',
+        onClick: () => socket.emit('session:pageTurner:transfer', { roomCode: state.roomCode, targetSocketId: m.socketId })
+      });
+    }
+    if (canManage && !isSelf) {
+      items.push({
+        label: m.isToolAuthorized ? '도구승인 해제' : '도구승인',
+        onClick: () =>
+          socket.emit('session:tool:grant', { roomCode: state.roomCode, targetSocketId: m.socketId, allow: !m.isToolAuthorized })
+      });
+      items.push({
+        label: m.isRehearsalEligible ? '합주멤버 해제' : '합주멤버 등록',
+        onClick: () =>
+          socket.emit(
+            'session:rehearsal:eligible:set',
+            { roomCode: state.roomCode, targetSocketId: m.socketId, eligible: !m.isRehearsalEligible },
+            (ack) => {
+              if (!ack?.ok) flashHud('합주멤버 설정 실패', 1200);
+            }
+          )
+      });
+    }
+    if (canManage && !isSelf) {
+      items.push({
+        label: '추방하기',
+        danger: true,
+        onClick: () => {
+          if (!confirm(`${String(m.displayName || m.nickname || '익명')} 님을 추방할까요?`)) return;
+          socket.emit('session:member:kick', { roomCode: state.roomCode, targetSocketId: m.socketId }, (ack) => {
+            if (!ack?.ok) flashHud('추방 실패', 1200);
+          });
+        }
+      });
+    }
 
-  if (!items.length) return;
-  const menu = document.createElement('div');
-  menu.className = 'participantMenu';
-  menu.innerHTML = items
-    .map(
-      (it, i) =>
-        `<button type="button" data-idx="${i}" class="${it.danger ? 'danger' : ''}">${escHtml(String(it.label))}</button>`
-    )
-    .join('');
-  document.body.appendChild(menu);
-  _participantMenuEl = menu;
+    if (!items.length) return flashHud('권한이 없습니다', 900);
+    const menu = document.createElement('div');
+    menu.className = 'participantMenu';
+    menu.innerHTML = items
+      .map(
+        (it, i) =>
+          `<button type="button" data-idx="${i}" class="${it.danger ? 'danger' : ''}">${escHtml(String(it.label))}</button>`
+      )
+      .join('');
+    document.body.appendChild(menu);
+    _participantMenuEl = menu;
 
-  const r = anchorEl.getBoundingClientRect();
-  const mw = menu.offsetWidth;
-  const mh = menu.offsetHeight;
-  const left = clamp(r.left - mw + r.width, 8, window.innerWidth - mw - 8);
-  const top = clamp(r.bottom + 6, 52, window.innerHeight - mh - 8);
-  menu.style.left = `${left}px`;
-  menu.style.top = `${top}px`;
+    const r = anchorEl.getBoundingClientRect();
+    const mw = menu.offsetWidth;
+    const mh = menu.offsetHeight;
+    const left = clamp(r.left - mw + r.width, 8, window.innerWidth - mw - 8);
+    const top = clamp(r.bottom + 6, 52, window.innerHeight - mh - 8);
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
 
-  const onDocClick = (e) => {
-    if (menu.contains(e.target) || anchorEl.contains(e.target)) return;
+    const onDocClick = (e) => {
+      if (menu.contains(e.target) || anchorEl.contains(e.target)) return;
+      closeParticipantMenu();
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') closeParticipantMenu();
+    };
+    const onMenuClick = (e) => {
+      const idx = Number(e.target?.dataset?.idx);
+      if (!Number.isFinite(idx)) return;
+      closeParticipantMenu();
+      items[idx]?.onClick?.();
+    };
+    menu.addEventListener('click', onMenuClick);
+    document.addEventListener('click', onDocClick, true);
+    window.addEventListener('keydown', onKey, true);
+    _participantMenuCleanup = () => {
+      menu.removeEventListener('click', onMenuClick);
+      document.removeEventListener('click', onDocClick, true);
+      window.removeEventListener('keydown', onKey, true);
+    };
+  } catch (e) {
     closeParticipantMenu();
-  };
-  const onKey = (e) => {
-    if (e.key === 'Escape') closeParticipantMenu();
-  };
-  const onMenuClick = (e) => {
-    const idx = Number(e.target?.dataset?.idx);
-    if (!Number.isFinite(idx)) return;
-    closeParticipantMenu();
-    items[idx]?.onClick?.();
-  };
-  menu.addEventListener('click', onMenuClick);
-  document.addEventListener('click', onDocClick, true);
-  window.addEventListener('keydown', onKey, true);
-  _participantMenuCleanup = () => {
-    menu.removeEventListener('click', onMenuClick);
-    document.removeEventListener('click', onDocClick, true);
-    window.removeEventListener('keydown', onKey, true);
-  };
+    flashHud(`메뉴 열기 실패`, 1100);
+  }
 }
 
 // ---- Top notice (save banner etc.) ------------------------------------------------
@@ -1259,6 +1264,7 @@ const state = {
   rehearsalActive: false,
   rehearsalReady: false,
   _rehPrevReadyMap: {}, // memberId -> boolean (turner feedback)
+  _lastParticipants: [], // latest rendered participants (for delegated actions)
 
   // BPM/metronome (local only)
   bpm: clamp(Number(localStorage.getItem('mb_viewer_bpm') || '120'), 40, 240),
@@ -2823,6 +2829,21 @@ document.getElementById('mobileOffBtn')?.addEventListener('click', () => {
 document.getElementById('participantsToggleBtn')?.addEventListener('click', () => setParticipantsOpen(false));
 document.getElementById('participantsBtn')?.addEventListener('click', () => toggleParticipantsPanel());
 document.getElementById('touchMenuBtn')?.addEventListener('click', () => toggleParticipantsPanel());
+// delegated participant menu handler (mobile click reliability)
+document.getElementById('participantsList')?.addEventListener('click', (e) => {
+  const btn = e?.target?.closest?.('button[data-action="pmenu"]');
+  if (!btn) return;
+  e?.preventDefault?.();
+  e?.stopPropagation?.();
+  try {
+    const sid = String(btn.dataset.socketId || '').trim();
+    const m = (state._lastParticipants || []).find((x) => String(x?.socketId || '') === sid);
+    if (!m) return flashHud('대상을 찾지 못했습니다', 900);
+    openParticipantMenu(btn, m);
+  } catch (err) {
+    flashHud('메뉴 열기 실패', 1000);
+  }
+});
 
 // Session menu modal (single entry point)
 function setSessionMenuOpen(open) {
@@ -5046,6 +5067,9 @@ socket.on('session:participants', (p) => {
     }
   } catch {}
 
+  // for delegated participant actions
+  state._lastParticipants = values;
+
   let anonNo = 0;
   values.forEach((m) => {
     const row = document.createElement('div');
@@ -5098,6 +5122,8 @@ socket.on('session:participants', (p) => {
     if (state.isPageTurner && !m.isPageTurner && String(m.socketId) !== String(socket.id)) {
       const menuBtn = document.createElement('button');
       menuBtn.type = 'button';
+      menuBtn.dataset.action = 'pmenu';
+      menuBtn.dataset.socketId = String(m.socketId || '');
       menuBtn.textContent = '⋯';
       menuBtn.title = '옵션';
       menuBtn.addEventListener('click', (e) => {

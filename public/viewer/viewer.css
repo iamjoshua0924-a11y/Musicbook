@@ -68,6 +68,30 @@ body.light{
   box-shadow: 0 0 18px rgba(122,162,255,0.55);
 }
 
+/* rehearsal start/end FX (page-wide) */
+.rehearsalFx{
+  position: fixed;
+  inset: 0;
+  z-index: 6450;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(circle at 50% 40%, rgba(255,255,255,0.10), rgba(255,255,255,0.0) 48%),
+    conic-gradient(from 90deg, rgba(122,162,255,0.0), rgba(191,90,242,0.18), rgba(54,220,120,0.18), rgba(255,45,85,0.18), rgba(122,162,255,0.0));
+  mix-blend-mode: screen;
+  filter: blur(0px);
+}
+body.light .rehearsalFx{ mix-blend-mode: multiply; opacity: 0; }
+.rehearsalFx.on{
+  opacity: 1;
+  animation: rehearsalWave 900ms ease-out both;
+}
+@keyframes rehearsalWave{
+  0%{ opacity: 0; transform: scale(0.92) rotate(-8deg); filter: blur(6px); }
+  35%{ opacity: 0.95; transform: scale(1.00) rotate(0deg); filter: blur(1px); }
+  100%{ opacity: 0; transform: scale(1.06) rotate(6deg); filter: blur(8px); }
+}
+
 /* ready / rehearsal buttons (top emphasis) */
 #readyBtn{
   /* before click: green (call-to-action) */

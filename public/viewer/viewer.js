@@ -1096,6 +1096,10 @@ function updateReactionUI() {
       b.classList.toggle('armed', state.reactionArmed && String(b.dataset.emoji || '') === String(state.reactionEmoji || ''));
     });
   } catch {}
+  // 이모지 모드에서는 잉크가 그려지지 않도록 캔버스 상태 즉시 반영
+  try {
+    applyToolToAll();
+  } catch {}
 }
 
 function showReaction({ pageNo, xPageNorm, yPageNorm, emoji }) {
@@ -2124,9 +2128,11 @@ function renderSongPickList(cards) {
       const total = Number(songPickState._lastTotal || 0);
       const shown = Number(songPickState._lastShown || 0);
       const all = Array.isArray(songCardsCache) ? songCardsCache.length : 0;
-      hint.textContent = `검색/필터 결과 ${total}곡 (표시 ${shown}곡) · 전체 ${all}곡`;
+      if (songPickState._randomPreview) hint.textContent = `랜덤 후보 ${shown}개 · 조건 결과 ${total}곡 · 전체 ${all}곡`;
+      else hint.textContent = `검색/필터 결과 ${total}곡 (표시 ${shown}곡) · 전체 ${all}곡`;
     }
   } catch {}
+  const isRandomPreview = Boolean(songPickState._randomPreview);
   (cards || []).forEach((c) => {
     const el = document.createElement('div');
     el.className = 'songPickItem';
@@ -2152,7 +2158,9 @@ function renderSongPickList(cards) {
         const key = decodeURIComponent(btn.dataset.k || '');
         const v = (c.variants || []).find((x) => String(x.key || '') === String(key || '')) || (c.variants || [])[0];
         if (!v?.googleFileId) return;
+        if (isRandomPreview && !confirm('이 곡을 열까요?')) return;
         closeSongPickModal();
+        songPickState._randomPreview = false;
         openFileInRoom(v.googleFileId, v.driveUrl || '');
       };
     });
@@ -2161,7 +2169,9 @@ function renderSongPickList(cards) {
       if (keys.length !== 1) return;
       const v = (c.variants || [])[0];
       if (!v?.googleFileId) return;
+      if (isRandomPreview && !confirm('이 곡을 열까요?')) return;
       closeSongPickModal();
+      songPickState._randomPreview = false;
       openFileInRoom(v.googleFileId, v.driveUrl || '');
     };
     wrap.appendChild(el);
@@ -2346,6 +2356,8 @@ function setMode(mode) {
   state.mode = mode;
   document.getElementById('pdfModeBtn')?.classList.toggle('active', mode === 'pdf');
   document.getElementById('chordModeBtn')?.classList.toggle('active', mode === 'chord');
+  // 요구: '코드뷰' 관련 UI는 코드모드에서만 보이게
+  document.getElementById('chordModeBtn')?.classList.toggle('hidden', mode !== 'chord');
 
   setHidden('pdf-container', mode !== 'pdf');
   setHidden('chordwikiPane', mode !== 'chord');
@@ -3448,6 +3460,10 @@ document.getElementById('rehearsalToggleBtn')?.addEventListener('click', () => {
       if (state.rehearsalActive) setTimeout(() => pulseBpmBar(), 220);
     } catch {}
     try {
+      // 더 강한 페이지 전체 이펙트
+      triggerRehearsalFx();
+    } catch {}
+    try {
       if (navigator?.vibrate) navigator.vibrate(state.rehearsalActive ? [30, 40, 30] : [40]);
     } catch {}
   });
@@ -3495,13 +3511,15 @@ document.getElementById('songPickRandomBtn')?.addEventListener('click', () => {
       flashHud('랜덤 뽑을 곡이 없음(필터/검색 확인)', 1100);
       return;
     }
-    const picked = list[Math.floor(Math.random() * list.length)];
-    const vars = Array.isArray(picked?.variants) ? picked.variants : [];
-    const v = vars.length ? vars[Math.floor(Math.random() * vars.length)] : null;
-    if (!v?.googleFileId) return;
-    closeSongPickModal();
-    flashHud(`랜덤: ${String(picked.title || '')}`, 900);
-    openFileInRoom(v.googleFileId, v.driveUrl || '');
+    // 요구: 바로 열지 말고 후보 3개를 보여주고 선택하게 한다.
+    const shuffled = list.slice().sort(() => Math.random() - 0.5);
+    const candidates = shuffled.slice(0, 3);
+    songPickState._randomPreview = true;
+    songPickState._lastTotal = list.length;
+    songPickState._lastShown = candidates.length;
+    songPickState._lastCap = 3;
+    renderSongPickList(candidates);
+    flashHud('랜덤 후보 3개 선택하세요', 1000);
   } catch {}
 });
 document.getElementById('songPickModal')?.addEventListener('click', (e) => {
@@ -3515,6 +3533,7 @@ document.getElementById('songPickSearch')?.addEventListener(
       songPickState.pendingQuery = String(q || '');
       return;
     }
+    songPickState._randomPreview = false;
     renderSongPickList(pickCardMatchesAdvanced(q));
   }, 120)
 );
@@ -3527,6 +3546,7 @@ document.getElementById('songPickSearch')?.addEventListener('keydown', (e) => {
 ['songPickGenreFilter', 'songPickMoodFilter', 'songPickVocalFilter'].forEach((id) => {
   document.getElementById(id)?.addEventListener('change', () => {
     const q = document.getElementById('songPickSearch')?.value || '';
+    songPickState._randomPreview = false;
     renderSongPickList(pickCardMatchesAdvanced(q));
   });
 });
@@ -3646,6 +3666,21 @@ function pulseBpmBar() {
   el.classList.remove('hidden');
   el.classList.add('on');
   setTimeout(() => el.classList.remove('on'), 70);
+}
+
+function triggerRehearsalFx() {
+  const el = document.getElementById('rehearsalFx');
+  if (!el) return;
+  el.classList.remove('hidden');
+  // restart animation
+  el.classList.remove('on');
+  // force reflow
+  void el.offsetWidth;
+  el.classList.add('on');
+  setTimeout(() => {
+    el.classList.remove('on');
+    el.classList.add('hidden');
+  }, 950);
 }
 function playMetronomeClick() {
   try {
@@ -4709,6 +4744,17 @@ function applyToolToCanvas(fab) {
       obj.evented = on;
     });
   };
+
+  // 이모지 모드에서는 잉크/도형이 그려지지 않도록 강제 비활성화
+  if (state.reactionArmed) {
+    try {
+      fab.isDrawingMode = false;
+      makeSelectable(false);
+      fab.discardActiveObject?.();
+      fab.requestRenderAll?.();
+    } catch {}
+    return;
+  }
 
   if (state.locked) {
     fab.isDrawingMode = false;
@@ -5892,6 +5938,8 @@ socket.on('session:participants', (p) => {
     setFaviconBadge(mergedMap.size || 0);
   } catch {}
 
+  // merged list
+  const values = Array.from(mergedMap.values());
 
   // Turner feedback: ready count + 변화 알림
   try {

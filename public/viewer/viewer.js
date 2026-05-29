@@ -514,6 +514,10 @@ function setParticipantsOpen(open) {
 function toggleParticipantsPanel() {
   const panel = document.getElementById('participantsPanel');
   if (!panel) return;
+  // '전원 합주멤버' 등 벌크 컨트롤은 턴너에게만 노출
+  try {
+    setHidden('participantsBulkRow', !(state.isInSession && state.isPageTurner));
+  } catch {}
   setParticipantsOpen(panel.classList.contains('hidden'));
 }
 

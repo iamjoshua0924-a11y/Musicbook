@@ -33,9 +33,9 @@
             <!-- legacy buttons (kept for compatibility; hidden via CSS) -->
             <button id="createSessionFloatBtn" class="hidden" title="세션 만들기">세션만들기</button>
             <button id="sessionFloatBtn" class="hidden" title="세션 참여/나가기">세션참여</button>
-            <button id="participantsBtn" type="button" class="mini hidden">접속자</button>
+            <button id="participantsBtn" type="button" class="mini">접속자</button>
             <!-- new session menu + ready -->
-            <button id="sessionMenuBtn" type="button" class="mini" title="세션 옵션">세션⋯</button>
+            <button id="sessionMenuBtn" type="button" class="mini" title="세션 옵션">세션 옵션</button>
             <button id="readyBtn" type="button" class="mini hidden" title="합주 준비">준비</button>
             <span class="vsep" aria-hidden="true"></span>
             <button id="fullscreenBtn" type="button">전체화면</button>
@@ -44,6 +44,7 @@
           </div>
           <span id="sessionBadge" class="badge hidden"></span>
           <span id="turnerBadge" class="badge hidden"></span>
+          <span id="rehearsalBadge" class="badge hidden"></span>
           <span id="netBadge" class="badge hidden" title="PDF 로드 경로"></span>
         </div>
       </header>
@@ -349,9 +350,8 @@
     <!-- 세션 옵션 -->
     <div class="modalOverlay hidden" id="sessionMenuModal">
       <div class="modalBox">
-        <div class="modalTitle">세션</div>
+        <div class="modalTitle">세션 옵션</div>
         <div class="modalActions" style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
-          <button id="sessionMenuParticipantsBtn" type="button">접속자</button>
           <button id="sessionMenuCreateBtn" type="button">세션 만들기</button>
           <button id="sessionMenuJoinBtn" type="button" class="primary">참여/나가기</button>
           <button id="sessionMenuCloseBtn" type="button">닫기</button>

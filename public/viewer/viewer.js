@@ -213,9 +213,10 @@ function openJoinModal({ nickname = '', roomCode = '' } = {}) {
 async function ensureNickname() {
   // 사용자가 한번이라도 저장한 닉네임이면 그대로 사용
   const saved = localStorage.getItem('mb_presence_nick') || localStorage.getItem('mb_nickname');
-  if (saved) return saved;
-  const input = await openInputModal({ title: '닉네임 설정', placeholder: '닉네임을 입력하세요(익명 가능)', value: '익명' });
-  const nick = String(input || '').trim() || '익명';
+  // NOTE: 과거 버전에서 자동으로 '익명'을 저장해둔 케이스는 "설정한 닉네임"으로 보지 않는다.
+  if (saved && !/^익명(\(\d+\))?$/.test(String(saved).trim())) return saved;
+  const input = await openInputModalRequired({ title: '닉네임 입력', placeholder: '세션에서 표시할 닉네임을 입력하세요', value: saved || '' });
+  const nick = String(input || '').trim();
   localStorage.setItem('mb_presence_nick', nick);
   // legacy 키도 같이 저장(호환)
   localStorage.setItem('mb_nickname', nick);
@@ -1257,6 +1258,7 @@ const state = {
   // rehearsal
   rehearsalActive: false,
   rehearsalReady: false,
+  _rehPrevReadyMap: {}, // memberId -> boolean (turner feedback)
 
   // BPM/metronome (local only)
   bpm: clamp(Number(localStorage.getItem('mb_viewer_bpm') || '120'), 40, 240),
@@ -1474,6 +1476,7 @@ function leaveSession() {
   document.getElementById('sessionFloatBtn').textContent = '세션참여';
   setHidden('sessionBadge', true);
   setHidden('turnerBadge', true);
+  setHidden('rehearsalBadge', true);
   setHidden('touchRoomBadge', true);
   setHidden('touchTurnerBadge', true);
   setHidden('participantsPanel', true);
@@ -2827,8 +2830,16 @@ function setSessionMenuOpen(open) {
 }
 function syncSessionMenuJoinLabel() {
   const btn = document.getElementById('sessionMenuJoinBtn');
+  const createBtn = document.getElementById('sessionMenuCreateBtn');
   if (!btn) return;
-  btn.textContent = state.isInSession ? '나가기' : '참여';
+  if (state.isInSession) {
+    btn.textContent = '세션 나가기';
+    btn.classList.add('primary');
+    if (createBtn) createBtn.style.display = 'none';
+  } else {
+    btn.textContent = '세션 참여';
+    if (createBtn) createBtn.style.display = '';
+  }
 }
 document.getElementById('sessionMenuBtn')?.addEventListener('click', () => {
   syncSessionMenuJoinLabel();
@@ -2837,10 +2848,6 @@ document.getElementById('sessionMenuBtn')?.addEventListener('click', () => {
 document.getElementById('sessionMenuCloseBtn')?.addEventListener('click', () => setSessionMenuOpen(false));
 document.getElementById('sessionMenuModal')?.addEventListener('click', (e) => {
   if (e.target?.id === 'sessionMenuModal') setSessionMenuOpen(false);
-});
-document.getElementById('sessionMenuParticipantsBtn')?.addEventListener('click', () => {
-  setSessionMenuOpen(false);
-  setHidden('participantsPanel', false);
 });
 document.getElementById('sessionMenuCreateBtn')?.addEventListener('click', () => {
   setSessionMenuOpen(false);
@@ -4950,6 +4957,8 @@ socket.on('session:participants', (p) => {
   try {
     const me = (p?.members || []).find((m) => m.socketId === socket.id);
     if (me) {
+      // participants payload 기준으로 TURNER 여부도 확정(이벤트 누락/레이스 대비)
+      state.isPageTurner = Boolean(me.isPageTurner);
       state.isToolAuthorized = Boolean(me.isToolAuthorized) || state.isPageTurner;
       state.rehearsalReady = Boolean(me.isRehearsalReady);
       updateReadyBtnUI();
@@ -4996,6 +5005,47 @@ socket.on('session:participants', (p) => {
   });
 
   const values = Array.from(mergedMap.values());
+
+  // Turner feedback: ready count + 변화 알림
+  try {
+    const eligible = {};
+    (p?.members || []).forEach((m) => {
+      const id = String(m?.memberId || '').trim();
+      if (!id) return;
+      if (!m.isRehearsalEligible) return;
+      eligible[id] = {
+        ready: Boolean(m.isRehearsalReady),
+        name: String(m?.displayName || m?.nickname || '익명').trim() || '익명'
+      };
+    });
+    const eligibleIds = Object.keys(eligible);
+    const eligibleCount = eligibleIds.length;
+    const readyCount = eligibleIds.filter((id) => eligible[id].ready).length;
+
+    const badge = document.getElementById('rehearsalBadge');
+    if (badge) {
+      const show = state.isInSession && state.isPageTurner && eligibleCount > 0;
+      badge.classList.toggle('hidden', !show);
+      if (show) badge.textContent = `준비 ${readyCount}/${eligibleCount}`;
+    }
+
+    if (state.isPageTurner && eligibleCount > 0) {
+      const prev = state._rehPrevReadyMap || {};
+      let msg = '';
+      for (const id of eligibleIds) {
+        if (prev[id] === undefined) continue; // 최초 1회는 알림 생략
+        if (Boolean(prev[id]) !== Boolean(eligible[id].ready)) {
+          msg = `${eligible[id].name} ${eligible[id].ready ? '준비됨' : '준비 해제'}`;
+          break;
+        }
+      }
+      const next = {};
+      eligibleIds.forEach((id) => (next[id] = Boolean(eligible[id].ready)));
+      state._rehPrevReadyMap = next;
+      if (msg) flashHud(msg, 900);
+    }
+  } catch {}
+
   let anonNo = 0;
   values.forEach((m) => {
     const row = document.createElement('div');
@@ -5047,13 +5097,14 @@ socket.on('session:participants', (p) => {
     // unified menu (⋯)
     if (state.isPageTurner && !m.isPageTurner && String(m.socketId) !== String(socket.id)) {
       const menuBtn = document.createElement('button');
+      menuBtn.type = 'button';
       menuBtn.textContent = '⋯';
       menuBtn.title = '옵션';
-      menuBtn.onclick = (e) => {
+      menuBtn.addEventListener('click', (e) => {
         e?.preventDefault?.();
         e?.stopPropagation?.();
         openParticipantMenu(menuBtn, m);
-      };
+      });
       actions?.appendChild(menuBtn);
     }
     list.appendChild(row);

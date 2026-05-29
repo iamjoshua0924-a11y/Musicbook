@@ -85,7 +85,28 @@
       </div>
     </div>
 
+    <!-- 세션 상세 모달 -->
+    <div class="modalOverlay hidden" id="sessionDetailModal">
+      <div class="modalBox">
+        <div class="row" style="justify-content:space-between;">
+          <div class="modalTitle">세션 상세</div>
+          <button id="sessionDetailCloseBtn" class="light" type="button">닫기</button>
+        </div>
+        <div class="muted" id="sessionDetailHead" style="margin-top:8px;"></div>
+        <div class="grid2" style="margin-top:12px;">
+          <div class="card" style="margin:0;">
+            <div class="title" style="font-size:14px;">룸 상태</div>
+            <pre id="sessionDetailRoom" class="muted" style="margin-top:10px;"></pre>
+          </div>
+          <div class="card" style="margin:0;">
+            <div class="title" style="font-size:14px;">멤버</div>
+            <div id="sessionDetailMembers" class="list" style="margin-top:10px;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <script src="../config.js"></script>
-    <script src="dev.js?v=20260529_3"></script>
+    <script src="dev.js?v=20260529_4"></script>
   </body>
 </html>

@@ -70,9 +70,67 @@ async function loadSessions() {
         <div><span class="kbd">${String(x.roomCode || '')}</span> · members=${x.memberCount || 0} · page=${x.currentPageNo || 1}</div>
         <div class="muted">${String(x.currentFileId || '') ? `fileId=${String(x.currentFileId)}` : ''} ${x.rehearsalActive ? '· rehearsal=ON' : ''}</div>
       </div>
-      <div class="muted">${x.ageMs != null ? `${Math.round(x.ageMs / 1000)}s` : ''}</div>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <button type="button" class="light" data-action="detail">상세</button>
+        <div class="muted">${x.ageMs != null ? `${Math.round(x.ageMs / 1000)}s` : ''}</div>
+      </div>
     `;
+    el.querySelector('[data-action="detail"]').onclick = () => openSessionDetail(String(x.roomCode || '')).catch(() => {});
     $('sessionsList').appendChild(el);
+  });
+}
+
+function setHidden(id, hidden) {
+  const el = $(id);
+  if (!el) return;
+  el.classList.toggle('hidden', Boolean(hidden));
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+async function openSessionDetail(roomCode) {
+  const code = String(roomCode || '').trim().toUpperCase();
+  if (!code) return;
+  $('sessionDetailHead').textContent = `roomCode: ${code}`;
+  $('sessionDetailRoom').textContent = '로딩 중...';
+  $('sessionDetailMembers').innerHTML = '<div class="muted">로딩 중...</div>';
+  setHidden('sessionDetailModal', false);
+
+  const r = await apiGet(`/api/dev/sessions/${encodeURIComponent(code)}`);
+  if (!r.ok) {
+    $('sessionDetailRoom').textContent = `실패: ${r.error || ''}`;
+    $('sessionDetailMembers').innerHTML = '';
+    return;
+  }
+  const room = r.room || {};
+  const members = Array.isArray(r.members) ? r.members : [];
+  $('sessionDetailRoom').textContent = JSON.stringify(room, null, 2);
+
+  const wrap = $('sessionDetailMembers');
+  wrap.innerHTML = '';
+  if (!members.length) {
+    wrap.innerHTML = '<div class="muted">멤버 없음</div>';
+    return;
+  }
+  members.forEach((m) => {
+    const name = String(m.displayName || m.nickname || m.memberId || '익명');
+    const badges = [];
+    if (m.isPageTurner) badges.push('<span class="badge blue">TURNER</span>');
+    if (m.isToolAuthorized) badges.push('<span class="badge green">TOOL</span>');
+    if (m.toolRequested) badges.push('<span class="badge red">요청</span>');
+    if (m.isRehearsalEligible) badges.push(`<span class="badge ${m.isRehearsalReady ? 'green' : 'red'}">합주</span>`);
+    const el = document.createElement('div');
+    el.className = 'item';
+    el.innerHTML = `
+      <div style="flex:1; display:grid; gap:6px;">
+        <div><b>${esc(name)}</b> <span class="muted">${esc(m.role || '')}</span></div>
+        <div style="display:flex; gap:6px; flex-wrap:wrap;">${badges.join(' ')}</div>
+        <div class="muted" style="font-size:12px;">memberId=${esc(m.memberId || '')} · socketId=${esc(String(m.socketId || '').slice(0, 8))}</div>
+      </div>
+    `;
+    wrap.appendChild(el);
   });
 }
 
@@ -242,6 +300,11 @@ $('reloadTrafficBtn').onclick = () => loadTraffic().catch(() => {});
 $('resetTrafficBtn').onclick = () => resetTraffic().catch(() => {});
 $('reloadErrorsBtn').onclick = () => loadErrors().catch(() => {});
 $('clearErrorsBtn').onclick = () => clearErrors().catch(() => {});
+
+$('sessionDetailCloseBtn')?.addEventListener?.('click', () => setHidden('sessionDetailModal', true));
+$('sessionDetailModal')?.addEventListener?.('click', (e) => {
+  if (e.target?.id === 'sessionDetailModal') setHidden('sessionDetailModal', true);
+});
 
 refreshMe()
   .then((authed) => {

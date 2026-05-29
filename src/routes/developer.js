@@ -84,6 +84,69 @@ router.get(
   })
 );
 
+// GET /api/dev/sessions/:roomCode  (detail)
+router.get(
+  '/sessions/:roomCode',
+  requireDev,
+  asyncHandler(async (req, res) => {
+    const roomCode = String(req.params.roomCode || '').trim().toUpperCase();
+    if (!roomCode) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+    const room = store.rooms.get(roomCode);
+    if (!room) return res.status(404).json({ ok: false, error: 'ROOM_NOT_FOUND' });
+
+    const members = [];
+    try {
+      for (const [socketId, m] of room.members.entries()) {
+        const memberId = String(m?.memberId || '');
+        members.push({
+          socketId,
+          memberId,
+          nickname: m?.nickname || '',
+          displayName: m?.displayName || '',
+          role: m?.role || '',
+          profilePhoto: m?.profilePhoto || '',
+          isPageTurner: String(room.pageTurnerSocketId || '') === String(socketId),
+          isToolAuthorized: room.toolAuthorizedSocketIds?.has?.(socketId) || false,
+          toolRequested: room.toolRequestSocketIds?.has?.(socketId) || false,
+          isRehearsalEligible: memberId ? room.rehearsalEligibleMemberIds?.has?.(memberId) || false : false,
+          isRehearsalReady: memberId ? room.rehearsalReadyMemberIds?.has?.(memberId) || false : false
+        });
+      }
+    } catch {}
+    members.sort((a, b) => (b.isPageTurner ? 1 : 0) - (a.isPageTurner ? 1 : 0));
+
+    const files = [];
+    try {
+      for (const [fileId, anno] of room.annotationsByFile.entries()) {
+        const pages = anno?.pages || {};
+        const pageCount = Object.keys(pages || {}).length;
+        files.push({ fileId: String(fileId), pageCount, updatedAt: anno?.updatedAt || null });
+      }
+    } catch {}
+
+    res.json({
+      ok: true,
+      room: {
+        roomCode,
+        createdAt: room.createdAt || null,
+        ageMs: room.createdAt ? Date.now() - Number(room.createdAt || 0) : null,
+        memberCount: room.members?.size || 0,
+        pageTurnerSocketId: room.pageTurnerSocketId || null,
+        currentFileId: room.currentFileId || '',
+        currentOriginalLink: room.currentOriginalLink || '',
+        currentPageNo: room.currentPageNo || 1,
+        currentScrollRatio: room.currentScrollRatio || 0,
+        rehearsalActive: Boolean(room.rehearsalActive),
+        viewerSettings: room.viewerSettings || null,
+        toolAuthorizedCount: room.toolAuthorizedSocketIds?.size || 0,
+        toolRequestedCount: room.toolRequestSocketIds?.size || 0,
+        annotationsFiles: files
+      },
+      members
+    });
+  })
+);
+
 // GET /api/dev/metrics/traffic  (T-15)
 router.get(
   '/metrics/traffic',

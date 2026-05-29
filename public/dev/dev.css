@@ -67,3 +67,48 @@ button.light{ background: rgba(255,255,255,0.04); }
   margin-top: 8px;
 }
 
+/* Modal */
+.modalOverlay{
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding: 18px;
+  z-index: 9999;
+}
+.modalOverlay.hidden{ display:none; }
+.modalBox{
+  width: min(980px, 100%);
+  max-height: 88vh;
+  overflow:auto;
+  background: rgba(20,22,28,0.92);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 16px;
+  padding: 14px;
+}
+.modalTitle{
+  font-size: 16px;
+  font-weight: 1000;
+}
+.badge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.18);
+  background: rgba(255,255,255,0.06);
+  font-size: 11px;
+  font-weight: 1000;
+}
+.badge.red{ border-color: rgba(255,77,109,0.5); color:#ff9db0; }
+.badge.green{ border-color: rgba(52,199,89,0.5); color:#aef7c5; }
+.badge.blue{ border-color: rgba(10,132,255,0.55); color:#b8dbff; }
+.grid2{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+@media (max-width: 720px){ .grid2{ grid-template-columns: 1fr; } }

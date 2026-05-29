@@ -193,6 +193,8 @@ function attachSockets(io) {
       socket.data.nickname = nickname;
       socket.data.displayName = displayName;
       room.members.set(socket.id, { nickname, role, displayName, profilePhoto, memberId });
+      // T-03 정책: 세션 입장 직후 전원을 합주멤버로 기본 지정(가능한 경우)
+      if (memberId) room.rehearsalEligibleMemberIds?.add?.(memberId);
       socket.data.joinedRooms.add(roomCode);
 
       await socket.join(toSessionRoomName(roomCode));
@@ -278,6 +280,29 @@ function attachSockets(io) {
       else room.rehearsalEligibleMemberIds?.delete?.(memberId);
       io.to(toSessionRoomName(roomCode)).emit('session:participants', buildParticipantsPayload(room));
       ack?.({ ok: true });
+    });
+
+    // T-03: Bulk set rehearsal eligible for all connected members (turner only)
+    socket.on('session:rehearsal:eligible:set_bulk', (payload, ack) => {
+      const roomCode = String(payload?.roomCode || '').trim().toUpperCase();
+      const eligible = Boolean(payload?.eligible);
+      const room = store.rooms.get(roomCode);
+      if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
+      if (room.pageTurnerSocketId !== socket.id) return ack?.({ ok: false, error: 'FORBIDDEN' });
+      try {
+        for (const [, m] of room.members.entries()) {
+          const memberId = String(m?.memberId || '').trim();
+          if (!memberId) continue;
+          if (eligible) room.rehearsalEligibleMemberIds?.add?.(memberId);
+          else room.rehearsalEligibleMemberIds?.delete?.(memberId);
+          // 전원 해제 시 ready도 같이 내려준다(기대 동작)
+          if (!eligible) room.rehearsalReadyMemberIds?.delete?.(memberId);
+        }
+        io.to(toSessionRoomName(roomCode)).emit('session:participants', buildParticipantsPayload(room));
+        ack?.({ ok: true });
+      } catch (e) {
+        ack?.({ ok: false, error: 'BULK_FAILED' });
+      }
     });
 
     socket.on('session:rehearsal:ready:set', (payload, ack) => {

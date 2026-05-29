@@ -3363,6 +3363,20 @@ function renderSongPickAvailableVocalModalList() {
     });
 }
 
+// T-03: 합주멤버 전원 지정/해제 (turner only)
+document.getElementById('rehearsalAllOnBtn')?.addEventListener('click', () => {
+  if (!state.isInSession || !state.isPageTurner || !state.roomCode) return;
+  socket.emit('session:rehearsal:eligible:set_bulk', { roomCode: state.roomCode, eligible: true }, (ack) => {
+    if (!ack?.ok) flashHud('전원 합주멤버 지정 실패', 1200);
+  });
+});
+document.getElementById('rehearsalAllOffBtn')?.addEventListener('click', () => {
+  if (!state.isInSession || !state.isPageTurner || !state.roomCode) return;
+  socket.emit('session:rehearsal:eligible:set_bulk', { roomCode: state.roomCode, eligible: false }, (ack) => {
+    if (!ack?.ok) flashHud('전원 해제 실패', 1200);
+  });
+});
+
 // overlap slider (GAS style)
 function setSpreadOverlapPx(px) {
   const v = Math.max(0, Math.min(40, Number(px) || 0));
@@ -5477,6 +5491,11 @@ socket.on('session:participants', (p) => {
   updateRehearsalToggleUI();
   updateTurnerToggleAccess();
   updateCursorShareUI();
+  // T-03: 전원 합주멤버 지정/해제 버튼(턴너 전용)
+  try {
+    const bulk = document.getElementById('participantsBulkRow');
+    if (bulk) bulk.classList.toggle('hidden', !(state.isInSession && state.isPageTurner));
+  } catch {}
   const list = document.getElementById('participantsList');
   list.innerHTML = '';
   // 같은 사람이 reconnect / 중복 탭 등으로 두 번 뜨는 현상 완화:

@@ -576,18 +576,15 @@ body.hide-tags .song-chips{ display:none; }
 .request-panel {
   display: block;
 }
-.request-top-actions {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-  margin-bottom: 10px;
+.request-panel-header .toolbar-right{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+  justify-content:flex-end;
 }
-#requestExternalActions{
-  position: fixed;
-  right: 22px;
-  bottom: calc(22px + 420px + 10px); /* 패널 상단에 붙여서 플로팅 */
-  z-index: 1750;
-  margin-bottom: 0;
+.request-panel-header .toolbar-right .floating-btn{
+  margin:0;
 }
 .request-panel-header {
   display: flex;

@@ -1569,8 +1569,8 @@ function openSongPickModal() {
     document.getElementById('songPickVocalFilter') && (document.getElementById('songPickVocalFilter').value = songPickState.vocal || '');
     renderSongPickAvailableVocalChips();
   } catch {}
-  renderSongPickList([]);
-  document.getElementById('songPickHint').textContent = '불러오는 중...';
+  songPickState.pendingQuery = '';
+  setSongPickLoading(true);
   loadSongCardsIfNeeded().catch(() => {
     document.getElementById('songPickHint').textContent = '곡 목록을 불러오지 못했습니다.';
   });
@@ -1582,7 +1582,9 @@ function closeSongPickModal() {
 
 async function loadSongCardsIfNeeded() {
   if (songCardsCache) {
-    document.getElementById('songPickHint').textContent = '검색해서 곡을 선택하세요.';
+    setSongPickLoading(false);
+    const q = document.getElementById('songPickSearch')?.value || songPickState.pendingQuery || '';
+    renderSongPickList(pickCardMatchesAdvanced(q));
     return;
   }
   const r = await apiGet('/api/songs/cards');
@@ -1596,6 +1598,9 @@ async function loadSongCardsIfNeeded() {
     _titleCho: toChoseongString(c.title || ''),
     _artistCho: toChoseongString(c.artist || '')
   }));
+  setSongPickLoading(false);
+  const q = document.getElementById('songPickSearch')?.value || songPickState.pendingQuery || '';
+  renderSongPickList(pickCardMatchesAdvanced(q));
   document.getElementById('songPickHint').textContent = `총 ${songCardsCache.length}곡 · 검색해서 선택`;
 }
 
@@ -1606,8 +1611,43 @@ const songPickState = {
   vocal: '',
   availableUsers: [], // [{userId,displayName,profilePhoto}]
   selectedAvailableVocalUserIds: [],
-  availableSetsByUserId: new Map() // userId -> Set<googleFileId>
+  availableSetsByUserId: new Map(), // userId -> Set<googleFileId>
+  loading: false,
+  pendingQuery: ''
 };
+
+function setSongPickLoading(on) {
+  songPickState.loading = Boolean(on);
+  const modal = document.getElementById('songPickModal');
+  const box = modal?.querySelector?.('.modalBox');
+  box?.classList?.toggle('songPickLoading', Boolean(on));
+
+  const search = document.getElementById('songPickSearch');
+  const g = document.getElementById('songPickGenreFilter');
+  const m = document.getElementById('songPickMoodFilter');
+  const v = document.getElementById('songPickVocalFilter');
+  const availBtn = document.getElementById('songPickAvailableVocalOpenBtn');
+  const list = document.getElementById('songPickList');
+  const hint = document.getElementById('songPickHint');
+
+  // 검색창은 입력 가능(키워드 선입력 UX), 필터/선택은 로딩 후 활성화
+  if (search) search.disabled = false;
+  [g, m, v].forEach((el) => el && (el.disabled = Boolean(on)));
+  if (availBtn) availBtn.disabled = Boolean(on);
+
+  if (hint) hint.textContent = on ? '곡 목록 불러오는 중...' : '검색해서 곡을 선택하세요.';
+
+  if (list) {
+    list.innerHTML = '';
+    if (on) {
+      for (let i = 0; i < 8; i += 1) {
+        const sk = document.createElement('div');
+        sk.className = 'songPickSkeletonItem';
+        list.appendChild(sk);
+      }
+    }
+  }
+}
 
 async function loadSongPickAvailableVocalUsersIfNeeded() {
   if (songPickState.availableUsers?.length) return songPickState.availableUsers;
@@ -3069,8 +3109,11 @@ document.getElementById('songPickSearch')?.addEventListener(
   'input',
   debounce((e) => {
     const q = e.target.value || '';
-    const items = pickCardMatchesAdvanced(q);
-    renderSongPickList(items);
+    if (!songCardsCache || songPickState.loading) {
+      songPickState.pendingQuery = String(q || '');
+      return;
+    }
+    renderSongPickList(pickCardMatchesAdvanced(q));
   }, 120)
 );
 // 노래책 검색 입력 중 Space 등을 누를 때 뒤쪽 악보 페이지터닝 단축키로 전파되지 않게 한다.

@@ -45,5 +45,8 @@ module.exports = {
   // CHZZK (chat ingestor PoC)
   chzzkChannelId: optional('CHZZK_CHANNEL_ID', ''),
   chzzkNidAut: optional('CHZZK_NID_AUT', ''),
-  chzzkNidSes: optional('CHZZK_NID_SES', '')
+  chzzkNidSes: optional('CHZZK_NID_SES', ''),
+
+  // Developer console (optional)
+  devToken: optional('DEV_TOKEN', optional('MUSICBOOK_DEV_TOKEN', ''))
 };

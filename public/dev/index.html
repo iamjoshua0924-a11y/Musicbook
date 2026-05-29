@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Developer</title>
+    <link rel="stylesheet" href="dev.css?v=20260529_1" />
+  </head>
+  <body>
+    <a class="back" href="/">← 노래책으로</a>
+    <div class="wrap">
+      <div class="title">Developer 콘솔</div>
+
+      <div class="card" id="loginCard">
+        <div class="muted">DEV_TOKEN으로 로그인하세요. (Admin 쿠키와 분리)</div>
+        <div class="row" style="margin-top:10px">
+          <input id="devToken" placeholder="DEV_TOKEN" type="password" />
+          <button id="devLoginBtn">로그인</button>
+        </div>
+        <pre id="loginOut" class="muted"></pre>
+      </div>
+
+      <div class="card" id="meCard" style="display:none;">
+        <div class="row">
+          <div>상태: <span class="kbd" id="meText">-</span></div>
+          <button class="light" id="devLogoutBtn">로그아웃</button>
+        </div>
+      </div>
+
+      <div class="card" id="sessionsCard" style="display:none;">
+        <div class="title" style="font-size:16px;">세션 라이브</div>
+        <div class="row" style="margin-top:10px;">
+          <button id="reloadSessionsBtn" class="light">새로고침</button>
+          <span class="muted" id="sessionsOut"></span>
+        </div>
+        <div class="list" id="sessionsList" style="margin-top:10px;"></div>
+      </div>
+
+      <div class="card" id="syncCard" style="display:none;">
+        <div class="title" style="font-size:16px;">Drive 동기화 상태(+/~/-)</div>
+        <div class="row" style="margin-top:10px;">
+          <button id="reloadSyncBtn" class="light">새로고침</button>
+          <span class="muted" id="syncOut"></span>
+        </div>
+        <pre id="syncJson" class="muted" style="margin-top:10px;"></pre>
+      </div>
+
+      <div class="card" id="trafficCard" style="display:none;">
+        <div class="title" style="font-size:16px;">트래픽 메트릭</div>
+        <div class="row" style="margin-top:10px;">
+          <button id="reloadTrafficBtn" class="light">새로고침</button>
+          <button id="resetTrafficBtn" class="light">리셋</button>
+          <span class="muted" id="trafficOut"></span>
+        </div>
+        <pre id="trafficJson" class="muted" style="margin-top:10px;"></pre>
+      </div>
+    </div>
+
+    <script src="../config.js"></script>
+    <script src="dev.js?v=20260529_1"></script>
+  </body>
+</html>
+

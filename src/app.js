@@ -47,21 +47,21 @@ function createApp() {
   app.use(express.json({ limit: '20mb' }));
   app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
-  // Session (used later for admin; safe default for now).
-  app.use(
-    session({
-      secret: sessionSecret,
-      resave: false,
-      saveUninitialized: false,
-      cookie: {
-        httpOnly: true,
-        // 프론트(깃헙페이지) ↔ 백엔드(Render) 분리 시 cross-site 쿠키 전송을 위해 필요
-        sameSite: env === 'production' ? 'none' : 'lax',
-        secure: env === 'production',
-        maxAge: 7 * 24 * 60 * 60 * 1000
-      }
-    })
-  );
+  // Sessions (Admin vs Developer cookies are intentionally separated)
+  const baseSessionOpts = {
+    secret: sessionSecret,
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      // 프론트(깃헙페이지) ↔ 백엔드(Render) 분리 시 cross-site 쿠키 전송을 위해 필요
+      sameSite: env === 'production' ? 'none' : 'lax',
+      secure: env === 'production',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    }
+  };
+  const adminSession = session({ ...baseSessionOpts, name: 'mb_admin_sid' });
+  const devSession = session({ ...baseSessionOpts, name: 'mb_dev_sid' });
 
   // Static assets
   app.use('/public', express.static(path.join(__dirname, '..', 'public')));
@@ -85,13 +85,18 @@ function createApp() {
     res.sendFile(path.join(__dirname, '..', 'public', 'admin', 'index.html'));
   });
 
+  app.get('/dev', (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'public', 'dev', 'index.html'));
+  });
+
   // Public request board (pop-out)
   app.get('/requests', (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'public', 'requests', 'index.html'));
   });
 
   // API routes
-  app.use(require('./routes'));
+  app.use('/api/dev', devSession, require('./routes/developer'));
+  app.use('/api', adminSession, require('./routes'));
 
   // Global error handler — 반드시 JSON으로 응답 (HTML 에러 페이지 차단)
   // eslint-disable-next-line no-unused-vars

@@ -798,4 +798,4 @@ function attachSockets(io) {
   io.broadcastRequests = broadcastRequests;
 }
 
-module.exports = { attachSockets, isFileOpenInRoom };
+module.exports = { attachSockets, isFileOpenInRoom, store };

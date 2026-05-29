@@ -1,17 +1,17 @@
 const express = require('express');
 const router = express.Router();
 
+// NOTE: This router is intended to be mounted at '/api' in app.js.
 router.use(require('./health'));
-router.use('/api', require('./health'));
-router.use('/api', require('./drive'));
-router.use('/api', require('./songs'));
-router.use('/api', require('./requests'));
-router.use('/api', require('./admin'));
-router.use('/api', require('./mainPage'));
-router.use('/api', require('./availability'));
-router.use('/api', require('./socketMeta'));
-router.use('/api', require('./proxyChord'));
-router.use('/api', require('./chordUpload'));
-router.use('/api', require('./chordDoc'));
+router.use(require('./drive'));
+router.use(require('./songs'));
+router.use(require('./requests'));
+router.use(require('./admin'));
+router.use(require('./mainPage'));
+router.use(require('./availability'));
+router.use(require('./socketMeta'));
+router.use(require('./proxyChord'));
+router.use(require('./chordUpload'));
+router.use(require('./chordDoc'));
 
 module.exports = router;

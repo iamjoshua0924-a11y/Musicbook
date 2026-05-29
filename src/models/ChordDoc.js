@@ -9,6 +9,8 @@ const ChordDocSchema = new mongoose.Schema(
     _id: { type: String, required: true }, // docId
     meta: { type: mongoose.Schema.Types.Mixed, default: {} },
     blocks: { type: mongoose.Schema.Types.Mixed, default: [] },
+    // 편집 원문(raw text). history/rollback 용도. (구형 문서는 비어있을 수 있음)
+    rawText: { type: String, default: '' },
     // 30일 보관 (코드위키 목록/재사용 UX 개선)
     createdAt: { type: Date, default: Date.now, expires: 60 * 60 * 24 * 30 }
   },

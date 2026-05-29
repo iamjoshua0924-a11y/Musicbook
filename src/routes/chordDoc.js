@@ -2,6 +2,7 @@ const express = require('express');
 const { z } = require('zod');
 
 const ChordDoc = require('../models/ChordDoc');
+const ChordDocHistory = require('../models/ChordDocHistory');
 const { getTempDoc } = require('../services/chordDocTempStore');
 const { parseRawTextToBlocks } = require('../services/chordParser');
 
@@ -36,6 +37,104 @@ router.get(
     if (msg === 'MONGO_READ_TIMEOUT') return res.status(504).json({ ok: false, error: 'DOC_LOAD_TIMEOUT' });
     return res.status(502).json({ ok: false, error: 'DOC_LOAD_FAILED' });
   }
+  })
+);
+
+// GET /api/chord-doc/history?docId=...
+router.get(
+  '/chord-doc/history',
+  asyncHandler(async (req, res) => {
+    const role = req.session?.user?.role;
+    if (role !== 'admin' && role !== 'session') return res.status(401).json({ ok: false, error: 'UNAUTHORIZED' });
+    const schema = z.object({ docId: z.string().min(1).max(200) });
+    const parsed = schema.safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+    const docId = String(parsed.data.docId);
+    const h = await ChordDocHistory.findById(docId).lean();
+    const items = Array.isArray(h?.items) ? h.items : [];
+    const out = items
+      .slice()
+      .sort((a, b) => Number(b?.savedAt || 0) - Number(a?.savedAt || 0))
+      .slice(0, 10)
+      .map((it) => {
+        const raw = String(it?.rawText || '');
+        const firstLine = raw.split('\n')[0] || '';
+        return {
+          savedAt: Number(it?.savedAt || 0),
+          savedBy: String(it?.savedBy || ''),
+          source: String(it?.source || 'edit'),
+          preview: firstLine.slice(0, 80),
+          length: raw.length
+        };
+      });
+    return res.json({ ok: true, docId, items: out });
+  })
+);
+
+// POST /api/chord-doc/rollback {docId, savedAt}
+router.post(
+  '/chord-doc/rollback',
+  asyncHandler(async (req, res) => {
+    const role = req.session?.user?.role;
+    if (role !== 'admin' && role !== 'session') return res.status(401).json({ ok: false, error: 'UNAUTHORIZED' });
+
+    const schema = z
+      .object({
+        docId: z.string().min(1).max(200),
+        savedAt: z.coerce.number().int().min(1)
+      })
+      .strict();
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+
+    const docId = String(parsed.data.docId);
+    const targetSavedAt = Number(parsed.data.savedAt);
+
+    const [doc, hist] = await Promise.all([ChordDoc.findById(docId).lean(), ChordDocHistory.findById(docId).lean()]);
+    if (!doc) return res.status(404).json({ ok: false, error: 'DOC_NOT_FOUND' });
+    const items = Array.isArray(hist?.items) ? hist.items : [];
+    const target = items.find((x) => Number(x?.savedAt || 0) === targetSavedAt);
+    if (!target?.rawText) return res.status(404).json({ ok: false, error: 'HISTORY_NOT_FOUND' });
+
+    // push current doc rawText to history before rollback (so rollback itself is undoable)
+    const nowMs = Date.now();
+    const userId = String(req.session?.user?.userId || '');
+    const currentRaw = String(doc?.rawText || '');
+    if (currentRaw.trim()) {
+      await ChordDocHistory.findOneAndUpdate(
+        { _id: docId },
+        {
+          $push: {
+            items: {
+              $each: [{ savedAt: nowMs, savedBy: userId || 'member', source: 'rollback_before', rawText: currentRaw }],
+              $slice: -10
+            }
+          },
+          $setOnInsert: { createdAt: new Date() }
+        },
+        { upsert: true }
+      );
+    }
+
+    // apply rollback
+    const blocksRaw = await parseRawTextToBlocks(String(target.rawText));
+    const toStore = shouldCompactBlocks(blocksRaw) ? compactBlocksV2(blocksRaw) : blocksRaw;
+    const meta = {
+      ...(doc.meta || {}),
+      editedAt: new Date().toISOString(),
+      editedBy: userId || 'member',
+      source: 'rollback',
+      rollbackFrom: targetSavedAt
+    };
+    await ChordDoc.updateOne({ _id: docId }, { $set: { blocks: toStore, rawText: String(target.rawText), meta, createdAt: new Date() } });
+
+    // cache refresh (best effort)
+    try {
+      const { setTempDoc } = require('../services/chordDocTempStore');
+      setTempDoc(docId, { meta, blocks: toStore }, 2 * 60 * 60 * 1000);
+    } catch {}
+
+    return res.json({ ok: true, docId, rolledBackTo: targetSavedAt, meta });
   })
 );
 
@@ -168,6 +267,32 @@ router.put(
     const existing = await ChordDoc.findById(docId).lean();
     if (!existing) return res.status(404).json({ ok: false, error: 'DOC_NOT_FOUND' });
 
+    // T-08: history snapshot (best effort)
+    try {
+      const prevRaw = String(existing?.rawText || '').trim();
+      if (prevRaw) {
+        const prevSavedAt = (() => {
+          const t = String(existing?.meta?.editedAt || existing?.createdAt || '');
+          const ms = t ? new Date(t).getTime() : 0;
+          return Number.isFinite(ms) && ms > 0 ? ms : Date.now();
+        })();
+        const prevSavedBy = String(existing?.meta?.editedBy || '');
+        await ChordDocHistory.findOneAndUpdate(
+          { _id: docId },
+          {
+            $push: {
+              items: {
+                $each: [{ savedAt: prevSavedAt, savedBy: prevSavedBy, source: 'edit', rawText: prevRaw }],
+                $slice: -10
+              }
+            },
+            $setOnInsert: { createdAt: new Date() }
+          },
+          { upsert: true }
+        );
+      }
+    } catch {}
+
     const blocksRaw = await parseRawTextToBlocks(parsed.data.rawText);
     const toStore = shouldCompactBlocks(blocksRaw) ? compactBlocksV2(blocksRaw) : blocksRaw;
     const userId = String(req.session?.user?.userId || '');
@@ -180,7 +305,7 @@ router.put(
 
     await ChordDoc.updateOne(
       { _id: docId },
-      { $set: { blocks: toStore, meta, createdAt: new Date() } },
+      { $set: { blocks: toStore, rawText: String(parsed.data.rawText), meta, createdAt: new Date() } },
       { upsert: false }
     );
 

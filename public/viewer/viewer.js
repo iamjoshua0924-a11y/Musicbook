@@ -5180,6 +5180,98 @@ document.getElementById('chordEditBtn')?.addEventListener('click', async () => {
   }
 });
 
+// T-08: chord history / rollback
+function setHiddenModal(id, on) {
+  setHidden(id, on);
+}
+
+async function loadChordHistory(docId) {
+  const id = String(docId || '').trim();
+  if (!id) return { ok: false, error: 'DOC_ID_REQUIRED' };
+  return fetch(apiUrl(`/api/chord-doc/history?docId=${encodeURIComponent(id)}&_=${Date.now()}`), { credentials: 'include' }).then((x) =>
+    x.json()
+  );
+}
+
+function openChordHistoryModal({ docId }) {
+  const info = document.getElementById('chordHistoryDocInfo');
+  const list = document.getElementById('chordHistoryList');
+  const esc = (s) =>
+    String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  if (info) info.textContent = docId ? `docId: ${String(docId)}` : '';
+  if (list) list.innerHTML = '<div class="muted">로딩 중...</div>';
+  setHiddenModal('chordHistoryModal', false);
+  Promise.resolve()
+    .then(() => loadChordHistory(docId))
+    .then((r) => {
+      if (!list) return;
+      if (!r?.ok) {
+        list.innerHTML = `<div class="muted">불러오기 실패: ${String(r?.error || '')}</div>`;
+        return;
+      }
+      const items = Array.isArray(r.items) ? r.items : [];
+      if (!items.length) {
+        list.innerHTML = '<div class="muted">이력이 없습니다.</div>';
+        return;
+      }
+      list.innerHTML = '';
+      items.forEach((it) => {
+        const savedAt = Number(it?.savedAt || 0);
+        const when = savedAt ? new Date(savedAt).toLocaleString() : '-';
+        const by = String(it?.savedBy || '');
+        const src = String(it?.source || 'edit');
+        const preview = String(it?.preview || '').trim();
+        const el = document.createElement('div');
+        el.className = 'songPickItem';
+        el.style.cursor = 'default';
+        el.innerHTML = `
+          <div style="flex:1; display:grid; gap:4px;">
+            <div><b>${when}</b> <span class="muted">${by ? `· ${by}` : ''} ${src ? `· ${src}` : ''}</span></div>
+            <div class="muted" style="font-size:12px; line-height:1.35;">${preview ? esc(preview) : '(미리보기 없음)'}</div>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <button type="button" class="mini" data-action="rollback">롤백</button>
+          </div>
+        `;
+        el.querySelector('[data-action="rollback"]').addEventListener('click', async () => {
+          if (!savedAt) return;
+          if (!confirm(`이 버전으로 롤백할까요?\n- ${when}\n- docId: ${docId}`)) return;
+          flashHud('롤백 중...', 900);
+          try {
+            const rr = await fetch(apiUrl('/api/chord-doc/rollback'), {
+              method: 'POST',
+              credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ docId, savedAt })
+            }).then((x) => x.json());
+            if (!rr?.ok) throw new Error(rr?.error || 'ROLLBACK_FAILED');
+            setHiddenModal('chordHistoryModal', true);
+            await openChordByDocId(String(docId), { broadcast: false });
+            flashHud('롤백 완료', 900);
+          } catch (e) {
+            flashHud(`롤백 실패: ${e?.message || 'ERROR'}`, 1400);
+          }
+        });
+        list.appendChild(el);
+      });
+    })
+    .catch((e) => {
+      if (list) list.innerHTML = `<div class="muted">불러오기 실패: ${String(e?.message || e || '')}</div>`;
+    });
+}
+
+document.getElementById('chordHistoryBtn')?.addEventListener('click', () => {
+  if (state.mode !== 'chord' || !state.chordDocId) return;
+  const can =
+    (state.isInSession && state.isPageTurner) || (!state.isInSession && ['admin', 'session'].includes(String(authState?.role || '')));
+  if (!can) return flashHud('페이지터너/관리자만 확인 가능합니다', 1200);
+  openChordHistoryModal({ docId: state.chordDocId });
+});
+document.getElementById('chordHistoryCloseBtn')?.addEventListener('click', () => setHiddenModal('chordHistoryModal', true));
+document.getElementById('chordHistoryModal')?.addEventListener('click', (e) => {
+  if (e.target?.id === 'chordHistoryModal') setHiddenModal('chordHistoryModal', true);
+});
+
 
 // Brush / color / text size controls
 document.getElementById('brushSize')?.addEventListener('input', (e) => {

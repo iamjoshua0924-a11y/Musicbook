@@ -102,6 +102,7 @@
           <div class="group hidden" id="cwEditGroup">
             <span class="label">코드뷰</span>
             <button id="chordEditBtn" type="button" class="mini" title="페이지터너/관리자용">편집</button>
+            <button id="chordHistoryBtn" type="button" class="mini" title="편집 이력">이력</button>
           </div>
 
           <div class="spacer"></div>
@@ -393,6 +394,18 @@
       </div>
     </div>
 
+    <!-- 코드뷰어 편집 이력(페이지터너/관리자) -->
+    <div class="modalOverlay hidden" id="chordHistoryModal">
+      <div class="modalBox">
+        <div class="modalTitle">편집 이력</div>
+        <div class="muted" id="chordHistoryDocInfo" style="margin-top:6px;"></div>
+        <div id="chordHistoryList" class="songPickList" style="max-height:50vh; overflow:auto; margin-top:10px;"></div>
+        <div class="modalActions">
+          <button id="chordHistoryCloseBtn" type="button" class="primary">닫기</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 캐시 설정(오프라인 PDF 캐시) -->
     <div class="modalOverlay hidden" id="cacheModal">
       <div class="modalBox">
@@ -441,6 +454,6 @@
     <script src="../config.js"></script>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
     <script src="../common/avatar.js?v=20260529_1"></script>
-    <script src="viewer.js?v=20260529_17"></script>
+    <script src="viewer.js?v=20260529_18"></script>
   </body>
 </html>

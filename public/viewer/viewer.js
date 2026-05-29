@@ -410,6 +410,161 @@ async function apiGet(url) {
   return res.json();
 }
 
+// ---- PDF offline cache (IndexedDB) ------------------------------------------------
+// 목적: 같은 fileId PDF를 다시 열 때 네트워크 없이 즉시 로드 (LRU: 30개/300MB)
+const PDF_CACHE_DB = 'mb_pdf_cache_v1';
+const PDF_CACHE_STORE = 'pdf';
+const PDF_CACHE_MAX_ITEMS = 30;
+const PDF_CACHE_MAX_BYTES = 300 * 1024 * 1024;
+const PDF_CACHE_PREF_KEY = 'mb_viewer_pdfCache_on';
+
+function isPdfCacheEnabled() {
+  const v = localStorage.getItem(PDF_CACHE_PREF_KEY);
+  return v == null ? true : v === '1';
+}
+function setPdfCacheEnabled(on) {
+  localStorage.setItem(PDF_CACHE_PREF_KEY, on ? '1' : '0');
+}
+
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    if (!('indexedDB' in window)) return reject(new Error('NO_INDEXEDDB'));
+    const req = indexedDB.open(PDF_CACHE_DB, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(PDF_CACHE_STORE)) {
+        const store = db.createObjectStore(PDF_CACHE_STORE, { keyPath: 'fileId' });
+        store.createIndex('ts', 'ts');
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error('IDB_OPEN_FAILED'));
+  });
+}
+async function idbTx(mode, fn) {
+  const db = await idbOpen();
+  try {
+    const tx = db.transaction(PDF_CACHE_STORE, mode);
+    const store = tx.objectStore(PDF_CACHE_STORE);
+    const res = await fn(store);
+    return await new Promise((resolve, reject) => {
+      tx.oncomplete = () => resolve(res);
+      tx.onerror = () => reject(tx.error || new Error('IDB_TX_FAILED'));
+      tx.onabort = () => reject(tx.error || new Error('IDB_TX_ABORT'));
+    });
+  } finally {
+    try {
+      db.close();
+    } catch {}
+  }
+}
+function idbReq(req) {
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error('IDB_REQ_FAILED'));
+  });
+}
+
+async function pdfCacheGet(fileId) {
+  const id = String(fileId || '').trim();
+  if (!id) return null;
+  try {
+    const row = await idbTx('readonly', (store) => idbReq(store.get(id)));
+    if (!row?.blob) return null;
+    return row;
+  } catch {
+    return null;
+  }
+}
+
+async function pdfCacheListMeta() {
+  try {
+    const rows = await idbTx('readonly', (store) => idbReq(store.getAll()));
+    return Array.isArray(rows) ? rows : [];
+  } catch {
+    return [];
+  }
+}
+
+async function pdfCacheClearAll() {
+  try {
+    await idbTx('readwrite', (store) => idbReq(store.clear()));
+  } catch {}
+}
+
+async function pdfCachePrune() {
+  const rows = await pdfCacheListMeta();
+  if (!rows.length) return;
+  // sort by ts desc (keep recent)
+  rows.sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0));
+  let total = rows.reduce((sum, r) => sum + Number(r.size || (r.blob?.size || 0) || 0), 0);
+  const toDelete = [];
+  // item cap
+  if (rows.length > PDF_CACHE_MAX_ITEMS) {
+    rows.slice(PDF_CACHE_MAX_ITEMS).forEach((r) => toDelete.push(String(r.fileId)));
+  }
+  // bytes cap
+  for (let i = rows.length - 1; i >= 0 && total > PDF_CACHE_MAX_BYTES; i -= 1) {
+    const r = rows[i];
+    const id = String(r.fileId || '');
+    if (!id) continue;
+    if (toDelete.includes(id)) continue;
+    toDelete.push(id);
+    total -= Number(r.size || (r.blob?.size || 0) || 0);
+  }
+  if (!toDelete.length) return;
+  await idbTx('readwrite', async (store) => {
+    for (const id of toDelete) {
+      // eslint-disable-next-line no-await-in-loop
+      await idbReq(store.delete(id));
+    }
+  });
+}
+
+async function pdfCachePut(fileId, blob, { source = '' } = {}) {
+  const id = String(fileId || '').trim();
+  if (!id || !blob) return;
+  if (!isPdfCacheEnabled()) return;
+  // 너무 큰 파일은 저장하지 않음(기기 저장공간/성능 보호)
+  const size = Number(blob.size || 0);
+  if (!Number.isFinite(size) || size <= 0) return;
+  if (size > 30 * 1024 * 1024) return;
+  try {
+    await idbTx('readwrite', (store) =>
+      idbReq(
+        store.put({
+          fileId: id,
+          blob,
+          size,
+          ts: Date.now(),
+          source: String(source || '')
+        })
+      )
+    );
+    // best-effort prune
+    pdfCachePrune().catch(() => {});
+  } catch {}
+}
+
+async function pdfCacheStats() {
+  const rows = await pdfCacheListMeta();
+  const totalBytes = rows.reduce((sum, r) => sum + Number(r.size || (r.blob?.size || 0) || 0), 0);
+  return { count: rows.length, totalBytes };
+}
+
+function formatBytes(bytes) {
+  const b = Number(bytes || 0);
+  if (!Number.isFinite(b) || b <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let v = b;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i += 1;
+  }
+  return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
 function debounce(fn, ms) {
   let t = null;
   return (...args) => {
@@ -452,6 +607,60 @@ function flashHud(msg, ms = 1200) {
       updatePageLabels();
     } catch {}
   }, ms);
+}
+
+// ---- Top notice (save banner etc.) ------------------------------------------------
+let topNoticeTimer = null;
+let topNoticeCleanup = null;
+let chordUndoOnce = null; // { docId, rawText, savedAt }
+function hideTopNotice() {
+  const el = document.getElementById('topNotice');
+  if (!el) return;
+  el.classList.add('hidden');
+  try {
+    if (topNoticeCleanup) topNoticeCleanup();
+  } catch {}
+  topNoticeCleanup = null;
+  clearTimeout(topNoticeTimer);
+  topNoticeTimer = null;
+}
+function showTopNotice({ title = '', sub = '', actions = [], timeoutMs = 5000 } = {}) {
+  const el = document.getElementById('topNotice');
+  if (!el) return;
+  clearTimeout(topNoticeTimer);
+  try {
+    if (topNoticeCleanup) topNoticeCleanup();
+  } catch {}
+  topNoticeCleanup = null;
+
+  const safeTitle = String(title || '').trim();
+  const safeSub = String(sub || '').trim();
+  const btnHtml = (actions || [])
+    .map((a) => `<button type="button" id="${String(a.id)}" class="${a.primary ? 'primary' : ''}">${String(a.label)}</button>`)
+    .join('');
+  el.innerHTML = `
+    <div style="min-width:0;">
+      <div class="msg">${safeTitle}</div>
+      ${safeSub ? `<div class="sub">${safeSub}</div>` : ''}
+    </div>
+    <div class="actions">${btnHtml}<button type="button" id="topNoticeCloseBtn">×</button></div>
+  `;
+  el.classList.remove('hidden');
+  const closers = [];
+  const closeBtn = document.getElementById('topNoticeCloseBtn');
+  if (closeBtn) {
+    const fn = () => hideTopNotice();
+    closeBtn.onclick = fn;
+    closers.push(() => (closeBtn.onclick = null));
+  }
+  (actions || []).forEach((a) => {
+    const btn = document.getElementById(String(a.id));
+    if (!btn) return;
+    btn.onclick = () => a.onClick?.();
+    closers.push(() => (btn.onclick = null));
+  });
+  topNoticeCleanup = () => closers.forEach((f) => f());
+  if (timeoutMs > 0) topNoticeTimer = setTimeout(() => hideTopNotice(), timeoutMs);
 }
 
 // ---- Cursor share (vertical highlighter line) -------------------------------------
@@ -2365,6 +2574,38 @@ document.getElementById('themeBtn')?.addEventListener('click', () => {
   applyTheme(next);
 });
 
+// ---- Cache modal (offline PDF cache) ----------------------------------------------
+function setCacheModalOpen(open) {
+  setHidden('cacheModal', !open);
+}
+async function refreshCacheModalUI() {
+  const toggle = document.getElementById('cacheEnabledToggle');
+  if (toggle) toggle.checked = isPdfCacheEnabled();
+  const usage = document.getElementById('cacheUsageText');
+  if (!usage) return;
+  const st = await pdfCacheStats();
+  usage.textContent = `사용량: ${st.count}개 · ${formatBytes(st.totalBytes)} (최대 ${PDF_CACHE_MAX_ITEMS}개 / ${formatBytes(PDF_CACHE_MAX_BYTES)})`;
+}
+document.getElementById('cacheBtn')?.addEventListener('click', async () => {
+  setCacheModalOpen(true);
+  await refreshCacheModalUI();
+});
+document.getElementById('cacheCloseBtn')?.addEventListener('click', () => setCacheModalOpen(false));
+document.getElementById('cacheModal')?.addEventListener('click', (e) => {
+  if (e.target?.id === 'cacheModal') setCacheModalOpen(false);
+});
+document.getElementById('cacheEnabledToggle')?.addEventListener('change', async (e) => {
+  setPdfCacheEnabled(Boolean(e.target?.checked));
+  await refreshCacheModalUI();
+  flashHud(isPdfCacheEnabled() ? '오프라인 캐시: ON' : '오프라인 캐시: OFF', 900);
+});
+document.getElementById('cacheClearBtn')?.addEventListener('click', async () => {
+  if (!confirm('오프라인 캐시를 모두 삭제할까요?')) return;
+  await pdfCacheClearAll();
+  await refreshCacheModalUI();
+  flashHud('캐시를 비웠습니다', 900);
+});
+
 // touch-mode (auto only; desktop toggle removed)
 function applyTouchModeAuto(on) {
   document.body.classList.toggle('touch-mode', Boolean(on));
@@ -3457,7 +3698,7 @@ function isAnyTextEditing() {
     const tag = String(ae?.tagName || '').toUpperCase();
     if (tag === 'INPUT' || tag === 'TEXTAREA' || ae?.isContentEditable) return true;
     // 모달이 열려 있으면 기본적으로 입력/선택 중이므로 단축키를 막는다.
-    const openModalIds = ['songPickModal', 'inputModal', 'joinModal'];
+    const openModalIds = ['songPickModal', 'inputModal', 'joinModal', 'chordEditModal', 'cacheModal'];
     for (const id of openModalIds) {
       const el = document.getElementById(id);
       if (el && !el.classList.contains('hidden')) return true;
@@ -3654,6 +3895,37 @@ async function loadPdf(fileId) {
     state._pdfBlobUrl = '';
   }
 
+  // 0) Offline cache hit (IndexedDB)
+  if (isPdfCacheEnabled()) {
+    try {
+      const cached = await pdfCacheGet(fileId);
+      if (stillLatest() && cached?.blob) {
+        setNetBadge('PDF:cache-hit');
+        const blobUrl = URL.createObjectURL(cached.blob);
+        state._pdfBlobUrl = blobUrl;
+        const pdf = await pdfjsLib.getDocument({
+          url: blobUrl,
+          disableRange: true,
+          disableStream: true,
+          disableAutoFetch: true
+        }).promise;
+        if (!stillLatest()) return;
+        state.previewMode = false;
+        state.previewVirtualMode = false;
+        state.pdfDoc = pdf;
+        state.totalPages = pdf.numPages;
+        state.isPdfReady = true;
+        state.renderedFileId = String(fileId);
+        updatePageLabels();
+        await renderSpread(state.pageNo);
+        if (!stillLatest()) return;
+        if (state.isInSession && state.roomCode) socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId });
+        setNetBadge(`PDF:cache ${Date.now() - t0}ms`);
+        return;
+      }
+    } catch {}
+  }
+
   async function tryLoadPdfFromBlob({ label, url, credentials = 'omit' }) {
     try {
       setNetBadge(label);
@@ -3681,6 +3953,8 @@ async function loadPdf(fileId) {
       await renderSpread(state.pageNo);
       if (state.isInSession && state.roomCode) socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId });
       setNetBadge(`${label.replace(':...', '')} ${Date.now() - t0}ms`);
+      // cache store (best-effort; does nothing if disabled/too large)
+      pdfCachePut(fileId, blob, { source: label }).catch(() => {});
       return true;
     } catch {
       // blob URL cleanup on failure
@@ -3923,6 +4197,7 @@ document.getElementById('chordEditBtn')?.addEventListener('click', async () => {
     (state.isInSession && state.isPageTurner) || (!state.isInSession && ['admin', 'session'].includes(String(authState?.role || '')));
   if (!can) return flashHud('페이지터너/관리자만 편집 가능합니다', 1200);
 
+  const beforeText = String(state.chordEditText || '');
   const next = await openChordEditModal({ value: state.chordEditText || '' });
   if (next == null) return;
   const rawText = String(next || '');
@@ -3938,7 +4213,40 @@ document.getElementById('chordEditBtn')?.addEventListener('click', async () => {
       body: JSON.stringify({ docId: state.chordDocId, rawText })
     }).then((x) => x.json());
     if (!r?.ok) throw new Error(r?.error || 'SAVE_FAILED');
-    flashHud('저장 완료', 900);
+    chordUndoOnce = { docId: String(state.chordDocId), rawText: beforeText, savedAt: Date.now() };
+    showTopNotice({
+      title: '저장됨',
+      sub: new Date(chordUndoOnce.savedAt).toLocaleString(),
+      timeoutMs: 5000,
+      actions: [
+        {
+          id: 'cwUndoBtn',
+          label: '되돌리기(1단계)',
+          primary: false,
+          onClick: async () => {
+            const u = chordUndoOnce;
+            if (!u?.docId || !u?.rawText) return;
+            if (!confirm('직전 내용으로 되돌릴까요?')) return;
+            flashHud('되돌리는 중...', 900);
+            try {
+              const rr = await fetch(apiUrl('/api/chord-doc'), {
+                method: 'PUT',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ docId: u.docId, rawText: u.rawText })
+              }).then((x) => x.json());
+              if (!rr?.ok) throw new Error(rr?.error || 'UNDO_FAILED');
+              chordUndoOnce = null;
+              hideTopNotice();
+              await openChordByDocId(String(state.chordDocId), { broadcast: false });
+              flashHud('되돌림 완료', 900);
+            } catch (e) {
+              flashHud(`되돌리기 실패: ${e?.message || 'ERROR'}`, 1400);
+            }
+          }
+        }
+      ]
+    });
     // 갱신해서 다시 렌더
     await openChordByDocId(state.chordDocId, { broadcast: false });
   } catch (e) {

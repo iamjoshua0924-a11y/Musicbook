@@ -6,7 +6,7 @@
     <title>Score Viewer</title>
     <!-- cache-bust for mobile browsers -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/naver/d2codingfont@master/D2Coding.css" />
-    <link rel="stylesheet" href="viewer.css?v=20260527_14" />
+    <link rel="stylesheet" href="viewer.css?v=20260529_1" />
   </head>
   <body>
     <div id="viewer-wrapper">
@@ -36,6 +36,7 @@
             <span class="vsep" aria-hidden="true"></span>
             <button id="fullscreenBtn" type="button">전체화면</button>
             <button id="themeBtn" type="button">테마</button>
+            <button id="cacheBtn" type="button" title="오프라인 PDF 캐시">캐시</button>
           </div>
           <span id="sessionBadge" class="badge hidden"></span>
           <span id="turnerBadge" class="badge hidden"></span>
@@ -202,6 +203,7 @@
       </div>
 
       <main id="stage">
+        <div id="topNotice" class="topNotice hidden"></div>
         <!-- touch-mode header/bottom (원본) -->
         <div id="touchHeader">
           <div class="touchRow">
@@ -312,12 +314,31 @@
       </div>
     </div>
 
+    <!-- 캐시 설정(오프라인 PDF 캐시) -->
+    <div class="modalOverlay hidden" id="cacheModal">
+      <div class="modalBox">
+        <div class="modalTitle">오프라인 캐시</div>
+        <div class="muted" style="margin-top:6px; line-height:1.35;">
+          최근 본 PDF를 기기에 저장해서 다음에 더 빠르게 여는 기능입니다.
+        </div>
+        <label class="row" style="margin-top:10px; gap:10px; align-items:center;">
+          <input id="cacheEnabledToggle" type="checkbox" />
+          <span>오프라인 캐시 사용</span>
+        </label>
+        <div class="muted" id="cacheUsageText" style="margin-top:8px;"></div>
+        <div class="modalActions" style="margin-top:12px;">
+          <button id="cacheClearBtn" type="button">캐시 비우기</button>
+          <button id="cacheCloseBtn" type="button" class="primary">닫기</button>
+        </div>
+      </div>
+    </div>
+
     <!-- pdf.js + fabric.js (CDN, GAS 원본과 동일 계열) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
     <script src="../config.js"></script>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
-    <script src="viewer.js?v=20260528_5"></script>
+    <script src="viewer.js?v=20260529_1"></script>
   </body>
 </html>

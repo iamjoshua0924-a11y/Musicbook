@@ -42,6 +42,29 @@ body.light{
 }
 .muted{ color: var(--muted); }
 
+/* top notice (save banner / cache notice etc.) */
+.topNotice{
+  position: fixed;
+  top: 44px; /* below topbar */
+  left: 12px;
+  right: 12px;
+  z-index: 6500;
+  background: rgba(26,28,32,0.92);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  backdrop-filter: blur(10px);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+body.light .topNotice{ background: rgba(255,255,255,0.92); }
+.topNotice.hidden{ display:none; }
+.topNotice .msg{ font-weight: 900; }
+.topNotice .sub{ font-size: 12px; color: var(--muted); margin-top: 2px; }
+.topNotice .actions{ display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+
 #viewer-wrapper {
   height: 100vh;
   display: flex;
@@ -66,6 +89,8 @@ body.light{
 
 .inputRow{ display:flex; gap:8px; align-items:center; flex-wrap:nowrap; }
 body.link-collapsed .inputRow{ display:none; }
+
+.row{ display:flex; }
 
 .modeTabs{
   display:flex;

@@ -592,8 +592,9 @@ function attachSockets(io) {
       const fileId = String(payload?.fileId || '').trim();
       const room = store.rooms.get(roomCode);
       if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
-      // 커서공유는 "가벼운 표시"이므로 세션 참여자면 누구나 송신 가능
+      // 커서공유는 "턴너 전용" (요구사항)
       if (!room.members.has(socket.id)) return ack?.({ ok: false, error: 'NOT_IN_ROOM' });
+      if (room.pageTurnerSocketId !== socket.id) return ack?.({ ok: false, error: 'FORBIDDEN' });
       if (!fileId) return ack?.({ ok: false, error: 'FILE_REQUIRED' });
 
       const hide = Boolean(payload?.hide);

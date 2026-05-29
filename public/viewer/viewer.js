@@ -1087,7 +1087,11 @@ function findPageAtPoint(clientX, clientY) {
 function updateCursorShareUI() {
   const btn = document.getElementById('cursorShareBtn');
   if (!btn) return;
-  const canUse = Boolean(state.isInSession);
+  const canUse = Boolean(state.isInSession && state.isPageTurner);
+  // 턴너가 아니면(권한 양도 포함) 자동으로 끈다.
+  try {
+    if (!canUse && state.cursorShareOn) stopCursorShare(true);
+  } catch {}
   btn.disabled = !canUse;
   btn.classList.toggle('disabled', !canUse);
   btn.classList.toggle('active', Boolean(state.cursorShareOn));
@@ -1180,6 +1184,10 @@ function stopCursorShare(sendHide = false) {
 function startCursorShare() {
   if (!state.isInSession || !state.roomCode || !state.fileId) {
     flashHud('커서공유는 세션 참여 중에만 사용 가능합니다', 1400);
+    return;
+  }
+  if (!state.isPageTurner) {
+    flashHud('커서공유는 턴너만 사용할 수 있습니다', 1400);
     return;
   }
   ensureCursorEls();

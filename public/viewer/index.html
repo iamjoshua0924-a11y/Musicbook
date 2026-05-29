@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&display=swap" />
     <!-- cache-bust for mobile browsers -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/naver/d2codingfont@master/D2Coding.css" />
-    <link rel="stylesheet" href="viewer.css?v=20260529_19" />
+    <link rel="stylesheet" href="viewer.css?v=20260529_20" />
   </head>
   <body>
     <div id="viewer-wrapper">
@@ -36,17 +36,14 @@
             <button id="createSessionFloatBtn" class="hidden" title="세션 만들기">세션만들기</button>
             <button id="sessionFloatBtn" class="hidden" title="세션 참여/나가기">세션참여</button>
             <button id="participantsBtn" type="button" class="mini">접속자</button>
-            <!-- new session menu + ready -->
+            <!-- new session menu -->
             <button id="sessionMenuBtn" type="button" class="mini" title="세션 옵션">세션 옵션</button>
-            <button id="readyBtn" type="button" class="mini hidden" title="합주 준비">준비</button>
-            <button id="rehearsalToggleBtn" type="button" class="mini hidden" title="턴너 전용">합주시작</button>
             <span class="vsep" aria-hidden="true"></span>
             <button id="fullscreenBtn" type="button">전체화면</button>
             <button id="themeBtn" type="button">테마</button>
             <button id="cacheBtn" type="button" title="오프라인 PDF 캐시">캐시</button>
           </div>
           <span id="sessionBadge" class="badge hidden"></span>
-          <span id="rehearsalBadge" class="badge hidden"></span>
         </div>
       </header>
 
@@ -74,7 +71,7 @@
           <div class="group">
             <span class="label">줌</span>
             <button id="zoomOutBtn" type="button" class="mini">-</button>
-            <button id="fitBtn" type="button" class="mini">100%</button>
+            <button id="fitBtn" type="button" class="mini" title="원래배율">원래배율</button>
             <button id="zoomInBtn" type="button" class="mini">+</button>
           </div>
 
@@ -283,6 +280,11 @@
             <button id="participantsToggleBtn" type="button" class="panelToggleBtn">감추기</button>
           </div>
           <div id="participantsBody">
+            <div id="participantsRehearsalRow" class="participantsBulkRow">
+              <button id="readyBtn" type="button" class="mini hidden" title="합주 준비">준비</button>
+              <button id="rehearsalToggleBtn" type="button" class="mini hidden" title="턴너 전용">합주시작</button>
+              <span id="rehearsalBadge" class="badge hidden"></span>
+            </div>
             <div id="participantsBulkRow" class="participantsBulkRow hidden">
               <button id="rehearsalAllOnBtn" type="button" class="mini">전원 합주멤버</button>
               <button id="rehearsalAllOffBtn" type="button" class="mini">전원 해제</button>
@@ -460,6 +462,6 @@
     <script src="../config.js"></script>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
     <script src="../common/avatar.js?v=20260529_1"></script>
-    <script src="viewer.js?v=20260529_23"></script>
+    <script src="viewer.js?v=20260529_24"></script>
   </body>
 </html>

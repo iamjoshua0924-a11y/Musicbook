@@ -68,12 +68,25 @@ body.light{
   box-shadow: 0 0 18px rgba(122,162,255,0.55);
 }
 
-/* ready button */
+/* ready / rehearsal buttons (top emphasis) */
+#readyBtn{
+  border-color: rgba(122,162,255,0.55);
+  background: rgba(122,162,255,0.14);
+}
 #readyBtn.ready-on{
   border-color: rgba(54,220,120,0.6);
   background: rgba(54,220,120,0.22);
 }
-#readyBtn.disabled{ opacity: 0.58; }
+#readyBtn.disabled{ opacity: 0.78; }
+
+#rehearsalToggleBtn{
+  border-color: rgba(255,195,90,0.55);
+  background: rgba(255,195,90,0.14);
+}
+#rehearsalToggleBtn.rehearsal-on{
+  border-color: rgba(255,107,107,0.62);
+  background: rgba(255,107,107,0.18);
+}
 
 /* participant states (rehearsal) */
 .participant-row.reh-green{ border-color: rgba(54,220,120,0.55); box-shadow: 0 0 0 1px rgba(54,220,120,0.12) inset; }

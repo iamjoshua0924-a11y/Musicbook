@@ -651,6 +651,7 @@ function updateRehearsalToggleUI() {
   const btn = document.getElementById('rehearsalToggleBtn');
   if (!btn) return;
   btn.classList.toggle('hidden', !(state.isInSession && state.isPageTurner));
+  btn.classList.toggle('rehearsal-on', Boolean(state.rehearsalActive));
   btn.textContent = state.rehearsalActive ? '합주종료' : '합주시작';
 }
 

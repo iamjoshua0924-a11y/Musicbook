@@ -6,7 +6,7 @@
     <title>Score Viewer</title>
     <!-- cache-bust for mobile browsers -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/naver/d2codingfont@master/D2Coding.css" />
-    <link rel="stylesheet" href="viewer.css?v=20260529_4" />
+    <link rel="stylesheet" href="viewer.css?v=20260529_5" />
   </head>
   <body>
     <div id="viewer-wrapper">
@@ -37,6 +37,7 @@
             <!-- new session menu + ready -->
             <button id="sessionMenuBtn" type="button" class="mini" title="세션 옵션">세션 옵션</button>
             <button id="readyBtn" type="button" class="mini hidden" title="합주 준비">준비</button>
+            <button id="rehearsalToggleBtn" type="button" class="mini hidden" title="턴너 전용">합주시작</button>
             <span class="vsep" aria-hidden="true"></span>
             <button id="fullscreenBtn" type="button">전체화면</button>
             <button id="themeBtn" type="button">테마</button>
@@ -263,7 +264,6 @@
         <aside id="participantsPanel" class="hidden">
           <div class="panelTitleRow">
             <div class="panelTitle">세션 접속자</div>
-            <button id="rehearsalToggleBtn" type="button" class="panelToggleBtn hidden" title="턴너 전용">합주시작</button>
             <button id="participantsToggleBtn" type="button" class="panelToggleBtn">감추기</button>
           </div>
           <div id="participantsBody">
@@ -365,6 +365,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
     <script src="../config.js"></script>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
-    <script src="viewer.js?v=20260529_4"></script>
+    <script src="viewer.js?v=20260529_5"></script>
   </body>
 </html>

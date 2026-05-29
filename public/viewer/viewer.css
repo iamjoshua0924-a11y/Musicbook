@@ -42,6 +42,15 @@ body.light{
 }
 .muted{ color: var(--muted); }
 
+/* CodeWiki line numbers */
+.cwLineNo{
+  display:inline-block;
+  width: 4ch;
+  margin-right: 1ch;
+  color: var(--muted);
+  user-select: none;
+}
+
 /* top notice (save banner / cache notice etc.) */
 .topNotice{
   position: fixed;

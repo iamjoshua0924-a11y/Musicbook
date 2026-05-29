@@ -1928,11 +1928,16 @@ function renderChordBlocks(blocks) {
 
   let outHtml = '';
   let outText = '';
+  let lineNo = 1;
   for (const ln of rendered) {
     const ch = ln.chordCols.join('');
     const ly = ln.lyricCols.join('');
-    outHtml += `<span class="cwChordLine">${escHtml(ch)}</span>\n${escHtml(ly)}\n${'\n'.repeat(SET_GAP_LINES)}`;
+    const no = String(lineNo).padStart(3, ' ');
+    outHtml += `<span class="cwLineNo">${escHtml(no)}</span><span class="cwChordLine">${escHtml(ch)}</span>\n<span class="cwLineNo">${escHtml(
+      no
+    )}</span>${escHtml(ly)}\n${'\n'.repeat(SET_GAP_LINES)}`;
     outText += ch + '\n' + ly + '\n' + '\n'.repeat(SET_GAP_LINES);
+    lineNo += 1;
   }
   pre.innerHTML = outHtml.trimEnd();
   state.chordEditText = outText.trimEnd();
@@ -2218,11 +2223,16 @@ function renderChordCompact(compact) {
 
   let outHtml = '';
   let outText = '';
+  let lineNo = 1;
   for (const ln of renderedLines) {
     const ch = ln.chordCols.join('');
     const ly = ln.lyricCols.join('');
-    outHtml += `<span class="cwChordLine">${escHtml(ch)}</span>\n${escHtml(ly)}\n${'\n'.repeat(SET_GAP_LINES)}`;
+    const no = String(lineNo).padStart(3, ' ');
+    outHtml += `<span class="cwLineNo">${escHtml(no)}</span><span class="cwChordLine">${escHtml(ch)}</span>\n<span class="cwLineNo">${escHtml(
+      no
+    )}</span>${escHtml(ly)}\n${'\n'.repeat(SET_GAP_LINES)}`;
     outText += ch + '\n' + ly + '\n' + '\n'.repeat(SET_GAP_LINES);
+    lineNo += 1;
   }
   pre.innerHTML = outHtml.trimEnd();
   state.chordEditText = outText.trimEnd();

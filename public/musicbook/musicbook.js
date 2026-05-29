@@ -62,7 +62,9 @@ const state = {
   // card click selection
   _pendingCard: null,
   _pendingVariant: null,
-  _rouletteCandidates: []
+  _rouletteCandidates: [],
+  _lastSearchRaw: '',
+  _lastSearchIsCho: false
 };
 
 function toMs(v) {
@@ -125,6 +127,43 @@ function normLower(s) {
 // 검색용 정규화: 소문자 + 공백 제거(띄어쓰기 유무 무시)
 function normSearch(s) {
   return normLower(s).replace(/\s+/g, '');
+}
+
+// ---- 초성 검색 -------------------------------------------------------------------
+const CHOSEONG = ['ㄱ', 'ㄲ', 'ㄴ', 'ㄷ', 'ㄸ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅃ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅉ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
+function isChoseongQuery(q) {
+  return /^[ㄱ-ㅎ]+$/.test(String(q || '').trim());
+}
+function toChoseongString(s) {
+  const str = String(s ?? '');
+  let out = '';
+  for (const ch of Array.from(str)) {
+    const code = ch.charCodeAt(0);
+    // Hangul syllables
+    if (code >= 0xac00 && code <= 0xd7a3) {
+      const idx = Math.floor((code - 0xac00) / 588);
+      out += CHOSEONG[idx] || '';
+      continue;
+    }
+    // keep ASCII letters/digits for mixed search
+    out += normLower(ch);
+  }
+  return out.replace(/\s+/g, '');
+}
+
+function highlightHtml(text, q) {
+  const raw = String(text ?? '');
+  const query = String(q || '').trim();
+  if (!query) return esc(raw);
+  if (isChoseongQuery(query)) return esc(raw);
+  // very small/obvious safety: cap query length
+  const qq = query.slice(0, 64);
+  try {
+    const re = new RegExp(qq.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'ig');
+    return esc(raw).replace(re, (m) => `<mark class="hl">${m}</mark>`);
+  } catch {
+    return esc(raw);
+  }
 }
 
 function showLoading(on) {
@@ -486,7 +525,13 @@ async function loadMyAvailabilitySet() {
 }
 
 function applySongFilters() {
-  const q = normSearch($('searchInput').value.trim());
+  const qRaw = String($('searchInput')?.value || '').trim();
+  const q = normSearch(qRaw);
+  const qCho = qRaw.replace(/\s+/g, '');
+  const qIsCho = isChoseongQuery(qCho);
+  // renderer에서 하이라이트/표시용
+  state._lastSearchRaw = qRaw;
+  state._lastSearchIsCho = qIsCho;
   const genre = $('genreFilter').value;
   const mood = $('moodFilter').value;
   const vocal = $('vocalFilter').value;
@@ -499,14 +544,28 @@ function applySongFilters() {
     if (genre) list = list.filter((s) => s.genre === genre);
     if (mood) list = list.filter((s) => s.mood === mood);
     if (vocal) list = list.filter((s) => s.vocal === vocal);
-  if (q)
-    list = list.filter(
-      (s) =>
-          (s._searchNorm || normSearch(s.searchText || '')).includes(q) ||
-          (s._titleNorm || normSearch(s.title || '')).includes(q) ||
-          (s._displayTitleNorm || normSearch(s.displayTitle || '')).includes(q) ||
-          (s._artistNorm || normSearch(s.artist || '')).includes(q)
-    );
+    if (q) {
+      if (qIsCho) {
+        const qq = qCho;
+        list = list.filter((s) => {
+          s._titleCho ||= toChoseongString(s.title || '');
+          s._displayTitleCho ||= toChoseongString(s.displayTitle || '');
+          s._artistCho ||= toChoseongString(s.artist || '');
+          s._searchCho ||= toChoseongString(s.searchText || '');
+          return (
+            s._searchCho.includes(qq) || s._titleCho.includes(qq) || s._displayTitleCho.includes(qq) || s._artistCho.includes(qq)
+          );
+        });
+      } else {
+        list = list.filter(
+          (s) =>
+            (s._searchNorm || normSearch(s.searchText || '')).includes(q) ||
+            (s._titleNorm || normSearch(s.title || '')).includes(q) ||
+            (s._displayTitleNorm || normSearch(s.displayTitle || '')).includes(q) ||
+            (s._artistNorm || normSearch(s.artist || '')).includes(q)
+        );
+      }
+    }
 
     // 가능보컬(AND) 필터도 편집모드(파일 단위)에 동일 적용
     if (availableVocalUserIds.length) {
@@ -543,13 +602,24 @@ function applySongFilters() {
   if (genre) list = list.filter((c) => c.genre === genre);
   if (mood) list = list.filter((c) => c.mood === mood);
   if (vocal) list = list.filter((c) => c.vocal === vocal);
-  if (q)
-    list = list.filter(
-      (c) =>
-        (c._searchNorm || normSearch(c.searchText || '')).includes(q) ||
-        (c._titleNorm || normSearch(c.title || '')).includes(q) ||
-        (c._artistNorm || normSearch(c.artist || '')).includes(q)
-    );
+  if (q) {
+    if (qIsCho) {
+      const qq = qCho;
+      list = list.filter((c) => {
+        c._titleCho ||= toChoseongString(c.title || '');
+        c._artistCho ||= toChoseongString(c.artist || '');
+        c._searchCho ||= toChoseongString(c.searchText || '');
+        return c._searchCho.includes(qq) || c._titleCho.includes(qq) || c._artistCho.includes(qq);
+      });
+    } else {
+      list = list.filter(
+        (c) =>
+          (c._searchNorm || normSearch(c.searchText || '')).includes(q) ||
+          (c._titleNorm || normSearch(c.title || '')).includes(q) ||
+          (c._artistNorm || normSearch(c.artist || '')).includes(q)
+      );
+    }
+  }
 
   // 가능보컬 필터(AND): 선택된 유저 "모두"가 가능한 곡만 노출
   if (availableVocalUserIds.length) {
@@ -625,14 +695,14 @@ function renderSongCards(hideTags) {
       <div class="song-card-header">
         <div class="song-card-top">
           <div class="song-card-title">
-            <span>${esc(title)}</span>
+            <span>${highlightHtml(title, state._lastSearchRaw)}</span>
             ${c.isLatest ? `<span class="new-badge">new!</span>` : ''}
           </div>
           <div class="song-card-actions">
             ${isAdmin ? `<span class="chip edit-chip" data-action="editSong">편집</span>` : ''}
           </div>
         </div>
-        <div class="song-card-artist">${esc(c.artist || '')}</div>
+        <div class="song-card-artist">${highlightHtml(c.artist || '', state._lastSearchRaw)}</div>
         ${users.length ? `<div class="song-card-avatars">${avatarHtml}</div>` : ''}
       </div>
       ${hideTags ? '' : `
@@ -703,8 +773,8 @@ function renderAvailabilityEditCards(hideTags) {
     el.innerHTML = `
       <div class="song-card-header">
         <div>
-          <div class="song-card-title">${esc(title)} ${s.isLatest ? `<span class="new-badge">new!</span>` : ''}</div>
-          <div class="song-card-artist">${esc(s.artist || '')}</div>
+          <div class="song-card-title">${highlightHtml(title, state._lastSearchRaw)} ${s.isLatest ? `<span class="new-badge">new!</span>` : ''}</div>
+          <div class="song-card-artist">${highlightHtml(s.artist || '', state._lastSearchRaw)}</div>
         </div>
         <div class="song-card-right">
           <label class="inline-check" style="gap:8px;">
@@ -1884,7 +1954,8 @@ function getOrCreatePresenceNickname() {
   const key = 'mb_presence_nick';
   const saved = localStorage.getItem(key);
   if (saved) return saved;
-  const v = prompt('닉네임을 입력해 주세요(접속자 표시용):', '익명') || '익명';
+  // 첫 접속 UX: 입력 요구하지 않고 기본값으로 진행
+  const v = '익명';
   localStorage.setItem(key, v);
   return v;
 }
@@ -1903,10 +1974,15 @@ function renderPresence(items) {
   const roleRank = (r) => (r === 'admin' ? 3 : r === 'session' ? 2 : 1);
   const merged = new Map(); // key -> item
   list.forEach((p) => {
-    const key = String(p?.displayName || p?.nickname || '').trim() || '익명';
-    const k = key.toLowerCase();
+    const name = String(p?.displayName || p?.nickname || '').trim() || '익명';
+    const role = String(p?.role || 'viewer');
+    // 방문자/익명은 병합하지 않는다(카운트 정확성 + 중복 탭 감지)
+    const k =
+      role === 'viewer' || name === '익명'
+        ? `__anon__:${String(p?.socketId || '') || String(p?.ts || '') || String(Math.random())}`
+        : name.toLowerCase();
     const prev = merged.get(k);
-    if (!prev) return merged.set(k, { ...p, _nameKey: key });
+    if (!prev) return merged.set(k, { ...p, _nameKey: name });
     const a = prev;
     const b = p;
     const keep =
@@ -1920,7 +1996,7 @@ function renderPresence(items) {
     const other = keep === a ? b : a;
     merged.set(k, {
       ...keep,
-      _nameKey: key,
+      _nameKey: name,
       // 보조 정보는 가능한 채우기
       displayName: keep.displayName || other.displayName || '',
       nickname: keep.nickname || other.nickname || '',

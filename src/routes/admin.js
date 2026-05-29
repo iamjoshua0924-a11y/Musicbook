@@ -76,6 +76,10 @@ router.post('/admin/login', async (req, res) => {
     profilePhoto: user.profilePhoto || '',
     mustChangePassword: Boolean(user.mustChangePassword)
   };
+  // T-18: last seen 기록 (로그인 성공 시)
+  try {
+    await User.updateOne({ _id: user._id }, { $set: { lastSeenAt: new Date() } });
+  } catch {}
   res.json({ ok: true, user: req.session.user });
 });
 

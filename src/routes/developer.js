@@ -8,6 +8,7 @@ const { listErrors, clearErrors } = require('../services/errorLog');
 const { store } = require('../sockets');
 const Setting = require('../models/Setting');
 const Song = require('../models/Song');
+const User = require('../models/User');
 const { getDriveRootFolderId, restartDriveSync, stopDriveSync } = require('../services/driveSyncRunner');
 const { getFileMetadata, renameFile } = require('../services/drive');
 
@@ -402,6 +403,28 @@ router.post(
   asyncHandler(async (_req, res) => {
     clearErrors();
     res.json({ ok: true });
+  })
+);
+
+// GET /api/dev/users (T-18)
+router.get(
+  '/users',
+  requireDev,
+  asyncHandler(async (_req, res) => {
+    const users = await User.find({}, { userId: 1, role: 1, displayName: 1, active: 1, lastSeenAt: 1, createdAt: 1 })
+      .sort({ userId: 1 })
+      .lean();
+    res.json({
+      ok: true,
+      items: (users || []).map((u) => ({
+        userId: u.userId,
+        role: u.role,
+        displayName: u.displayName || '',
+        active: u.active !== false,
+        lastSeenAt: u.lastSeenAt || null,
+        createdAt: u.createdAt || null
+      }))
+    });
   })
 );
 

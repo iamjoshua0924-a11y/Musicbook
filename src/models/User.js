@@ -11,6 +11,7 @@ const UserSchema = new mongoose.Schema(
 
     mustChangePassword: { type: Boolean, default: false },
     legacyPasswordHash: { type: String, default: '' }, // 기존 GAS 시트의 해시(참조용)
+    lastSeenAt: { type: Date, default: null },
     createdAt: { type: Date, default: () => new Date() },
     updatedAt: { type: Date, default: () => new Date() }
   },

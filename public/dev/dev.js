@@ -26,7 +26,7 @@ async function apiJson(url, method, body) {
 
 function showAuthed(on) {
   $('loginCard').style.display = on ? 'none' : 'block';
-  ['meCard', 'sessionsCard', 'syncCard', 'parseErrorCard', 'trafficCard', 'errorsCard'].forEach((id) => {
+  ['meCard', 'usersCard', 'sessionsCard', 'syncCard', 'parseErrorCard', 'trafficCard', 'errorsCard'].forEach((id) => {
     const el = $(id);
     if (el) el.style.display = on ? 'block' : 'none';
   });
@@ -314,8 +314,53 @@ async function clearErrors() {
   await loadErrors();
 }
 
+function formatRelTime(dateLike) {
+  if (!dateLike) return { label: '기록 없음', title: '' };
+  const t = new Date(dateLike).getTime();
+  if (!Number.isFinite(t) || t <= 0) return { label: '기록 없음', title: '' };
+  const diff = Date.now() - t;
+  const title = new Date(t).toLocaleString();
+  if (diff < 60 * 1000) return { label: '방금', title };
+  if (diff < 60 * 60 * 1000) return { label: `${Math.floor(diff / 60000)}분 전`, title };
+  if (diff < 24 * 60 * 60 * 1000) return { label: `${Math.floor(diff / 3600000)}시간 전`, title };
+  if (diff < 30 * 24 * 60 * 60 * 1000) return { label: `${Math.floor(diff / 86400000)}일 전`, title };
+  return { label: `${Math.floor(diff / (30 * 86400000))}개월 전`, title };
+}
+
+async function loadUsers() {
+  const out = $('usersOut');
+  const wrap = $('usersList');
+  if (out) out.textContent = '로딩 중...';
+  if (wrap) wrap.innerHTML = '';
+  const r = await apiGet('/api/dev/users');
+  if (!r.ok) {
+    if (out) out.textContent = `불러오기 실패: ${r.error || ''}`;
+    return;
+  }
+  const items = Array.isArray(r.items) ? r.items : [];
+  if (out) out.textContent = `총 ${items.length}명`;
+  items.forEach((u) => {
+    const el = document.createElement('div');
+    el.className = 'item';
+    const seen = formatRelTime(u.lastSeenAt);
+    const created = formatRelTime(u.createdAt);
+    el.innerHTML = `
+      <div style="flex:1; display:grid; gap:6px;">
+        <div><span class="kbd">${esc(u.userId || '')}</span> · <b>${esc(u.role || '')}</b> ${u.active === false ? '<span class="muted">(비활성)</span>' : ''}</div>
+        <div class="muted">${esc(u.displayName || '')}</div>
+      </div>
+      <div style="display:grid; gap:6px; text-align:right;">
+        <div class="muted" title="${esc(seen.title)}">lastSeen: <b>${esc(seen.label)}</b></div>
+        <div class="muted" title="${esc(created.title)}">created: ${esc(created.label)}</div>
+      </div>
+    `;
+    wrap.appendChild(el);
+  });
+}
+
 $('devLoginBtn').onclick = () => login().catch(() => {});
 $('devLogoutBtn').onclick = () => logout().catch(() => {});
+$('reloadUsersBtn')?.addEventListener?.('click', () => loadUsers().catch(() => {}));
 $('reloadSessionsBtn').onclick = () => loadSessions().catch(() => {});
 $('saveRootFolderBtn')?.addEventListener?.('click', () => saveDriveRoot().catch(() => {}));
 $('syncBtn')?.addEventListener?.('click', () => toggleSync().catch(() => {}));
@@ -342,6 +387,7 @@ function setAutoRefresh(on) {
   if (!enabled) return;
   autoPoller = setInterval(() => {
     // best-effort: these should not throw
+    loadUsers().catch(() => {});
     loadSessions().catch(() => {});
     loadSync().catch(() => {});
     loadErrors().catch(() => {});
@@ -359,6 +405,7 @@ $('autoRefreshToggle')?.addEventListener?.('change', (e) => setAutoRefresh(Boole
 refreshMe()
   .then((authed) => {
     if (authed) {
+      loadUsers().catch(() => {});
       loadSessions().catch(() => {});
       loadDriveRoot().catch(() => {});
       loadSync().catch(() => {});

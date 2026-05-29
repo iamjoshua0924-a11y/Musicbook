@@ -3539,8 +3539,9 @@ document.getElementById('createSessionFloatBtn')?.addEventListener('click', () =
     // NOTE: keep current fileId; if empty, user can still open via link input in future version
     window.history.replaceState(null, '', nextUrl);
     joinSession(roomCode);
-    copyToClipboard(roomCode).then((ok) => {
-      if (ok) flashHud(`ROOM ${roomCode} 복사됨`, 1200);
+    // T-02: 세션 생성 직후 초대 URL 자동 복사
+    copyToClipboard(nextUrl).then((ok) => {
+      if (ok) flashHud('초대 링크 복사됨', 1200);
     });
       });
     })

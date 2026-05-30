@@ -62,14 +62,30 @@ async function loadUsers() {
   const out = $('usersOut');
   const wrap = $('usersList');
   if (out) out.textContent = '로딩 중...';
-  if (wrap) wrap.innerHTML = '';
+  // UX: 새로고침 중 리스트를 비우면 레이아웃이 접혔다 펴지며 화면이 흔들린다.
+  // 기존 DOM을 유지한 채로 "로딩 상태"만 표시하고, 응답이 오면 한 번에 replace한다.
+  let prevH = 0;
+  try {
+    if (wrap) {
+      prevH = Math.round(wrap.getBoundingClientRect().height || 0);
+      if (prevH > 0) wrap.style.minHeight = `${prevH}px`;
+      wrap.classList.add('loading');
+    }
+  } catch {}
   const r = await apiGet('/api/admin/users');
+  try {
+    if (wrap) wrap.classList.remove('loading');
+  } catch {}
   if (!r.ok) {
     if (out) out.textContent = `불러오기 실패: ${r.error || ''}`;
+    try {
+      if (wrap) wrap.style.minHeight = '';
+    } catch {}
     return;
   }
   const items = Array.isArray(r.items) ? r.items : [];
   if (out) out.textContent = `총 ${items.length}명`;
+  const frag = document.createDocumentFragment();
   items.forEach((u) => {
     const el = document.createElement('div');
     el.className = 'item';
@@ -103,8 +119,22 @@ async function loadUsers() {
       if (!rr.ok) return alert(`실패: ${rr.error || ''}`);
       await loadUsers();
     };
-    wrap.appendChild(el);
+    frag.appendChild(el);
   });
+  try {
+    if (wrap) wrap.replaceChildren(frag);
+  } catch {
+    try {
+      if (wrap) {
+        wrap.innerHTML = '';
+        wrap.appendChild(frag);
+      }
+    } catch {}
+  }
+  // 레이아웃 안정화가 끝나면 minHeight 해제
+  try {
+    if (wrap) setTimeout(() => (wrap.style.minHeight = ''), 0);
+  } catch {}
 }
 
 async function loadMain() {

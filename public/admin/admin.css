@@ -57,6 +57,11 @@ button:active{ transform: translateY(1px); }
 
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .list { display: grid; gap: 8px; }
+.list.loading{
+  opacity: 0.55;
+  filter: grayscale(0.08);
+  pointer-events: none;
+}
 .item { border: 1px solid #eee; border-radius: 12px; padding: 10px; display: flex; justify-content: space-between; gap: 10px; }
 .kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; background: #f3f3f3; padding: 2px 6px; border-radius: 6px; }
 

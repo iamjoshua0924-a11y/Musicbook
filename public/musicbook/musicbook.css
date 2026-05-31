@@ -316,13 +316,13 @@ body.archive-mode #userRoleText{ display:none !important; }
 
 /* 좌측 컬럼 타이틀 */
 .archive-nav-title{
-  padding: 10px 14px;
-  border-radius: 22px;
-  background: rgba(255,255,255,0.66);
-  border: 1px solid rgba(255,255,255,0.72);
-  box-shadow: 0 18px 46px rgba(0,0,0,0.10);
-  backdrop-filter: blur(14px);
-  font-size: 20px;
+  padding: 6px 2px;
+  border-radius: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  font-size: 22px;
   font-weight: 1000;
   line-height: 1.12;
   letter-spacing: -0.03em;
@@ -1065,10 +1065,18 @@ body.hide-tags .song-chips{ display:none; }
 }
 
 /* Loading animation (private songbook) */
+.loading-default{
+  display:block;
+}
+.loading-anim{
+  display:none;
+}
+body.archive-mode .loading-default{ display:none; }
+body.archive-mode .loading-anim{ display:grid; }
+
 .loading-anim{
   position: relative;
   width: min(720px, 92vw);
-  display:grid;
   justify-items:center;
   align-items:center;
   gap: 14px;

@@ -828,7 +828,7 @@ function applySongFilters() {
     });
 
     state.songFilesFiltered = list;
-    const totalLabel = state.songFilesTotal ? ` / 전체: ${state.songFilesTotal}개` : '';
+    const totalLabel = !state.isArchiveMode && state.songFilesTotal ? ` / 전체: ${state.songFilesTotal}개` : '';
     $('resultCount').textContent = `검색 결과: ${list.length}개(파일 단위)${totalLabel}`;
     renderAvailabilityEditCards(hideTags);
     renderPager();
@@ -889,7 +889,7 @@ function applySongFilters() {
   });
 
   state.songCardsFiltered = list;
-  const totalCardsLabel = state.songCardsTotal ? ` / 전체: ${state.songCardsTotal}곡` : '';
+  const totalCardsLabel = !state.isArchiveMode && state.songCardsTotal ? ` / 전체: ${state.songCardsTotal}곡` : '';
   $('resultCount').textContent = `검색 결과: ${list.length}곡${totalCardsLabel}`;
   renderSongCards(hideTags);
   renderPager();
@@ -2560,6 +2560,8 @@ async function bootstrap() {
     // archive mode detection (path-based: /public/musicbook/u/<id>)
     state.archiveTargetUserId = detectArchiveTargetUserId();
     state.isArchiveMode = Boolean(state.archiveTargetUserId);
+    // 로딩 화면부터 아카이브 전용 UI/애니메이션이 적용되도록, 초기에 class를 세팅한다.
+    if (state.isArchiveMode) document.body.classList.add('archive-mode');
 
     wireEvents();
     // archive public profile (for header/loading animation)

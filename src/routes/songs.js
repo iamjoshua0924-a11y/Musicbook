@@ -217,7 +217,8 @@ router.get('/songs/cards', async (req, res) => {
   const userMap = new Map();
   if (allUserIds.length) {
     // include admin too (profilePhoto/displayName should still work)
-    const users = await User.find({ userId: { $in: allUserIds }, active: { $ne: false } }).lean();
+    // private 계정은 메인 UI(가능곡 아이콘/세션 아이콘) 어디에도 노출하지 않는다.
+    const users = await User.find({ userId: { $in: allUserIds }, active: { $ne: false }, isPrivate: { $ne: true } }).lean();
     users.forEach((u) => userMap.set(String(u.userId), u));
   }
 
@@ -232,9 +233,11 @@ router.get('/songs/cards', async (req, res) => {
     const availableUsers = uids
       .map((uid) => {
         const u = userMap.get(uid);
+        if (!u) return null;
         const displayName = String(u?.displayName || uid);
         return { userId: uid, displayName, profilePhoto: String(u?.profilePhoto || '') };
       })
+      .filter(Boolean)
       .sort((a, b) => a.displayName.localeCompare(b.displayName))
       .slice(0, 12);
     cards.push({

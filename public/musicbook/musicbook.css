@@ -305,6 +305,39 @@ body.archive-mode #presenceShowBtn{ display:none !important; }
 body.archive-mode #availableVocalRow{ display:none !important; }
 body.archive-mode #availableVocalSelectedRow{ display:none !important; }
 
+/* 레이아웃: 왼쪽 네비(240px) 숨김으로 생기는 "빈 컬럼" 제거 */
+body.archive-mode .layout{
+  grid-template-columns: 1fr;
+  width: min(1080px, 96vw);
+  margin: 12px auto 56px;
+}
+body.archive-mode .floating-nav{ display:none !important; }
+body.archive-mode .top-right{ display:none !important; }
+body.archive-mode .app-container{ padding-bottom: 40px; }
+
+/* 검색/필터 줄: 아카이브에서는 가로폭이 좁아도 자연스럽게 줄바꿈 */
+body.archive-mode .search-row-1{
+  flex-wrap: wrap;
+  overflow-x: visible;
+}
+body.archive-mode .search-row-1 .input{
+  flex: 1 1 280px;
+  min-width: 220px;
+}
+body.archive-mode .search-row-1 .select{
+  flex: 1 1 140px;
+  min-width: 140px;
+}
+
+/* 카드 리스트: 개인 노래책은 1열(가독성) */
+body.archive-mode .song-card-list{
+  grid-template-columns: 1fr;
+  justify-content: stretch;
+}
+body.archive-mode .song-card{
+  max-width: 100%;
+}
+
 /* GAS 원본: 검색 영역은 flex-wrap */
 .search-grid{
   display:flex;

@@ -10,7 +10,8 @@ const Setting = require('../models/Setting');
 const Song = require('../models/Song');
 const User = require('../models/User');
 const bcrypt = require('bcrypt');
-const { normalizePrefix, buildPrivateArchivePath, getPrivateArchivePrefix } = require('../services/privateArchive');
+const Availability = require('../models/Availability');
+const { buildPrivateArchivePath, getPrivateArchivePrefix } = require('../services/privateArchive');
 const { getDriveRootFolderId, restartDriveSync, stopDriveSync } = require('../services/driveSyncRunner');
 const { getFileMetadata, renameFile } = require('../services/drive');
 const { getNowCount, getSeries } = require('../services/connectionHistory');
@@ -260,18 +261,6 @@ router.get(
     res.json({ ok: true, prefix });
   })
 );
-router.patch(
-  '/private-archive',
-  requireDev,
-  asyncHandler(async (req, res) => {
-    const schema = z.object({ prefix: z.string().max(300).optional().default('') }).strict();
-    const parsed = schema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
-    const value = normalizePrefix(parsed.data.prefix);
-    await Setting.findOneAndUpdate({ key: 'privateArchivePrefix' }, { $set: { key: 'privateArchivePrefix', value } }, { upsert: true });
-    res.json({ ok: true, prefix: value });
-  })
-);
 
 // Users list (dev) - includes private flag & archive url
 router.get(
@@ -332,6 +321,22 @@ router.post(
       },
       password: '1234'
     });
+  })
+);
+
+// Delete private user (dev only)
+router.delete(
+  '/users/private/:userId',
+  requireDev,
+  asyncHandler(async (req, res) => {
+    const userId = String(req.params?.userId || '').trim();
+    if (!userId) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+    const existed = await User.findOne({ userId }).lean();
+    if (!existed) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
+    if (!existed.isPrivate) return res.status(400).json({ ok: false, error: 'NOT_PRIVATE' });
+    await Availability.deleteMany({ userId });
+    await User.deleteOne({ userId });
+    res.json({ ok: true });
   })
 );
 

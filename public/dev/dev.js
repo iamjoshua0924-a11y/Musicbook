@@ -357,7 +357,8 @@ async function loadUsers() {
       <div style="display:grid; gap:6px; text-align:right; align-content:start;">
         <div class="muted" title="${esc(seen.title)}">lastSeen: <b>${esc(seen.label)}</b></div>
         <div class="muted" title="${esc(created.title)}">created: ${esc(created.label)}</div>
-        ${u.isPrivate && u.archivePath ? `<button class="light" type="button" data-archive="1">아카이브 열기</button>` : ''}
+        ${u.isPrivate && u.archivePath ? `<button class="light" type="button" data-archive="1">개인 노래책 열기</button>` : ''}
+        ${u.isPrivate ? `<button class="light" type="button" data-del="1">삭제</button>` : ''}
       </div>
     `;
     el.querySelector('[data-archive="1"]')?.addEventListener?.('click', () => {
@@ -365,6 +366,7 @@ async function loadUsers() {
       if (!url) return;
       window.open(url, '_blank', 'noopener');
     });
+    el.querySelector('[data-del="1"]')?.addEventListener?.('click', () => deletePrivateUser(u.userId).catch(() => {}));
     wrap.appendChild(el);
   });
 }
@@ -377,26 +379,7 @@ async function loadPrivateArchivePrefix() {
     if (out) out.textContent = `실패: ${r.error || ''}`;
     return;
   }
-  try {
-    $('privateArchivePrefix').value = String(r.prefix || '');
-  } catch {}
-  if (out) out.textContent = `현재: ${String(r.prefix || '')}`;
-}
-
-async function savePrivateArchivePrefix() {
-  const out = $('privateArchiveOut');
-  if (out) out.textContent = '저장 중...';
-  const v = String($('privateArchivePrefix')?.value || '').trim();
-  const r = await apiJson('/api/dev/private-archive', 'PATCH', { prefix: v });
-  if (!r.ok) {
-    if (out) out.textContent = `저장 실패: ${r.error || ''}`;
-    return;
-  }
-  if (out) out.textContent = `저장됨: ${String(r.prefix || '')}`;
-  try {
-    $('privateArchivePrefix').value = String(r.prefix || '');
-  } catch {}
-  await loadUsers();
+  if (out) out.textContent = `개인 노래책 URL 베이스: ${String(r.prefix || '')}`;
 }
 
 async function createPrivateUser() {
@@ -407,6 +390,15 @@ async function createPrivateUser() {
   if (!r.ok) return alert(`생성 실패: ${r.error || ''}`);
   const url = String(r?.user?.archivePath || '');
   alert(`생성 완료\n- userId: ${uid}\n- PW: 1234\n- archive: ${url || ''}`);
+  await loadUsers();
+}
+
+async function deletePrivateUser(userId) {
+  const uid = String(userId || '').trim();
+  if (!uid) return;
+  if (!confirm(`[private] 유저를 삭제할까요?\n- ${uid}\n(가능곡 데이터도 함께 삭제됩니다)`)) return;
+  const r = await apiJson(`/api/dev/users/private/${encodeURIComponent(uid)}`, 'DELETE', {});
+  if (!r.ok) return alert(`삭제 실패: ${r.error || ''}`);
   await loadUsers();
 }
 
@@ -485,7 +477,6 @@ async function loadConnections() {
 $('devLoginBtn').onclick = () => login().catch(() => {});
 $('devLogoutBtn').onclick = () => logout().catch(() => {});
 $('reloadUsersBtn')?.addEventListener?.('click', () => loadUsers().catch(() => {}));
-$('savePrivateArchivePrefixBtn')?.addEventListener?.('click', () => savePrivateArchivePrefix().catch(() => {}));
 $('createPrivateUserBtn')?.addEventListener?.('click', () => createPrivateUser().catch(() => {}));
 $('reloadSessionsBtn').onclick = () => loadSessions().catch(() => {});
 $('reloadConnectionsBtn')?.addEventListener?.('click', () => loadConnections().catch(() => {}));

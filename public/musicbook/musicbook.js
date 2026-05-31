@@ -32,7 +32,7 @@ const state = {
   isArchiveMode: false,
   archiveTargetUserId: '',
   archiveViewOnly: false, // 관리자/타유저 접근 시 read-only
-  privateArchivePrefix: '',
+  archiveAuthorized: false,
   main: null,
   songCardsAll: [],
   songCardsFiltered: [],
@@ -89,23 +89,23 @@ try {
 
 function detectArchiveTargetUserId() {
   const pathname = String(window.location.pathname || '');
-  const prefix = String(state.privateArchivePrefix || '').trim();
-  if (!prefix) return '';
-
-  // prefix는 normalizePrefix로 항상 "/"로 시작하고 "/"로 끝난다.
-  // pathname이 prefix 그 자체(또는 trailing slash 없는 동일 경로)이면 "아카이브 루트"이므로 userId가 없다.
-  const prefixNoSlash = prefix.endsWith('/') ? prefix.slice(0, -1) : prefix;
-  if (pathname === prefixNoSlash || pathname === prefix) return '';
-
-  if (!pathname.startsWith(prefix)) return '';
-  const rest = pathname.slice(prefix.length); // e.g. "<userId>" or "<userId>/..."
-  const seg = String(rest.split('/').filter(Boolean)[0] || '').trim();
-  if (!seg || seg === 'index.html' || seg.endsWith('.css') || seg.endsWith('.js')) return '';
-  try {
-    return decodeURIComponent(seg);
-  } catch {
-    return seg;
+  // 요구사항: 스텔스 유저 개인 노래책은 고정 경로로 제공한다.
+  // - /public/musicbook/u/<userId>
+  // - /musicbook/u/<userId> (백엔드 단독 배포 대비)
+  const patterns = ['/public/musicbook/u/', '/musicbook/u/'];
+  for (const base of patterns) {
+    const idx = pathname.indexOf(base);
+    if (idx < 0) continue;
+    const rest = pathname.slice(idx + base.length); // "<userId>/..."
+    const seg = String(rest.split('/').filter(Boolean)[0] || '').trim();
+    if (!seg || seg === 'index.html' || seg.endsWith('.css') || seg.endsWith('.js')) return '';
+    try {
+      return decodeURIComponent(seg);
+    } catch {
+      return seg;
+    }
   }
+  return '';
 }
 
 function setArchiveShellUI() {
@@ -1620,14 +1620,28 @@ async function refreshSession() {
     const isAdmin = state.role === 'admin';
     const isOwner = String(state.userId || '') === String(state.archiveTargetUserId || '');
     state.archiveViewOnly = isAdmin ? true : false;
-    if (!isAdmin && !(isOwner && state.isPrivate)) {
-      // 접근 불가: 메인으로 복귀
-      toast('접근 권한이 없습니다.');
+    state.archiveAuthorized = false;
+
+    // 1) viewer(미로그인)면: 메인으로 쫓아내지 말고, 아카이브 셸만 띄운 뒤 로그인 유도
+    if (state.role === 'viewer') {
+      setArchiveShellUI();
+      toast('개인 노래책은 로그인 후 이용 가능합니다.');
       try {
-        window.location.replace(new URL('./', window.location.href).toString());
+        openModal('loginModal');
       } catch {}
       return;
     }
+
+    // 2) admin은 보기 전용으로 접근 가능(데이터 노출은 "내 가능곡"만이므로 문제 없음)
+    // 3) 본인(private)만 편집 가능
+    if (!isAdmin && !(isOwner && state.isPrivate)) {
+      toast('접근 권한이 없습니다.');
+      // 접근 불가: 메인으로 보내지 않고 빈 화면 유지(정보 노출 방지)
+      setArchiveShellUI();
+      return;
+    }
+
+    state.archiveAuthorized = true;
     // owner라면 편집 가능, admin은 view only
     if (isOwner && state.isPrivate) state.archiveViewOnly = false;
     setArchiveShellUI();
@@ -1679,6 +1693,12 @@ async function doLogin() {
   applySongFilters();
   await refreshSocketMetaAndReconnect();
   await loadAvailabilityUsersIfNeeded();
+  // 아카이브 링크로 접근한 경우: 로그인 후 목록을 로드한다.
+  if (state.isArchiveMode && state.archiveAuthorized) {
+    state.songCardsAll = [];
+    await loadSongs(true);
+    applySongFilters();
+  }
   toast('로그인 완료');
 }
 
@@ -2432,15 +2452,7 @@ async function loadAvailabilityUsersIfNeeded() {
 async function bootstrap() {
   showLoading(true);
   try {
-    // archive prefix fetch (public)
-    try {
-      const pr = await fetch(apiUrl('/api/private-archive'), { credentials: 'include' }).then((r) => r.json());
-      if (pr?.ok) state.privateArchivePrefix = String(pr.prefix || '').trim();
-    } catch {}
-    // fallback if API fails
-    if (!state.privateArchivePrefix) state.privateArchivePrefix = '/public/musicbook/';
-
-    // archive mode detection (prefix-aware)
+    // archive mode detection (path-based)
     state.archiveTargetUserId = detectArchiveTargetUserId();
     state.isArchiveMode = Boolean(state.archiveTargetUserId);
 
@@ -2453,7 +2465,7 @@ async function bootstrap() {
     attachSockets();
     await refreshSession();
     if (!state.isArchiveMode) await loadMainPage();
-    await loadSongs(true);
+    if (!state.isArchiveMode || state.archiveAuthorized) await loadSongs(true);
     // 파일 단위 목록은 무거우므로 필요 시(가능곡 편집 진입 시) 로드
     if (!state.isArchiveMode) await loadSongFiles(true);
     await loadAvailabilityUsersIfNeeded();

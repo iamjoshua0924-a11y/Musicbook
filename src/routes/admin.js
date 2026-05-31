@@ -151,7 +151,6 @@ router.post('/admin/users', requireAdmin, async (req, res) => {
   const passwordInput = String(req.body?.password || '');
   const role = String(req.body?.role || '').trim();
   const displayName = String(req.body?.displayName || '').trim();
-  const isPrivate = Boolean(req.body?.isPrivate);
   if (!userId || !['admin', 'session'].includes(role)) {
     return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
   }
@@ -161,14 +160,16 @@ router.post('/admin/users', requireAdmin, async (req, res) => {
   const passwordHash = await bcrypt.hash(password, 10);
   const doc = await User.findOneAndUpdate(
     { userId },
-    { $set: { userId, passwordHash, role, displayName, active: true, isPrivate } },
+    // admin에서는 private 유저를 생성/수정하지 않는다.
+    { $set: { userId, passwordHash, role, displayName, active: true, isPrivate: false } },
     { upsert: true, new: true }
   );
   res.json({ ok: true, item: doc.toObject(), password });
 });
 
 router.get('/admin/users', requireAdmin, async (req, res) => {
-  const items = await User.find({}).sort({ role: 1, userId: 1 }).lean();
+  // 요구사항: 스텔스(private) 유저는 admin에서 보이지 않아야 한다.
+  const items = await User.find({ isPrivate: { $ne: true } }).sort({ role: 1, userId: 1 }).lean();
   const safe = items.map((u) => ({
     _id: String(u._id),
     userId: u.userId,
@@ -176,8 +177,7 @@ router.get('/admin/users', requireAdmin, async (req, res) => {
     displayName: u.displayName,
     active: u.active,
     profilePhoto: u.profilePhoto,
-    mustChangePassword: u.mustChangePassword,
-    isPrivate: Boolean(u.isPrivate)
+    mustChangePassword: u.mustChangePassword
   }));
   res.json({ ok: true, items: safe });
 });
@@ -186,6 +186,8 @@ router.get('/admin/users', requireAdmin, async (req, res) => {
 router.patch('/admin/users/:userId', requireAdmin, async (req, res) => {
   const userId = String(req.params?.userId || '').trim();
   if (!userId) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+  const existed = await User.findOne({ userId }).lean();
+  if (!existed || existed.isPrivate) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
 
   const role = req.body?.role !== undefined ? String(req.body.role || '').trim() : undefined;
   const displayName = req.body?.displayName !== undefined ? String(req.body.displayName || '').trim() : undefined;
@@ -206,7 +208,7 @@ router.patch('/admin/users/:userId', requireAdmin, async (req, res) => {
   if (active !== undefined) $set.active = active;
   if (password !== undefined) $set.passwordHash = await bcrypt.hash(password, 10);
 
-  const doc = await User.findOneAndUpdate({ userId }, { $set }, { new: true }).lean();
+  const doc = await User.findOneAndUpdate({ userId, isPrivate: { $ne: true } }, { $set }, { new: true }).lean();
   if (!doc) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
 
   res.json({
@@ -234,6 +236,7 @@ router.delete('/admin/users/:userId', requireAdmin, async (req, res) => {
 
   const existed = await User.findOne({ userId }).lean();
   if (!existed) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
+  if (existed.isPrivate) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
 
   await Availability.deleteMany({ userId });
   await User.deleteOne({ userId });

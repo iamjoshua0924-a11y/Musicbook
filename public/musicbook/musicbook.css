@@ -277,10 +277,33 @@ body {
   box-shadow: none;
 }
 
+.songs-title-text{
+  font-size: 20px;
+  font-weight: 1000;
+  margin-left: 10px;
+  margin-top: 18px;
+  color: rgba(0,0,0,0.82);
+  text-shadow: 0 1px 0 rgba(255,255,255,0.65);
+}
+
 /* 모바일에서는 너무 커지지 않게 */
 @media (max-width: 520px){
   .songs-title-logo { height: 120px; }
+  .songs-title-text{ font-size: 18px; margin-top: 12px; }
 }
+
+/* -------------------- Archive(개인 노래책) 모드 -------------------- */
+body.archive-mode .layout-nav{ display:none; }
+body.archive-mode #mainPage{ display:none !important; }
+body.archive-mode #authButton{ display:none !important; }
+body.archive-mode #adminToggleBtn{ display:none !important; }
+body.archive-mode #adminControls{ display:none !important; }
+body.archive-mode #requestDock{ display:none !important; }
+body.archive-mode #requestShowBtn{ display:none !important; }
+body.archive-mode #presencePanel{ display:none !important; }
+body.archive-mode #presenceShowBtn{ display:none !important; }
+body.archive-mode #availableVocalRow{ display:none !important; }
+body.archive-mode #availableVocalSelectedRow{ display:none !important; }
 
 /* GAS 원본: 검색 영역은 flex-wrap */
 .search-grid{

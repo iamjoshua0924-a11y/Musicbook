@@ -9,6 +9,8 @@ const { store } = require('../sockets');
 const Setting = require('../models/Setting');
 const Song = require('../models/Song');
 const User = require('../models/User');
+const bcrypt = require('bcrypt');
+const { normalizePrefix, buildPrivateArchivePath, getPrivateArchivePrefix } = require('../services/privateArchive');
 const { getDriveRootFolderId, restartDriveSync, stopDriveSync } = require('../services/driveSyncRunner');
 const { getFileMetadata, renameFile } = require('../services/drive');
 const { getNowCount, getSeries } = require('../services/connectionHistory');
@@ -246,6 +248,90 @@ router.patch(
     const value = String(parsed.data.rootFolderId || '').trim();
     await Setting.findOneAndUpdate({ key: 'driveRootFolderId' }, { $set: { key: 'driveRootFolderId', value } }, { upsert: true });
     res.json({ ok: true, rootFolderId: value });
+  })
+);
+
+// Private archive prefix config (dev)
+router.get(
+  '/private-archive',
+  requireDev,
+  asyncHandler(async (_req, res) => {
+    const prefix = await getPrivateArchivePrefix();
+    res.json({ ok: true, prefix });
+  })
+);
+router.patch(
+  '/private-archive',
+  requireDev,
+  asyncHandler(async (req, res) => {
+    const schema = z.object({ prefix: z.string().max(300).optional().default('') }).strict();
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+    const value = normalizePrefix(parsed.data.prefix);
+    await Setting.findOneAndUpdate({ key: 'privateArchivePrefix' }, { $set: { key: 'privateArchivePrefix', value } }, { upsert: true });
+    res.json({ ok: true, prefix: value });
+  })
+);
+
+// Users list (dev) - includes private flag & archive url
+router.get(
+  '/users',
+  requireDev,
+  asyncHandler(async (_req, res) => {
+    const items = await User.find({}).sort({ lastSeenAt: -1, userId: 1 }).limit(800).lean();
+    const withArchive = await Promise.all(
+      items.map(async (u) => ({
+        userId: u.userId,
+        role: u.role,
+        displayName: u.displayName || u.userId,
+        active: u.active !== false,
+        isPrivate: Boolean(u.isPrivate),
+        lastSeenAt: u.lastSeenAt || null,
+        createdAt: u.createdAt || null,
+        archivePath: u.isPrivate ? await buildPrivateArchivePath(u.userId) : ''
+      }))
+    );
+    res.json({ ok: true, items: withArchive });
+  })
+);
+
+// Create private user (dev) - password fixed 1234
+router.post(
+  '/users/private',
+  requireDev,
+  asyncHandler(async (req, res) => {
+    const schema = z
+      .object({
+        userId: z.string().min(1).max(80),
+        displayName: z.string().max(80).optional().default('')
+      })
+      .strict();
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+    const userId = String(parsed.data.userId || '').trim();
+    const displayName = String(parsed.data.displayName || '').trim();
+    if (!userId) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+
+    const passwordHash = await bcrypt.hash('1234', 10);
+    const doc = await User.findOneAndUpdate(
+      { userId },
+      { $set: { userId, passwordHash, role: 'session', displayName, active: true, isPrivate: true, mustChangePassword: false } },
+      { upsert: true, new: true }
+    ).lean();
+
+    const archivePath = await buildPrivateArchivePath(userId);
+    res.json({
+      ok: true,
+      user: {
+        userId: doc.userId,
+        role: doc.role,
+        displayName: doc.displayName || doc.userId,
+        active: doc.active !== false,
+        isPrivate: Boolean(doc.isPrivate),
+        archivePath
+      },
+      password: '1234'
+    });
   })
 );
 

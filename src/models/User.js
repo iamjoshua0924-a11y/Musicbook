@@ -9,6 +9,9 @@ const UserSchema = new mongoose.Schema(
     active: { type: Boolean, default: true },
     profilePhoto: { type: String, default: '' },
 
+    // "스텔스/Private" 계정: 메인 접속자 목록/가능보컬 필터 목록에서 숨김 + 개인 아카이브 제공
+    isPrivate: { type: Boolean, default: false, index: true },
+
     mustChangePassword: { type: Boolean, default: false },
     legacyPasswordHash: { type: String, default: '' }, // 기존 GAS 시트의 해시(참조용)
     lastSeenAt: { type: Date, default: null },

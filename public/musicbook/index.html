@@ -5,7 +5,7 @@
     <title>밍긴어게인 노래책</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="https://www.gstatic.com/images/branding/product/1x/drive_2020q4_32dp.png" />
-    <link rel="stylesheet" href="musicbook.css?v=20260529_5" />
+    <link rel="stylesheet" href="musicbook.css?v=20260531_1" />
   </head>
 
   <body class="preload">
@@ -109,6 +109,7 @@
           <section id="songsPage" class="page">
             <div class="songs-title-row" id="songsTitleRow" style="display: none">
               <img id="songsTitleLogo" class="songs-title-logo" alt="" />
+              <div id="archiveTitleText" class="songs-title-text" style="display:none;"></div>
             </div>
 
             <div class="glass-card">
@@ -432,6 +433,10 @@
           <button class="floating-btn black-btn" id="profilePwSaveBtn" type="button">비밀번호 저장</button>
         </div>
 
+        <button class="floating-btn black-btn" id="privateArchiveOpenBtn" type="button" style="display:none; justify-content:center;">
+          노래책 보기
+        </button>
+
         <div class="modal-actions">
           <button class="floating-btn" id="profileCancelBtn" type="button">취소</button>
           <button class="floating-btn black-btn" id="profileSaveBtn" type="button">업로드</button>
@@ -551,6 +556,6 @@
     <script src="../config.js"></script>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
     <script src="../common/avatar.js?v=20260529_1"></script>
-    <script src="musicbook.js?v=20260529_3"></script>
+    <script src="musicbook.js?v=20260531_1"></script>
   </body>
 </html>

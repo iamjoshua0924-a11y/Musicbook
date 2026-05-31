@@ -14,10 +14,11 @@ const apiUrl = (path) => {
 // 프론트(정적 페이지) 내 이동용: GitHub Pages 경로(/Musicbook/public/...)를 유지해야 한다.
 // 송북(/public/musicbook/)에서 보면 ../viewer/ 가 뷰어 엔트리다.
 const VIEWER_BASE_URL = new URL('../viewer/', window.location.href).toString();
-const viewerUrl = ({ fileId = '', roomCode = '' } = {}) => {
+const viewerUrl = ({ fileId = '', roomCode = '', bookUserId = '' } = {}) => {
   const u = new URL(VIEWER_BASE_URL);
   if (fileId) u.searchParams.set('fileId', String(fileId));
   if (roomCode) u.searchParams.set('room', String(roomCode).trim().toUpperCase());
+  if (bookUserId) u.searchParams.set('bookUserId', String(bookUserId).trim());
   return u.toString();
 };
 
@@ -25,6 +26,12 @@ const state = {
   role: 'viewer', // viewer | session | admin
   displayName: '방문자',
   userId: '',
+  isPrivate: false,
+  privateArchivePath: '',
+  // 개인 아카이브 모드(/public/musicbook/:userId, /musicbook/:userId 등)
+  isArchiveMode: false,
+  archiveTargetUserId: '',
+  archiveViewOnly: false, // 관리자/타유저 접근 시 read-only
   main: null,
   songCardsAll: [],
   songCardsFiltered: [],
@@ -49,6 +56,7 @@ const state = {
   availabilityOriginalSet: null, // Set<googleFileId>
   availabilityDraftSet: null, // Set<googleFileId>
   availabilityHideExisting: false,
+  _forceAllSongsForEdit: false,
 
   sessionRoomCode: '',
   isPageTurner: false,
@@ -67,6 +75,49 @@ const state = {
   _lastSearchRaw: '',
   _lastSearchIsCho: false
 };
+
+function detectArchiveTargetUserId() {
+  const parts = String(window.location.pathname || '')
+    .split('/')
+    .filter(Boolean);
+  // 지원 경로 예:
+  // - /public/musicbook/              -> no archive
+  // - /public/musicbook/<userId>      -> archive
+  // - /musicbook/<userId>             -> archive (prefix 변경 대비)
+  const idx = parts.lastIndexOf('musicbook');
+  if (idx < 0) return '';
+  const uid = String(parts[idx + 1] || '').trim();
+  if (!uid || uid === 'index.html' || uid.endsWith('.css') || uid.endsWith('.js')) return '';
+  try {
+    return decodeURIComponent(uid);
+  } catch {
+    return uid;
+  }
+}
+
+function setArchiveShellUI() {
+  document.body.classList.add('archive-mode');
+  // 메인/패널 제거 + 곡 리스트만 노출
+  try {
+    document.querySelectorAll('.page').forEach((p) => p.classList.remove('active'));
+    $('songsPage')?.classList?.add('active');
+  } catch {}
+  try {
+    $('songsNavBtn')?.classList?.add('active');
+    $('mainNavBtn')?.classList?.remove?.('active');
+  } catch {}
+  // 타이틀
+  try {
+    const row = $('songsTitleRow');
+    if (row) row.style.display = 'flex';
+    const t = $('archiveTitleText');
+    if (t) {
+      t.style.display = 'block';
+      t.textContent = `${state.archiveTargetUserId}의 노래책`;
+    }
+    document.title = `${state.archiveTargetUserId}의 노래책`;
+  } catch {}
+}
 
 function toMs(v) {
   if (v === null || v === undefined) return 0;
@@ -412,7 +463,12 @@ async function loadSongs(force = false) {
           .join('');
       }
     }
-    const data = await apiGet('/api/songs/cards');
+    const params = new URLSearchParams();
+    if (!state._forceAllSongsForEdit && state.isArchiveMode && !state.availabilityEditMode && state.archiveTargetUserId) {
+      params.set('availableUserId', String(state.archiveTargetUserId));
+    }
+    const url = `/api/songs/cards${params.toString() ? `?${params.toString()}` : ''}`;
+    const data = await apiGet(url);
     if (!data.ok) throw new Error('songs load failed');
     state.songCardsTotal = Number(data.totalCards || 0) || Number(data.total || 0) || 0;
     state.songCardsAll = (data.items || []).map((c) => ({
@@ -436,7 +492,13 @@ async function loadSongFiles(force = false) {
   // - file 단위 목록과 card 단위 목록이 서로 다른 API(/api/songs vs /api/songs/cards)를 사용하면
   //   5000 cap 환경에서 "한쪽에는 있는데 다른 쪽에는 없는" 불일치가 발생할 수 있다(정렬/limit 기준 차이).
   // - 따라서 file 목록도 cards 응답을 펼쳐서 생성해 UI/정렬/노출을 일관되게 유지한다.
-  const data = await apiGet('/api/songs/cards');
+  const params = new URLSearchParams();
+  // archive 기본 화면은 "내 가능곡만"이므로, 파일 목록도 동일하게 제한(편집 모드에서는 전체 곡을 봐야 한다)
+  if (!state._forceAllSongsForEdit && state.isArchiveMode && !state.availabilityEditMode && state.archiveTargetUserId) {
+    params.set('availableUserId', String(state.archiveTargetUserId));
+  }
+  const url = `/api/songs/cards${params.toString() ? `?${params.toString()}` : ''}`;
+  const data = await apiGet(url);
   if (!data.ok) throw new Error('songs load failed');
   state.songFilesTotal = Number(data.totalDocs || 0) || 0;
   const files = [];
@@ -521,6 +583,7 @@ async function loadAvailableVocalSets(userIds) {
 }
 
 function getSelectedAvailableVocalUserIds() {
+  if (state.isArchiveMode) return [];
   return Array.isArray(state.filterAvailableVocalUserIds) ? state.filterAvailableVocalUserIds.slice() : [];
 }
 
@@ -600,7 +663,7 @@ function renderAvailableVocalModalList(query) {
 }
 
 async function loadMyAvailabilitySet() {
-  const userId = state.userId || '';
+  const userId = state.isArchiveMode && state.archiveTargetUserId ? state.archiveTargetUserId : state.userId || '';
   state.myAvailabilitySet = null;
   if (!userId) return null;
   const data = await apiGet(`/api/availability?userId=${encodeURIComponent(userId)}`);
@@ -1085,7 +1148,11 @@ async function openInViewer() {
   const v = state._pendingVariant;
   if (!v?.googleFileId) return;
   const roomCode = state.sessionRoomCode;
-  const targetUrl = viewerUrl({ fileId: v.googleFileId, roomCode });
+  const targetUrl = viewerUrl({
+    fileId: v.googleFileId,
+    roomCode,
+    bookUserId: state.isArchiveMode && state.archiveTargetUserId ? state.archiveTargetUserId : ''
+  });
   if (roomCode && state.isPageTurner) {
     state._socket?.emit?.('session:follow:file', { roomCode, fileId: v.googleFileId, originalLink: v.driveUrl || '' }, () => {
       window.location.href = targetUrl;
@@ -1481,7 +1548,9 @@ function applyRoleUI() {
   if ($('adminConsoleBtn')) $('adminConsoleBtn').style.display = isAdmin ? 'inline-flex' : 'none';
   $('profileButton').style.display = isPriv ? 'inline-flex' : 'none';
   $('requestManageToggleBtn').style.display = isAdmin ? 'inline-flex' : 'none';
-  $('availabilityEditToggleBtn').style.display = isPriv ? 'inline-flex' : 'none';
+  const canEditArchiveAvailability =
+    state.isArchiveMode && !state.archiveViewOnly && Boolean(state.isPrivate) && String(state.userId || '') === String(state.archiveTargetUserId || '');
+  $('availabilityEditToggleBtn').style.display = state.isArchiveMode ? (canEditArchiveAvailability ? 'inline-flex' : 'none') : isPriv ? 'inline-flex' : 'none';
   // (legacy) 단일 가능보컬 드롭다운은 사용하지 않음(멀티 선택 모달로 대체)
 
   $('clearRequestsBtn').style.display = isAdmin ? 'inline-flex' : 'none';
@@ -1518,16 +1587,39 @@ async function refreshSession() {
     state.role = me.user.role;
     state.displayName = me.user.displayName || me.user.userId;
     state.userId = me.user.userId || '';
+    state.isPrivate = Boolean(me.user.isPrivate);
+    state.privateArchivePath = String(me.user.privateArchivePath || '').trim();
     state.profilePhoto = me.user.profilePhoto || '';
     updateProfileImage('profilePhoto', state.profilePhoto);
   } else {
     state.role = 'viewer';
     state.displayName = '방문자';
     state.userId = '';
+    state.isPrivate = false;
+    state.privateArchivePath = '';
     state.profilePhoto = '';
     updateProfileImage('profilePhoto', '');
   }
   applyRoleUI();
+
+  // Archive access check (best-effort)
+  if (state.isArchiveMode && state.archiveTargetUserId) {
+    const isAdmin = state.role === 'admin';
+    const isOwner = String(state.userId || '') === String(state.archiveTargetUserId || '');
+    state.archiveViewOnly = isAdmin ? true : false;
+    if (!isAdmin && !(isOwner && state.isPrivate)) {
+      // 접근 불가: 메인으로 복귀
+      toast('접근 권한이 없습니다.');
+      try {
+        window.location.replace(new URL('./', window.location.href).toString());
+      } catch {}
+      return;
+    }
+    // owner라면 편집 가능, admin은 view only
+    if (isOwner && state.isPrivate) state.archiveViewOnly = false;
+    setArchiveShellUI();
+  }
+
   // update presence role on socket (best-effort)
   state._socket?.emit?.('main:join', {
     nickname: localStorage.getItem('mb_presence_nick') || state.displayName,
@@ -1621,6 +1713,10 @@ function openProfileModal() {
   $('profileCurrentPw').value = '';
   $('profileNewPw').value = '';
   $('profileNewPw2').value = '';
+  try {
+    const btn = $('privateArchiveOpenBtn');
+    if (btn) btn.style.display = state.isPrivate && state.privateArchivePath ? 'inline-flex' : 'none';
+  } catch {}
   openModal('profileModal');
 }
 
@@ -1685,6 +1781,15 @@ function wireEvents() {
   $('profileSaveBtn').onclick = () => submitProfilePhoto().catch(() => {});
   $('toggleProfilePwBtn').onclick = () => toggleProfilePasswordBox();
   $('profilePwSaveBtn').onclick = () => submitPasswordChangeFromProfile().catch(() => {});
+  $('privateArchiveOpenBtn').onclick = () => {
+    const url = String(state.privateArchivePath || '').trim();
+    if (!url) return;
+    try {
+      window.open(url, '_blank', 'noopener');
+    } catch {
+      window.location.href = url;
+    }
+  };
   $('profilePhotoInput').addEventListener('input', (e) => updateProfileImage('profilePreview', e.target.value.trim()));
 
   $('createUserOpenBtn').onclick = () => openCreateUserModal();
@@ -1786,14 +1891,24 @@ function wireEvents() {
   // 가능곡 편집(세션/관리자만): 버튼 클릭 즉시 "가능곡 선택모드" 진입 → 하단 취소/저장으로 종료
   $('availabilityEditToggleBtn').onclick = async () => {
     if (!(state.role === 'admin' || state.role === 'session')) return;
-    const userId = state.userId || '';
+    const userId = state.isArchiveMode && state.archiveTargetUserId ? state.archiveTargetUserId : state.userId || '';
     if (!userId) return toast('로그인이 필요합니다.');
+    if (state.isArchiveMode) {
+      // 개인 아카이브에서는 "본인(private)"만 편집 가능
+      if (state.archiveViewOnly || !state.isPrivate || String(state.userId || '') !== String(state.archiveTargetUserId || '')) return;
+    }
     const btn = $('availabilityEditToggleBtn');
     const sp = $('availabilityEditSpinner');
     try {
       if (btn) btn.disabled = true;
       if (sp) sp.style.display = 'inline-block';
-      await loadSongFiles(true);
+      // 편집 모드에서는 전체 곡을 봐야 한다.
+      try {
+        state._forceAllSongsForEdit = true;
+        await loadSongFiles(true);
+      } finally {
+        state._forceAllSongsForEdit = false;
+      }
       await loadMyAvailabilitySet();
       state.availabilityOriginalSet = new Set(Array.from(state.myAvailabilitySet || []));
       state.availabilityDraftSet = new Set(Array.from(state.myAvailabilitySet || []));
@@ -1808,7 +1923,9 @@ function wireEvents() {
       document.querySelectorAll('.sort-btn').forEach((b) => b.classList.toggle('active', b.dataset.sortField === state.sortField));
       if (btn) btn.style.display = 'none';
       $('availabilityEditBar').style.display = 'flex';
-      $('availabilityEditTitle').textContent = `가능곡 선택모드 · ${state.displayName || userId}`;
+      $('availabilityEditTitle').textContent = state.isArchiveMode
+        ? `가능곡 편집 · ${state.archiveTargetUserId}`
+        : `가능곡 선택모드 · ${state.displayName || userId}`;
       updateAvailabilityEditCount();
       state.page = 1;
       applySongFilters();
@@ -1818,21 +1935,26 @@ function wireEvents() {
     }
   };
 
-  $('availabilityEditCancelBtn').onclick = () => {
+  $('availabilityEditCancelBtn').onclick = async () => {
     state.availabilityEditMode = false;
     state.availabilityDraftSet = null;
     state.availabilityHideExisting = false;
     state.myAvailabilitySet = state.availabilityOriginalSet ? new Set(Array.from(state.availabilityOriginalSet)) : state.myAvailabilitySet;
     state.availabilityOriginalSet = null;
     $('availabilityEditBar').style.display = 'none';
-    $('availabilityEditToggleBtn').style.display = state.role === 'admin' || state.role === 'session' ? 'inline-flex' : 'none';
+    applyRoleUI();
     updateAvailabilityEditCount();
+    if (state.isArchiveMode) {
+      // 기본 화면은 "내 가능곡만"이므로, 편집 취소 시에도 목록을 재조회해 복구한다.
+      state.songCardsAll = [];
+      await loadSongs(true);
+    }
     applySongFilters();
     toast('취소됨');
   };
 
   $('availabilityEditSaveBtn').onclick = async () => {
-    const userId = state.userId || '';
+    const userId = state.isArchiveMode && state.archiveTargetUserId ? state.archiveTargetUserId : state.userId || '';
     if (!userId) return;
     const before = state.availabilityOriginalSet || new Set();
     const after = state.availabilityDraftSet || new Set();
@@ -1853,8 +1975,13 @@ function wireEvents() {
     state.availabilityDraftSet = null;
     state.availabilityHideExisting = false;
     $('availabilityEditBar').style.display = 'none';
-    $('availabilityEditToggleBtn').style.display = state.role === 'admin' || state.role === 'session' ? 'inline-flex' : 'none';
+    applyRoleUI();
     updateAvailabilityEditCount();
+    if (state.isArchiveMode) {
+      // 저장 후 "내 가능곡만" 목록으로 자동 복귀
+      state.songCardsAll = [];
+      await loadSongs(true);
+    }
     applySongFilters();
     toast('저장 완료');
   };
@@ -2283,9 +2410,19 @@ async function loadAvailableVocalUsers() {
   renderAvailableVocalChips();
 }
 
+async function loadAvailabilityUsersIfNeeded() {
+  // 개인 아카이브/스텔스 문맥에서는 "가능보컬 선택" UI 자체가 없다.
+  if (state.isArchiveMode) return;
+  await loadAvailableVocalUsers();
+}
+
 async function bootstrap() {
   showLoading(true);
   try {
+    // archive mode detection
+    state.archiveTargetUserId = detectArchiveTargetUserId();
+    state.isArchiveMode = Boolean(state.archiveTargetUserId);
+
     wireEvents();
     // socket meta for role hardening
     try {
@@ -2294,12 +2431,13 @@ async function bootstrap() {
     } catch {}
     attachSockets();
     await refreshSession();
-    await loadMainPage();
+    if (!state.isArchiveMode) await loadMainPage();
     await loadSongs(true);
-    await loadSongFiles(true);
-    await loadAvailableVocalUsers();
+    // 파일 단위 목록은 무거우므로 필요 시(가능곡 편집 진입 시) 로드
+    if (!state.isArchiveMode) await loadSongFiles(true);
+    await loadAvailabilityUsersIfNeeded();
     applySongFilters();
-    await loadRequests(true);
+    if (!state.isArchiveMode) await loadRequests(true);
 
     // Auto-join live session if ?room exists (main-page convenience)
     const roomFromUrl = getRoomFromUrl().trim().toUpperCase();

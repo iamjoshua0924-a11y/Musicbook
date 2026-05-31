@@ -11,6 +11,7 @@ router.get('/socket/meta', async (req, res) => {
         role: u.role,
         displayName: u.displayName || u.userId,
         userId: u.userId,
+        isPrivate: Boolean(u.isPrivate),
         ts: Date.now()
       }
     : { role: 'viewer', displayName: '방문자', userId: '', ts: Date.now() };
@@ -20,4 +21,3 @@ router.get('/socket/meta', async (req, res) => {
 });
 
 module.exports = router;
-

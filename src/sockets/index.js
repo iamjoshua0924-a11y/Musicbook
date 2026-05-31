@@ -17,7 +17,7 @@ function isFileOpenInRoom(roomCode, fileId) {
 }
 
 // Presence (main page) - in-memory only
-const presence = new Map(); // socketId -> { nickname, role, displayName, profilePhoto, ts }
+const presence = new Map(); // socketId -> { nickname, role, displayName, profilePhoto, isPrivate, ts }
 
 // Whiteboard rate-limit (per socket, best-effort)
 const wbRate = new Map(); // socketId -> { ts, count }
@@ -51,14 +51,17 @@ function cursorAllow(socketId) {
 }
 
 function emitPresence(io) {
-  const items = Array.from(presence.entries()).map(([socketId, p]) => ({
-    socketId,
-    nickname: p.nickname,
-    role: p.role,
-    displayName: p.displayName,
-    profilePhoto: p.profilePhoto,
-    ts: p.ts
-  }));
+  // private 계정은 메인 "접속자 목록"에 절대 노출하지 않는다.
+  const items = Array.from(presence.entries())
+    .filter(([, p]) => !p?.isPrivate)
+    .map(([socketId, p]) => ({
+      socketId,
+      nickname: p.nickname,
+      role: p.role,
+      displayName: p.displayName,
+      profilePhoto: p.profilePhoto,
+      ts: p.ts
+    }));
   io.to('room:main').emit('presence:list', { items });
   io.to('room:main').emit('main:onlineCount', { count: items.length });
 }
@@ -144,6 +147,7 @@ function attachSockets(io) {
     socket.data.role = meta.role || 'viewer';
     socket.data.displayName = meta.displayName || nickname;
     socket.data.userId = meta.userId || '';
+    socket.data.isPrivate = Boolean(meta.isPrivate);
     socket.data.joinedRooms = new Set(); // roomCode set
 
     // --- Main presence -------------------------------------------------------------
@@ -155,6 +159,7 @@ function attachSockets(io) {
         role: socket.data.role || 'viewer',
         displayName: socket.data.displayName || nn,
         profilePhoto: String(payload?.profilePhoto || ''),
+        isPrivate: Boolean(socket.data.isPrivate),
         ts: Date.now()
       });
       socket.join('room:main');

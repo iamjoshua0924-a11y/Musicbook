@@ -346,16 +346,68 @@ async function loadUsers() {
     const created = formatRelTime(u.createdAt);
     el.innerHTML = `
       <div style="flex:1; display:grid; gap:6px;">
-        <div><span class="kbd">${esc(u.userId || '')}</span> · <b>${esc(u.role || '')}</b> ${u.active === false ? '<span class="muted">(비활성)</span>' : ''}</div>
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <span class="kbd">${esc(u.userId || '')}</span>
+          ${u.isPrivate ? '<span class="badge private">private</span>' : ''}
+          <b>${esc(u.role || '')}</b>
+          ${u.active === false ? '<span class="muted">(비활성)</span>' : ''}
+        </div>
         <div class="muted">${esc(u.displayName || '')}</div>
       </div>
-      <div style="display:grid; gap:6px; text-align:right;">
+      <div style="display:grid; gap:6px; text-align:right; align-content:start;">
         <div class="muted" title="${esc(seen.title)}">lastSeen: <b>${esc(seen.label)}</b></div>
         <div class="muted" title="${esc(created.title)}">created: ${esc(created.label)}</div>
+        ${u.isPrivate && u.archivePath ? `<button class="light" type="button" data-archive="1">아카이브 열기</button>` : ''}
       </div>
     `;
+    el.querySelector('[data-archive="1"]')?.addEventListener?.('click', () => {
+      const url = String(u.archivePath || '').trim();
+      if (!url) return;
+      window.open(url, '_blank', 'noopener');
+    });
     wrap.appendChild(el);
   });
+}
+
+async function loadPrivateArchivePrefix() {
+  const out = $('privateArchiveOut');
+  if (out) out.textContent = '로딩 중...';
+  const r = await apiGet('/api/dev/private-archive');
+  if (!r.ok) {
+    if (out) out.textContent = `실패: ${r.error || ''}`;
+    return;
+  }
+  try {
+    $('privateArchivePrefix').value = String(r.prefix || '');
+  } catch {}
+  if (out) out.textContent = `현재: ${String(r.prefix || '')}`;
+}
+
+async function savePrivateArchivePrefix() {
+  const out = $('privateArchiveOut');
+  if (out) out.textContent = '저장 중...';
+  const v = String($('privateArchivePrefix')?.value || '').trim();
+  const r = await apiJson('/api/dev/private-archive', 'PATCH', { prefix: v });
+  if (!r.ok) {
+    if (out) out.textContent = `저장 실패: ${r.error || ''}`;
+    return;
+  }
+  if (out) out.textContent = `저장됨: ${String(r.prefix || '')}`;
+  try {
+    $('privateArchivePrefix').value = String(r.prefix || '');
+  } catch {}
+  await loadUsers();
+}
+
+async function createPrivateUser() {
+  const uid = String($('privateUserId')?.value || '').trim();
+  const dn = String($('privateDisplayName')?.value || '').trim();
+  if (!uid) return alert('private userId를 입력하세요.');
+  const r = await apiJson('/api/dev/users/private', 'POST', { userId: uid, displayName: dn });
+  if (!r.ok) return alert(`생성 실패: ${r.error || ''}`);
+  const url = String(r?.user?.archivePath || '');
+  alert(`생성 완료\n- userId: ${uid}\n- PW: 1234\n- archive: ${url || ''}`);
+  await loadUsers();
 }
 
 function drawLineChart(canvas, points, { color = '#64d2ff', fill = 'rgba(100,210,255,0.12)' } = {}) {
@@ -433,6 +485,8 @@ async function loadConnections() {
 $('devLoginBtn').onclick = () => login().catch(() => {});
 $('devLogoutBtn').onclick = () => logout().catch(() => {});
 $('reloadUsersBtn')?.addEventListener?.('click', () => loadUsers().catch(() => {}));
+$('savePrivateArchivePrefixBtn')?.addEventListener?.('click', () => savePrivateArchivePrefix().catch(() => {}));
+$('createPrivateUserBtn')?.addEventListener?.('click', () => createPrivateUser().catch(() => {}));
 $('reloadSessionsBtn').onclick = () => loadSessions().catch(() => {});
 $('reloadConnectionsBtn')?.addEventListener?.('click', () => loadConnections().catch(() => {}));
 $('saveRootFolderBtn')?.addEventListener?.('click', () => saveDriveRoot().catch(() => {}));
@@ -479,6 +533,7 @@ $('autoRefreshToggle')?.addEventListener?.('change', (e) => setAutoRefresh(Boole
 refreshMe()
   .then((authed) => {
     if (authed) {
+      loadPrivateArchivePrefix().catch(() => {});
       loadUsers().catch(() => {});
       loadSessions().catch(() => {});
       loadConnections().catch(() => {});

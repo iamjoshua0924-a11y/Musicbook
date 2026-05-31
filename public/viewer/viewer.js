@@ -1388,6 +1388,8 @@ function eraseAtPoint(fabricCanvas, p, radius) {
 // ---- State ------------------------------------------------------------------------
 const state = {
   fileId: getFileIdFromPath(),
+  // 개인 아카이브(스텔스) 컨텍스트: songPick(노래책에서 고르기)을 "내 가능곡만"으로 제한
+  bookUserId: String(new URLSearchParams(window.location.search || '').get('bookUserId') || '').trim(),
   // mode: 'pdf' | 'chord'
   mode: 'pdf',
   pdfFileId: null,
@@ -1697,6 +1699,7 @@ socket.on('connect', () => {
 
 // ---- Song picker (노래책에서 고르기) ------------------------------------------------
 let songCardsCache = null;
+let songCardsCacheCtx = '';
 
 function normLower(s) {
   const v = String(s ?? '');
@@ -1924,7 +1927,19 @@ function openSongPickModal() {
     document.getElementById('songPickGenreFilter') && (document.getElementById('songPickGenreFilter').value = songPickState.genre || '');
     document.getElementById('songPickMoodFilter') && (document.getElementById('songPickMoodFilter').value = songPickState.mood || '');
     document.getElementById('songPickVocalFilter') && (document.getElementById('songPickVocalFilter').value = songPickState.vocal || '');
-    renderSongPickAvailableVocalChips();
+    // 개인 아카이브 컨텍스트에서는 "가능보컬 선택" 자체가 필요 없다.
+    if (state.bookUserId) {
+      songPickState.selectedAvailableVocalUserIds = [];
+      songPickState.availableSetsByUserId = new Map();
+      setHidden('songPickAvailableVocalRow', true);
+      const btn = document.getElementById('songPickAvailableVocalOpenBtn');
+      if (btn) btn.style.display = 'none';
+    } else {
+      setHidden('songPickAvailableVocalRow', false);
+      const btn = document.getElementById('songPickAvailableVocalOpenBtn');
+      if (btn) btn.style.display = '';
+      renderSongPickAvailableVocalChips();
+    }
   } catch {}
   songPickState.pendingQuery = '';
   setSongPickLoading(true);
@@ -1938,13 +1953,17 @@ function closeSongPickModal() {
 }
 
 async function loadSongCardsIfNeeded() {
-  if (songCardsCache) {
+  const ctx = state.bookUserId ? `avail:${state.bookUserId}` : 'all';
+  if (songCardsCache && songCardsCacheCtx === ctx) {
     setSongPickLoading(false);
     const q = document.getElementById('songPickSearch')?.value || songPickState.pendingQuery || '';
     renderSongPickList(pickCardMatchesAdvanced(q));
     return;
   }
-  const r = await apiGet('/api/songs/cards');
+  songCardsCache = null;
+  songCardsCacheCtx = ctx;
+  const url = state.bookUserId ? `/api/songs/cards?availableUserId=${encodeURIComponent(state.bookUserId)}` : '/api/songs/cards';
+  const r = await apiGet(url);
   if (!r?.ok) throw new Error('LOAD_FAILED');
   songCardsCache = (r.items || []).map((c) => ({
     ...c,

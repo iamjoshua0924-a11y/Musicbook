@@ -26,7 +26,13 @@ router.get('/availability/users', async (_req, res) => {
   const userIds = rows.map((r) => String(r._id || '')).filter(Boolean);
   if (!userIds.length) return res.json({ ok: true, items: [] });
 
-  const users = await User.find({ userId: { $in: userIds }, active: { $ne: false }, role: { $in: ['admin', 'session'] } }).lean();
+  // private 계정은 필터 선택지에서 아예 숨김
+  const users = await User.find({
+    userId: { $in: userIds },
+    active: { $ne: false },
+    role: { $in: ['admin', 'session'] },
+    isPrivate: { $ne: true }
+  }).lean();
   const map = new Map(users.map((u) => [String(u.userId), u]));
   const items = userIds
     .map((id) => {

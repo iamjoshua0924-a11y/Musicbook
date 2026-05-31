@@ -14,12 +14,18 @@ const { chzzkIngestor } = require('../services/chzzkIngestor');
 const { getTrafficMetrics, resetTrafficMetrics } = require('../services/trafficMetrics');
 
 const { driveToThumb } = require('../services/legacyCsvImport');
+const { buildPrivateArchivePath } = require('../services/privateArchive');
 
 const router = express.Router();
 
 router.get('/admin/me', requireLogin, async (req, res) => {
   const user = await User.findById(req.session.user.id).lean();
   if (!user) return res.status(401).json({ ok: false, error: 'UNAUTHORIZED' });
+  // keep session user in sync (private flag might be added later)
+  try {
+    req.session.user.isPrivate = Boolean(user.isPrivate);
+  } catch {}
+  const privateArchivePath = user.isPrivate ? await buildPrivateArchivePath(user.userId) : '';
   res.json({
     ok: true,
     user: {
@@ -28,7 +34,9 @@ router.get('/admin/me', requireLogin, async (req, res) => {
       role: user.role,
       displayName: user.displayName || user.userId,
       profilePhoto: user.profilePhoto || '',
-      mustChangePassword: Boolean(user.mustChangePassword)
+      mustChangePassword: Boolean(user.mustChangePassword),
+      isPrivate: Boolean(user.isPrivate),
+      privateArchivePath
     }
   });
 });
@@ -74,13 +82,15 @@ router.post('/admin/login', async (req, res) => {
     role: user.role,
     displayName: user.displayName || user.userId,
     profilePhoto: user.profilePhoto || '',
-    mustChangePassword: Boolean(user.mustChangePassword)
+    mustChangePassword: Boolean(user.mustChangePassword),
+    isPrivate: Boolean(user.isPrivate)
   };
   // T-18: last seen 기록 (로그인 성공 시)
   try {
     await User.updateOne({ _id: user._id }, { $set: { lastSeenAt: new Date() } });
   } catch {}
-  res.json({ ok: true, user: req.session.user });
+  const privateArchivePath = user.isPrivate ? await buildPrivateArchivePath(user.userId) : '';
+  res.json({ ok: true, user: { ...req.session.user, privateArchivePath } });
 });
 
 router.patch('/admin/profile', requireLogin, async (req, res) => {
@@ -141,6 +151,7 @@ router.post('/admin/users', requireAdmin, async (req, res) => {
   const passwordInput = String(req.body?.password || '');
   const role = String(req.body?.role || '').trim();
   const displayName = String(req.body?.displayName || '').trim();
+  const isPrivate = Boolean(req.body?.isPrivate);
   if (!userId || !['admin', 'session'].includes(role)) {
     return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
   }
@@ -150,7 +161,7 @@ router.post('/admin/users', requireAdmin, async (req, res) => {
   const passwordHash = await bcrypt.hash(password, 10);
   const doc = await User.findOneAndUpdate(
     { userId },
-    { $set: { userId, passwordHash, role, displayName, active: true } },
+    { $set: { userId, passwordHash, role, displayName, active: true, isPrivate } },
     { upsert: true, new: true }
   );
   res.json({ ok: true, item: doc.toObject(), password });
@@ -165,7 +176,8 @@ router.get('/admin/users', requireAdmin, async (req, res) => {
     displayName: u.displayName,
     active: u.active,
     profilePhoto: u.profilePhoto,
-    mustChangePassword: u.mustChangePassword
+    mustChangePassword: u.mustChangePassword,
+    isPrivate: Boolean(u.isPrivate)
   }));
   res.json({ ok: true, items: safe });
 });

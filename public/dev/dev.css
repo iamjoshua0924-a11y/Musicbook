@@ -67,6 +67,22 @@ button.light{ background: rgba(255,255,255,0.04); }
   margin-top: 8px;
 }
 
+.badge{
+  display:inline-flex;
+  padding:2px 8px;
+  border-radius:999px;
+  font-size:12px;
+  line-height:1.6;
+  background: rgba(255,255,255,0.10);
+  border:1px solid rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.85);
+}
+.badge.private{
+  background: rgba(255, 170, 86, 0.14);
+  border-color: rgba(255, 170, 86, 0.28);
+  color: rgba(255, 220, 180, 0.95);
+}
+
 /* Modal */
 .modalOverlay{
   position: fixed;

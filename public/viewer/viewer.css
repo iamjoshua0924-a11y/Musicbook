@@ -20,6 +20,13 @@ body{
   overflow:hidden;
 }
 
+/* 개인 노래책(스텔스) 컨텍스트: "가능보컬 선택" UI/모달 숨김 + 내 노래책 필터 강제 */
+body.book-context #songPickAvailableVocalRow,
+body.book-context #songPickAvailableVocalModal,
+body.book-context #songPickAvailableVocalOpenBtn{
+  display:none !important;
+}
+
 /* 극단 모바일(아주 좁은 폭) 레이아웃 보정 */
 @media (max-width: 520px){
   #topbar{ flex-wrap: wrap; gap: 6px; padding: 6px 8px; }

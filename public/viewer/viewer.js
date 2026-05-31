@@ -1514,14 +1514,17 @@ state.pdfFileId = state.fileId;
 document.body.dataset.tool = state.tool;
 
 // ---- Auth context (optional) ------------------------------------------------------
-const authState = { role: 'viewer', displayName: state.nickname, profilePhoto: '' };
+const authState = { role: 'viewer', userId: '', displayName: state.nickname, profilePhoto: '', isPrivate: false };
 
 async function loadMe() {
   try {
     const me = await fetch(apiUrl('/api/admin/me'), { credentials: 'include' }).then((r) => r.json());
     if (me?.ok) {
       authState.role = me.user.role;
+      authState.userId = String(me.user.userId || '').trim();
       authState.displayName = me.user.displayName || me.user.userId;
+      authState.profilePhoto = String(me.user.profilePhoto || '');
+      authState.isPrivate = Boolean(me.user.isPrivate);
     }
   } catch {}
 }
@@ -1922,18 +1925,23 @@ function openSongPickModal() {
     input.value = '';
     setTimeout(() => input.focus(), 0);
   }
+  try {
+    const title = document.querySelector('#songPickModal .modalTitle');
+    if (title) title.textContent = state.bookUserId ? '내 노래책에서 고르기' : '노래책에서 고르기';
+  } catch {}
   // reset filters UI (keep selection state for available vocal)
   try {
     document.getElementById('songPickGenreFilter') && (document.getElementById('songPickGenreFilter').value = songPickState.genre || '');
     document.getElementById('songPickMoodFilter') && (document.getElementById('songPickMoodFilter').value = songPickState.mood || '');
     document.getElementById('songPickVocalFilter') && (document.getElementById('songPickVocalFilter').value = songPickState.vocal || '');
-    // 개인 아카이브 컨텍스트에서는 "가능보컬 선택" 자체가 필요 없다.
+    // 개인 아카이브/스텔스 컨텍스트에서는 "가능보컬 선택" 자체가 필요 없다.
     if (state.bookUserId) {
       songPickState.selectedAvailableVocalUserIds = [];
       songPickState.availableSetsByUserId = new Map();
       setHidden('songPickAvailableVocalRow', true);
       const btn = document.getElementById('songPickAvailableVocalOpenBtn');
       if (btn) btn.style.display = 'none';
+      setHidden('songPickAvailableVocalModal', true);
     } else {
       setHidden('songPickAvailableVocalRow', false);
       const btn = document.getElementById('songPickAvailableVocalOpenBtn');
@@ -2026,6 +2034,8 @@ function setSongPickLoading(on) {
 }
 
 async function loadSongPickAvailableVocalUsersIfNeeded() {
+  // 개인 노래책 컨텍스트에서는 사용하지 않는다(보이지 않음 + 필터 강제).
+  if (state.bookUserId) return [];
   if (songPickState.availableUsers?.length) return songPickState.availableUsers;
   const r = await apiGet('/api/availability/users');
   if (!r?.ok) return [];
@@ -6598,6 +6608,12 @@ async function init() {
   }
 
   await loadMe();
+  // private(stealth) 계정의 viewer는 "노래책에서 고르기"가 항상 내 노래책(가능곡)만 대상으로 동작해야 한다.
+  // - URL에 bookUserId가 없어도, 로그인 사용자(isPrivate)면 강제로 자기 userId를 사용한다.
+  try {
+    if (!state.bookUserId && authState.isPrivate && authState.userId) state.bookUserId = String(authState.userId).trim();
+    document.body.classList.toggle('book-context', Boolean(state.bookUserId));
+  } catch {}
   // 코드뷰 렌더 옵션 UI 초기화(값 복원 + 변경 시 즉시 재렌더)
   // 코드뷰 옵션(줄폭/자간/행간 등) 기능 제거됨
 

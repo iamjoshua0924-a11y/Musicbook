@@ -32,6 +32,7 @@ const state = {
   isArchiveMode: false,
   archiveTargetUserId: '',
   archiveViewOnly: false, // 관리자/타유저 접근 시 read-only
+  privateArchivePrefix: '',
   main: null,
   songCardsAll: [],
   songCardsFiltered: [],
@@ -87,21 +88,23 @@ try {
 } catch {}
 
 function detectArchiveTargetUserId() {
-  const parts = String(window.location.pathname || '')
-    .split('/')
-    .filter(Boolean);
-  // 지원 경로 예:
-  // - /public/musicbook/              -> no archive
-  // - /public/musicbook/<userId>      -> archive
-  // - /musicbook/<userId>             -> archive (prefix 변경 대비)
-  const idx = parts.lastIndexOf('musicbook');
-  if (idx < 0) return '';
-  const uid = String(parts[idx + 1] || '').trim();
-  if (!uid || uid === 'index.html' || uid.endsWith('.css') || uid.endsWith('.js')) return '';
+  const pathname = String(window.location.pathname || '');
+  const prefix = String(state.privateArchivePrefix || '').trim();
+  if (!prefix) return '';
+
+  // prefix는 normalizePrefix로 항상 "/"로 시작하고 "/"로 끝난다.
+  // pathname이 prefix 그 자체(또는 trailing slash 없는 동일 경로)이면 "아카이브 루트"이므로 userId가 없다.
+  const prefixNoSlash = prefix.endsWith('/') ? prefix.slice(0, -1) : prefix;
+  if (pathname === prefixNoSlash || pathname === prefix) return '';
+
+  if (!pathname.startsWith(prefix)) return '';
+  const rest = pathname.slice(prefix.length); // e.g. "<userId>" or "<userId>/..."
+  const seg = String(rest.split('/').filter(Boolean)[0] || '').trim();
+  if (!seg || seg === 'index.html' || seg.endsWith('.css') || seg.endsWith('.js')) return '';
   try {
-    return decodeURIComponent(uid);
+    return decodeURIComponent(seg);
   } catch {
-    return uid;
+    return seg;
   }
 }
 
@@ -2429,7 +2432,15 @@ async function loadAvailabilityUsersIfNeeded() {
 async function bootstrap() {
   showLoading(true);
   try {
-    // archive mode detection
+    // archive prefix fetch (public)
+    try {
+      const pr = await fetch(apiUrl('/api/private-archive'), { credentials: 'include' }).then((r) => r.json());
+      if (pr?.ok) state.privateArchivePrefix = String(pr.prefix || '').trim();
+    } catch {}
+    // fallback if API fails
+    if (!state.privateArchivePrefix) state.privateArchivePrefix = '/public/musicbook/';
+
+    // archive mode detection (prefix-aware)
     state.archiveTargetUserId = detectArchiveTargetUserId();
     state.isArchiveMode = Boolean(state.archiveTargetUserId);
 

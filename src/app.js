@@ -81,7 +81,7 @@ function createApp() {
 
   // 개인 아카이브: /public/musicbook/:userId (기본 경로) / 또는 /musicbook/:userId (prefix 변경 대비)
   // - 정적 호스팅 환경에서 "존재하지 않는 폴더"로 접근 시에도 동일한 index.html을 내려줘야 한다.
-  app.get(['/public/musicbook', '/public/musicbook/:userId', '/musicbook', '/musicbook/:userId'], (req, res) => {
+  app.get(['/public/musicbook', '/public/musicbook/*', '/musicbook', '/musicbook/*'], (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'public', 'musicbook', 'index.html'));
   });
 

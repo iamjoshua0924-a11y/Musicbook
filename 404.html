@@ -15,14 +15,24 @@
           sessionStorage.setItem('mb_spa_redirect_v1', full);
         } catch {}
 
-        // repo root 배포 기준: public/musicbook/로 보내면 된다.
+        // IMPORTANT:
+        // GitHub Pages는 404.html을 "요청한 URL"에 그대로 서빙한다(주소창 경로가 유지됨).
+        // 따라서 상대경로(./public/musicbook/)를 쓰면 /public/musicbook/... 가 계속 중첩될 수 있다.
+        // -> 항상 절대 경로 기반으로 송북 엔트리로 이동한다.
+        var p = String(location.pathname || '');
+        var base = '/public/musicbook/';
+        var idx1 = p.indexOf('/public/musicbook/');
+        if (idx1 >= 0) base = p.slice(0, idx1) + '/public/musicbook/';
+        else {
+          var idx2 = p.indexOf('/musicbook/');
+          if (idx2 >= 0) base = p.slice(0, idx2) + '/musicbook/';
+        }
         try {
-          location.replace('./public/musicbook/');
+          location.replace(base);
         } catch {
-          location.href = './public/musicbook/';
+          location.href = base;
         }
       })();
     </script>
   </body>
 </html>
-

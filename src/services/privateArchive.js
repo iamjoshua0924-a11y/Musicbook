@@ -1,23 +1,15 @@
-const Setting = require('../models/Setting');
-
 function normalizePrefix(raw) {
   let p = String(raw || '').trim();
-  // 기본: GitHub Pages 구조(/public/musicbook/) 그대로 사용
-  if (!p) p = '/public/musicbook/';
+  // 안정적인 고정 경로(요구사항): /public/musicbook/u/<userId>
+  if (!p) p = '/public/musicbook/u/';
   if (!p.startsWith('/')) p = `/${p}`;
   if (!p.endsWith('/')) p = `${p}/`;
   return p;
 }
 
 async function getPrivateArchivePrefix() {
-  // Dev에서 prefix를 저장할 수 있게 한다.
-  // 예) /public/musicbook/private/  -> 최종 /public/musicbook/private/<userId>
-  try {
-    const doc = await Setting.findOne({ key: 'privateArchivePrefix' }).lean();
-    return normalizePrefix(doc?.value || '');
-  } catch {
-    return normalizePrefix('');
-  }
+  // prefix는 더 이상 설정으로 바꾸지 않는다(혼동/깨짐 방지).
+  return normalizePrefix('/public/musicbook/u/');
 }
 
 async function buildPrivateArchivePath(userId) {

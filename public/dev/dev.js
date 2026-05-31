@@ -379,26 +379,7 @@ async function loadPrivateArchivePrefix() {
     if (out) out.textContent = `실패: ${r.error || ''}`;
     return;
   }
-  try {
-    $('privateArchivePrefix').value = String(r.prefix || '');
-  } catch {}
-  if (out) out.textContent = `현재: ${String(r.prefix || '')}`;
-}
-
-async function savePrivateArchivePrefix() {
-  const out = $('privateArchiveOut');
-  if (out) out.textContent = '저장 중...';
-  const v = String($('privateArchivePrefix')?.value || '').trim();
-  const r = await apiJson('/api/dev/private-archive', 'PATCH', { prefix: v });
-  if (!r.ok) {
-    if (out) out.textContent = `저장 실패: ${r.error || ''}`;
-    return;
-  }
-  if (out) out.textContent = `저장됨: ${String(r.prefix || '')}`;
-  try {
-    $('privateArchivePrefix').value = String(r.prefix || '');
-  } catch {}
-  await loadUsers();
+  if (out) out.textContent = `개인 노래책 URL 베이스: ${String(r.prefix || '')}`;
 }
 
 async function createPrivateUser() {
@@ -496,7 +477,6 @@ async function loadConnections() {
 $('devLoginBtn').onclick = () => login().catch(() => {});
 $('devLogoutBtn').onclick = () => logout().catch(() => {});
 $('reloadUsersBtn')?.addEventListener?.('click', () => loadUsers().catch(() => {}));
-$('savePrivateArchivePrefixBtn')?.addEventListener?.('click', () => savePrivateArchivePrefix().catch(() => {}));
 $('createPrivateUserBtn')?.addEventListener?.('click', () => createPrivateUser().catch(() => {}));
 $('reloadSessionsBtn').onclick = () => loadSessions().catch(() => {});
 $('reloadConnectionsBtn')?.addEventListener?.('click', () => loadConnections().catch(() => {}));

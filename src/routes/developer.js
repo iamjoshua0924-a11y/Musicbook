@@ -11,7 +11,7 @@ const Song = require('../models/Song');
 const User = require('../models/User');
 const bcrypt = require('bcrypt');
 const Availability = require('../models/Availability');
-const { buildPrivateArchivePath, getPrivateArchivePrefix, normalizePrefix } = require('../services/privateArchive');
+const { buildPrivateArchivePath, getPrivateArchivePrefix } = require('../services/privateArchive');
 const { getDriveRootFolderId, restartDriveSync, stopDriveSync } = require('../services/driveSyncRunner');
 const { getFileMetadata, renameFile } = require('../services/drive');
 const { getNowCount, getSeries } = require('../services/connectionHistory');
@@ -259,18 +259,6 @@ router.get(
   asyncHandler(async (_req, res) => {
     const prefix = await getPrivateArchivePrefix();
     res.json({ ok: true, prefix });
-  })
-);
-router.patch(
-  '/private-archive',
-  requireDev,
-  asyncHandler(async (req, res) => {
-    const schema = z.object({ prefix: z.string().max(300).optional().default('') }).strict();
-    const parsed = schema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
-    const value = normalizePrefix(parsed.data.prefix);
-    await Setting.findOneAndUpdate({ key: 'privateArchivePrefix' }, { $set: { key: 'privateArchivePrefix', value } }, { upsert: true });
-    res.json({ ok: true, prefix: value });
   })
 );
 

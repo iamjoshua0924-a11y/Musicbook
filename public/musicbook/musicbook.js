@@ -33,7 +33,10 @@ const state = {
   archiveTargetUserId: '',
   archiveViewOnly: false, // 관리자/타유저 접근 시 read-only
   archiveAuthorized: false,
-  privateArchivePrefix: '',
+  // archive public profile (stealth songbook header/loading)
+  archiveDisplayName: '',
+  archiveProfilePhoto: '',
+  archiveTitleImage: '',
   main: null,
   songCardsAll: [],
   songCardsFiltered: [],
@@ -90,23 +93,21 @@ try {
 
 function detectArchiveTargetUserId() {
   const pathname = String(window.location.pathname || '');
-  const prefix = String(state.privateArchivePrefix || '').trim();
-  if (!prefix) return '';
-
-  // prefix는 항상 "/"로 시작하고 "/"로 끝난다.
-  // pathname이 prefix 그 자체(또는 trailing slash 없는 동일 경로)이면 "아카이브 루트"이므로 userId가 없다.
-  const prefixNoSlash = prefix.endsWith('/') ? prefix.slice(0, -1) : prefix;
-  if (pathname === prefixNoSlash || pathname === prefix) return '';
-
-  if (!pathname.startsWith(prefix)) return '';
-  const rest = pathname.slice(prefix.length); // e.g. "<userId>" or "<userId>/..."
-  const seg = String(rest.split('/').filter(Boolean)[0] || '').trim();
-  if (!seg || seg === 'index.html' || seg.endsWith('.css') || seg.endsWith('.js')) return '';
-  try {
-    return decodeURIComponent(seg);
-  } catch {
-    return seg;
+  // 안정적인 고정 경로: /public/musicbook/u/<userId>
+  const patterns = ['/public/musicbook/u/', '/musicbook/u/'];
+  for (const base of patterns) {
+    const idx = pathname.indexOf(base);
+    if (idx < 0) continue;
+    const rest = pathname.slice(idx + base.length); // "<userId>/..."
+    const seg = String(rest.split('/').filter(Boolean)[0] || '').trim();
+    if (!seg || seg === 'index.html' || seg.endsWith('.css') || seg.endsWith('.js')) return '';
+    try {
+      return decodeURIComponent(seg);
+    } catch {
+      return seg;
+    }
   }
+  return '';
 }
 
 function setArchiveShellUI() {
@@ -127,9 +128,35 @@ function setArchiveShellUI() {
     const t = $('archiveTitleText');
     if (t) {
       t.style.display = 'block';
-      t.textContent = `${state.archiveTargetUserId}의 노래책`;
+      const name = state.archiveDisplayName || state.archiveTargetUserId;
+      t.textContent = `${name}의 노래책`;
+    }
+    const img = $('songsTitleLogo');
+    if (img) {
+      const u = normalizeProfilePhotoUrl(state.archiveTitleImage || '', 1200);
+      img.src = u || '';
+      img.style.display = u ? 'block' : 'none';
     }
     document.title = `${state.archiveTargetUserId}의 노래책`;
+  } catch {}
+}
+
+function setLoadingContext({ titleImage = '', profilePhoto = '', displayName = '' } = {}) {
+  try {
+    const ti = document.getElementById('loadingTitleImage');
+    if (ti) {
+      const u = normalizeProfilePhotoUrl(titleImage || '', 1200);
+      ti.src = u || '';
+      ti.style.display = u ? 'block' : 'none';
+    }
+    const pi = document.getElementById('loadingProfileImage');
+    if (pi) {
+      const u = normalizeProfilePhotoUrl(profilePhoto || '', 240);
+      pi.src = u || '';
+      pi.style.display = u ? 'block' : 'none';
+    }
+    const nn = document.getElementById('loadingNickname');
+    if (nn) nn.textContent = String(displayName || '').trim();
   } catch {}
 }
 
@@ -1561,6 +1588,13 @@ function applyRoleUI() {
   $('adminToggleBtn').style.display = isAdmin ? 'inline-flex' : 'none';
   if ($('adminConsoleBtn')) $('adminConsoleBtn').style.display = isAdmin ? 'inline-flex' : 'none';
   $('profileButton').style.display = isPriv ? 'inline-flex' : 'none';
+  // archive-only: 노래책 설정(본인 private만)
+  try {
+    const isOwner = state.isArchiveMode && String(state.userId || '') === String(state.archiveTargetUserId || '');
+    const canSettings = state.isArchiveMode && state.archiveAuthorized && !state.archiveViewOnly && Boolean(state.isPrivate) && isOwner;
+    const btn = $('bookSettingsBtn');
+    if (btn) btn.style.display = canSettings ? 'inline-flex' : 'none';
+  } catch {}
   $('requestManageToggleBtn').style.display = isAdmin ? 'inline-flex' : 'none';
   const canEditArchiveAvailability =
     state.isArchiveMode && !state.archiveViewOnly && Boolean(state.isPrivate) && String(state.userId || '') === String(state.archiveTargetUserId || '');
@@ -1603,6 +1637,8 @@ async function refreshSession() {
     state.userId = me.user.userId || '';
     state.isPrivate = Boolean(me.user.isPrivate);
     state.privateArchivePath = String(me.user.privateArchivePath || '').trim();
+    // 본인(private)일 때만 설정값이 의미 있음
+    if (state.isPrivate) state.archiveTitleImage = String(me.user.privateTitleImage || '').trim() || state.archiveTitleImage;
     state.profilePhoto = me.user.profilePhoto || '';
     updateProfileImage('profilePhoto', state.profilePhoto);
   } else {
@@ -1785,6 +1821,18 @@ async function submitProfilePhoto() {
   closeModal('profileModal');
 }
 
+async function saveBookSettings() {
+  const v = String($('bookTitleImageInput')?.value || '').trim();
+  const res = await apiJson('/api/private-book', 'PATCH', { titleImage: v });
+  if (!res.ok) return toast(`저장 실패: ${res.error || ''}`);
+  state.archiveTitleImage = String(res.titleImage || '').trim();
+  // header + loading 갱신
+  setArchiveShellUI();
+  setLoadingContext({ titleImage: state.archiveTitleImage, profilePhoto: state.archiveProfilePhoto, displayName: state.archiveDisplayName });
+  toast('저장 완료');
+  closeModal('bookSettingsModal');
+}
+
 // ---- Wiring ----------------------------------------------------------------------
 function wireEvents() {
   $('mainNavBtn').onclick = () => switchPage('main');
@@ -1825,6 +1873,28 @@ function wireEvents() {
     }
   };
   $('profilePhotoInput').addEventListener('input', (e) => updateProfileImage('profilePreview', e.target.value.trim()));
+
+  // private book settings (archive only)
+  $('bookSettingsBtn').onclick = () => {
+    try {
+      $('bookTitleImageInput').value = state.archiveTitleImage || '';
+      const pv = $('bookTitleImagePreview');
+      if (pv) {
+        const u = normalizeProfilePhotoUrl(state.archiveTitleImage || '', 1200);
+        pv.src = u || 'https://placehold.co/1200x400?text=NO+IMAGE';
+      }
+    } catch {}
+    openModal('bookSettingsModal');
+  };
+  $('bookSettingsCancelBtn').onclick = () => closeModal('bookSettingsModal');
+  $('bookSettingsSaveBtn').onclick = () => saveBookSettings().catch(() => {});
+  $('bookTitleImageInput')?.addEventListener?.('input', (e) => {
+    try {
+      const pv = $('bookTitleImagePreview');
+      const u = normalizeProfilePhotoUrl(String(e.target?.value || '').trim(), 1200);
+      if (pv) pv.src = u || 'https://placehold.co/1200x400?text=NO+IMAGE';
+    } catch {}
+  });
 
   $('createUserOpenBtn').onclick = () => openCreateUserModal();
   $('createUserCancelBtn').onclick = () => closeModal('createUserModal');
@@ -2453,18 +2523,35 @@ async function loadAvailabilityUsersIfNeeded() {
 async function bootstrap() {
   showLoading(true);
   try {
-    // 아카이브 prefix 로드(Dev에서 설정 가능)
-    try {
-      const pr = await fetch(apiUrl('/api/private-archive'), { credentials: 'include' }).then((r) => r.json());
-      if (pr?.ok) state.privateArchivePrefix = String(pr.prefix || '').trim();
-    } catch {}
-    if (!state.privateArchivePrefix) state.privateArchivePrefix = '/public/musicbook/';
-
-    // archive mode detection (prefix-aware)
+    // archive mode detection (path-based: /public/musicbook/u/<id>)
     state.archiveTargetUserId = detectArchiveTargetUserId();
     state.isArchiveMode = Boolean(state.archiveTargetUserId);
 
     wireEvents();
+    // archive public profile (for header/loading animation)
+    if (state.isArchiveMode && state.archiveTargetUserId) {
+      try {
+        const r = await apiGet(`/api/private-book/${encodeURIComponent(state.archiveTargetUserId)}`);
+        if (r?.ok && r.user) {
+          state.archiveDisplayName = String(r.user.displayName || r.user.userId || state.archiveTargetUserId);
+          state.archiveProfilePhoto = String(r.user.profilePhoto || '');
+          state.archiveTitleImage = String(r.user.titleImage || '');
+          setLoadingContext({
+            titleImage: state.archiveTitleImage,
+            profilePhoto: state.archiveProfilePhoto,
+            displayName: state.archiveDisplayName
+          });
+        } else {
+          // fallback text
+          state.archiveDisplayName = state.archiveTargetUserId;
+          setLoadingContext({ displayName: state.archiveDisplayName });
+        }
+      } catch {
+        state.archiveDisplayName = state.archiveTargetUserId;
+        setLoadingContext({ displayName: state.archiveDisplayName });
+      }
+    }
+
     // socket meta for role hardening
     try {
       const meta = await fetch(apiUrl('/api/socket/meta'), { credentials: 'include' }).then((r) => r.json());

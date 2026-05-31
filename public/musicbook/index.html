@@ -5,11 +5,20 @@
     <title>밍긴어게인 노래책</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="https://www.gstatic.com/images/branding/product/1x/drive_2020q4_32dp.png" />
-    <link rel="stylesheet" href="musicbook.css?v=20260531_3" />
+    <link rel="stylesheet" href="musicbook.css?v=20260531_5" />
   </head>
 
   <body class="preload">
-    <div class="loading-screen" id="loadingScreen">로딩 중...</div>
+    <div class="loading-screen" id="loadingScreen">
+      <div class="loading-anim">
+        <div class="loading-ring" aria-hidden="true"></div>
+        <img id="loadingTitleImage" class="loading-title-image" alt="" />
+        <div class="loading-profile">
+          <img id="loadingProfileImage" class="loading-profile-image" alt="" />
+          <div id="loadingNickname" class="loading-nickname"></div>
+        </div>
+      </div>
+    </div>
     <div class="toast" id="toast"></div>
 
     <div class="layout">
@@ -68,6 +77,7 @@
           <button class="floating-btn" id="sessionJoinBtn" type="button">세션 참여</button>
           <button class="floating-btn" id="sessionLeaveBtn" type="button" style="display:none;">세션 나가기</button>
           <button class="floating-btn" id="sessionMembersBtn" type="button" style="display:none;">세션 멤버</button>
+          <button class="floating-btn" id="bookSettingsBtn" type="button" style="display:none;">노래책 설정</button>
           <div class="session-badge" id="sessionBadge" style="display:none;"></div>
           <div class="session-badge turner-badge" id="turnerBadge" style="display:none;">현재 당신이 페이지터너입니다</div>
           <button class="floating-btn" id="adminToggleBtn" type="button" style="display: none">관리자 버튼</button>
@@ -444,6 +454,22 @@
       </div>
     </div>
 
+    <!-- Book settings modal (private only) -->
+    <div class="modal-overlay" id="bookSettingsModal">
+      <div class="modal">
+        <div class="modal-title">노래책 설정</div>
+        <div class="muted" style="font-weight:900;">개인 타이틀 배너(이미지)</div>
+        <input id="bookTitleImageInput" class="input" placeholder="드라이브 이미지 링크를 넣으세요" />
+        <div class="glass-card" style="padding:12px; margin: 10px 0 0;">
+          <img id="bookTitleImagePreview" class="banner-image" alt="" style="max-height:220px;" />
+        </div>
+        <div class="modal-actions">
+          <button class="floating-btn" id="bookSettingsCancelBtn" type="button">취소</button>
+          <button class="floating-btn black-btn" id="bookSettingsSaveBtn" type="button">저장</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Create user modal (GAS 원본 이식) -->
     <div class="modal-overlay" id="createUserModal">
       <div class="modal">
@@ -556,6 +582,6 @@
     <script src="../config.js"></script>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
     <script src="../common/avatar.js?v=20260529_1"></script>
-    <script src="musicbook.js?v=20260531_3"></script>
+    <script src="musicbook.js?v=20260531_5"></script>
   </body>
 </html>

@@ -36,6 +36,7 @@ router.get('/admin/me', requireLogin, async (req, res) => {
       profilePhoto: user.profilePhoto || '',
       mustChangePassword: Boolean(user.mustChangePassword),
       isPrivate: Boolean(user.isPrivate),
+      privateTitleImage: user.privateTitleImage || '',
       privateArchivePath
     }
   });

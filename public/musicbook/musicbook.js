@@ -33,6 +33,7 @@ const state = {
   archiveTargetUserId: '',
   archiveViewOnly: false, // 관리자/타유저 접근 시 read-only
   archiveAuthorized: false,
+  privateArchivePrefix: '',
   main: null,
   songCardsAll: [],
   songCardsFiltered: [],
@@ -89,23 +90,23 @@ try {
 
 function detectArchiveTargetUserId() {
   const pathname = String(window.location.pathname || '');
-  // 요구사항: 스텔스 유저 개인 노래책은 고정 경로로 제공한다.
-  // - /public/musicbook/u/<userId>
-  // - /musicbook/u/<userId> (백엔드 단독 배포 대비)
-  const patterns = ['/public/musicbook/u/', '/musicbook/u/'];
-  for (const base of patterns) {
-    const idx = pathname.indexOf(base);
-    if (idx < 0) continue;
-    const rest = pathname.slice(idx + base.length); // "<userId>/..."
-    const seg = String(rest.split('/').filter(Boolean)[0] || '').trim();
-    if (!seg || seg === 'index.html' || seg.endsWith('.css') || seg.endsWith('.js')) return '';
-    try {
-      return decodeURIComponent(seg);
-    } catch {
-      return seg;
-    }
+  const prefix = String(state.privateArchivePrefix || '').trim();
+  if (!prefix) return '';
+
+  // prefix는 항상 "/"로 시작하고 "/"로 끝난다.
+  // pathname이 prefix 그 자체(또는 trailing slash 없는 동일 경로)이면 "아카이브 루트"이므로 userId가 없다.
+  const prefixNoSlash = prefix.endsWith('/') ? prefix.slice(0, -1) : prefix;
+  if (pathname === prefixNoSlash || pathname === prefix) return '';
+
+  if (!pathname.startsWith(prefix)) return '';
+  const rest = pathname.slice(prefix.length); // e.g. "<userId>" or "<userId>/..."
+  const seg = String(rest.split('/').filter(Boolean)[0] || '').trim();
+  if (!seg || seg === 'index.html' || seg.endsWith('.css') || seg.endsWith('.js')) return '';
+  try {
+    return decodeURIComponent(seg);
+  } catch {
+    return seg;
   }
-  return '';
 }
 
 function setArchiveShellUI() {
@@ -2452,7 +2453,14 @@ async function loadAvailabilityUsersIfNeeded() {
 async function bootstrap() {
   showLoading(true);
   try {
-    // archive mode detection (path-based)
+    // 아카이브 prefix 로드(Dev에서 설정 가능)
+    try {
+      const pr = await fetch(apiUrl('/api/private-archive'), { credentials: 'include' }).then((r) => r.json());
+      if (pr?.ok) state.privateArchivePrefix = String(pr.prefix || '').trim();
+    } catch {}
+    if (!state.privateArchivePrefix) state.privateArchivePrefix = '/public/musicbook/';
+
+    // archive mode detection (prefix-aware)
     state.archiveTargetUserId = detectArchiveTargetUserId();
     state.isArchiveMode = Boolean(state.archiveTargetUserId);
 

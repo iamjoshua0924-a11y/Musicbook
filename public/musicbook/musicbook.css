@@ -293,11 +293,8 @@ body {
 }
 
 /* -------------------- Archive(개인 노래책) 모드 -------------------- */
-body.archive-mode .layout-nav{ display:none; }
+/* 메인 송북의 컬럼/그리드 구조는 그대로 유지하고 "불필요한 패널만" 제거한다. */
 body.archive-mode #mainPage{ display:none !important; }
-body.archive-mode #authButton{ display:none !important; }
-body.archive-mode #adminToggleBtn{ display:none !important; }
-body.archive-mode #adminControls{ display:none !important; }
 body.archive-mode #requestDock{ display:none !important; }
 body.archive-mode #requestShowBtn{ display:none !important; }
 body.archive-mode #presencePanel{ display:none !important; }
@@ -305,38 +302,11 @@ body.archive-mode #presenceShowBtn{ display:none !important; }
 body.archive-mode #availableVocalRow{ display:none !important; }
 body.archive-mode #availableVocalSelectedRow{ display:none !important; }
 
-/* 레이아웃: 왼쪽 네비(240px) 숨김으로 생기는 "빈 컬럼" 제거 */
-body.archive-mode .layout{
-  grid-template-columns: 1fr;
-  width: min(1080px, 96vw);
-  margin: 12px auto 56px;
-}
-body.archive-mode .floating-nav{ display:none !important; }
-body.archive-mode .top-right{ display:none !important; }
-body.archive-mode .app-container{ padding-bottom: 40px; }
-
-/* 검색/필터 줄: 아카이브에서는 가로폭이 좁아도 자연스럽게 줄바꿈 */
-body.archive-mode .search-row-1{
-  flex-wrap: wrap;
-  overflow-x: visible;
-}
-body.archive-mode .search-row-1 .input{
-  flex: 1 1 280px;
-  min-width: 220px;
-}
-body.archive-mode .search-row-1 .select{
-  flex: 1 1 140px;
-  min-width: 140px;
-}
-
-/* 카드 리스트: 개인 노래책은 1열(가독성) */
-body.archive-mode .song-card-list{
-  grid-template-columns: 1fr;
-  justify-content: stretch;
-}
-body.archive-mode .song-card{
-  max-width: 100%;
-}
+/* 좌측 네비는 유지하되, 메인페이지 버튼/외부링크는 숨김(개인 노래책에서는 불필요) */
+body.archive-mode #mainNavBtn{ display:none !important; }
+body.archive-mode #chzzkBtn{ display:none !important; }
+body.archive-mode #discordBtn{ display:none !important; }
+body.archive-mode #youtubeBtn{ display:none !important; }
 
 /* GAS 원본: 검색 영역은 flex-wrap */
 .search-grid{

@@ -1407,6 +1407,8 @@ const state = {
   _lastLayoutRenderAt: 0,
   // follower settings throttle
   _lastSettingsApplyAt: 0,
+  // viewer settings can arrive before file load completes; keep latest pending per fileId
+  _pendingViewerSettingsByFileId: {}, // fileId -> {settings, reason, at}
   // loadPdf 진행 중인 fileId (session:state 재호출/레이스 방지)
   _loadingFileId: '',
   chordPendingAuthUrl: '',
@@ -4396,17 +4398,16 @@ function clearViews() {
   els.canvasStack.innerHTML = '';
 }
 
-function computeViewport(page) {
-  const base = page.getViewport({ scale: 1 });
+function computeFitScaleForSpread(baseViewports) {
   const gap = 12;
   const pad = 24;
   const maxW = Math.max(200, (els.pdfContainer.clientWidth - pad - gap * (state.spreadCount - 1)) / state.spreadCount);
   const maxH = Math.max(200, els.pdfContainer.clientHeight - pad);
-  const scaleW = maxW / base.width;
-  const scaleH = maxH / base.height;
-  const fitScale = Math.max(0.15, Math.min(scaleW, scaleH));
-  const scale = state.fitMode ? fitScale : fitScale * state.zoom;
-  return page.getViewport({ scale });
+  const maxBaseW = Math.max(1, ...baseViewports.map((v) => Number(v?.width || 1)));
+  const maxBaseH = Math.max(1, ...baseViewports.map((v) => Number(v?.height || 1)));
+  const scaleW = maxW / maxBaseW;
+  const scaleH = maxH / maxBaseH;
+  return Math.max(0.15, Math.min(scaleW, scaleH));
 }
 
 // ---- Preview slice mode (iframe) --------------------------------------------------
@@ -5037,11 +5038,27 @@ async function renderSpread(leftPageNo) {
   let contentW = 0;
   let contentH = 0;
 
+  // NOTE:
+  // 각 페이지의 원본 크기가 미세하게 달라(특히 커버/삽입페이지),
+  // 페이지마다 fitScale을 따로 계산하면 "특정 페이지만 잔뜩 크다" 현상이 생길 수 있다.
+  // => 현재 스프레드 기준으로 공통 fitScale을 계산해 모두 동일 배율로 렌더한다.
+  const pageObjs = [];
+  const baseViewports = [];
   for (const p of pages) {
-    if (seq !== renderSpread._seq) return; // cancelled by newer render
+    if (seq !== renderSpread._seq) return;
     const page = await state.pdfDoc.getPage(p);
     if (seq !== renderSpread._seq) return;
-    const viewport = computeViewport(page);
+    pageObjs.push({ p, page });
+    baseViewports.push(page.getViewport({ scale: 1 }));
+  }
+  const fitScale = computeFitScaleForSpread(baseViewports);
+  const scale = state.fitMode ? fitScale : fitScale * state.zoom;
+
+  for (const it of pageObjs) {
+    const p = it.p;
+    const page = it.page;
+    if (seq !== renderSpread._seq) return; // cancelled by newer render
+    const viewport = page.getViewport({ scale });
     if (seq !== renderSpread._seq) return;
     const v = makeView(p);
 
@@ -5985,8 +6002,7 @@ socket.on('session:pageTurner:state', (p) => {
   } catch {}
   if (state.isPageTurner) {
     // turner 안내 배지(UI 노이즈) 제거됨.
-    // 턴너가 된 순간 현재 보기설정도 동기화(요구사항)
-    // 또한 room.currentFileId/currentPageNo를 확정(곡리스트→뷰어→세션생성 케이스 안정화)
+    // 턴너가 된 순간 room.currentFileId/currentPageNo를 확정(곡리스트→뷰어→세션생성 케이스 안정화)
     if (state.roomCode && state.fileId) {
       socket.emit('viewer:page_change', {
         roomCode: state.roomCode,
@@ -5995,7 +6011,6 @@ socket.on('session:pageTurner:state', (p) => {
         reason: 'turner_state'
       });
     }
-    emitViewerSettings('turner_state');
   } else {
     // turner 안내 배지(UI 노이즈) 제거됨.
   }
@@ -6345,7 +6360,6 @@ socket.on('session:pageTurner:sync_request', (p) => {
       pageNo: state.pageNo,
       reason: 'turner_sync'
     });
-    emitViewerSettings('turner_sync');
   }
 });
 
@@ -6363,16 +6377,26 @@ socket.on('viewer:page_change', (p) => {
 
 socket.on('viewer:settings', (p) => {
   if (!state.isInSession) return;
-  // followers only
-  if (state.isPageTurner) return;
   if (!p?.settings) return;
-  if (p?.fileId && p.fileId !== state.fileId) return;
+  const reason = String(p?.reason || '');
+  // 권위: 기본은 followers가 적용하지만,
+  // 턴너가 바뀌는 순간에는 새 턴너도 room의 설정을 그대로 받아야 "서로 페이지설정이 안맞는다" 문제가 사라진다.
+  const allowTurnerApply = reason === 'init' || reason === 'turner_transfer';
+  if (state.isPageTurner && !allowTurnerApply) return;
+
+  // fileId가 아직 안 맞으면(파일 로딩/전환 레이스) pending으로 저장해뒀다가 follow:file 이후 적용한다.
+  if (p?.fileId && p.fileId !== state.fileId) {
+    try {
+      state._pendingViewerSettingsByFileId ||= {};
+      state._pendingViewerSettingsByFileId[String(p.fileId)] = { settings: p.settings, reason, at: Date.now() };
+    } catch {}
+    return;
+  }
   // throttle to avoid oscillation during resize/zoom loops
   const nowTs = Date.now();
   if (nowTs - Number(state._lastSettingsApplyAt || 0) < 120) return;
   state._lastSettingsApplyAt = nowTs;
   const s = p.settings;
-  const reason = String(p?.reason || '');
   // 모바일 viewer는 1p 고정(터너 설정 무시)
   const prev = {
     spreadCount: state.spreadCount,
@@ -6470,6 +6494,22 @@ socket.on('session:follow:file', (p) => {
 
   // 세션 내에서는 페이지 리로드를 하지 않고 PDF만 교체한다(중복 접속/터너 깜빡임 방지)
   state.fileId = String(targetId);
+  // pending viewer settings for this file (if arrived early)
+  try {
+    const pend = state._pendingViewerSettingsByFileId?.[String(state.fileId)];
+    if (pend?.settings) {
+      // apply immediately (no render yet; loadPdf will render)
+      const s = pend.settings;
+      if (typeof s.spreadCount === 'number' && !isMobileViewer()) state.spreadCount = clamp(s.spreadCount, 1, 4);
+      if (isMobileViewer()) state.spreadCount = 1;
+      if (typeof s.fitMode === 'boolean') state.fitMode = s.fitMode;
+      if (typeof s.zoom === 'number') state.zoom = clamp(s.zoom, 0.5, 3);
+      if (typeof s.overlapPx === 'number') setSpreadOverlapPx(s.overlapPx);
+      if (typeof s.panX === 'number') state.panX = clamp01(s.panX);
+      if (typeof s.panY === 'number') state.panY = clamp01(s.panY);
+      delete state._pendingViewerSettingsByFileId[String(state.fileId)];
+    }
+  } catch {}
   try {
     setLastRoomForFile(state.fileId, state.roomCode);
     const nextUrl = buildViewerUrl({ fileId: state.fileId, roomCode: state.roomCode });

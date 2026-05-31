@@ -483,6 +483,12 @@ function attachSockets(io) {
         fileId: room.currentFileId,
         pageNo: room.currentPageNo
       });
+      // ALSO: new turner must inherit room's viewer settings (avoid mismatched spread/zoom)
+      try {
+        if (room.currentFileId && room.viewerSettings) {
+          io.to(targetSocketId).emit('viewer:settings', { fileId: room.currentFileId, reason: 'turner_transfer', settings: room.viewerSettings });
+        }
+      } catch {}
     });
 
     socket.on('viewer:page_change', async (payload, ack) => {

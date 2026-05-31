@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MusicBook</title>
+  </head>
+  <body>
+    <script>
+      (function () {
+        try {
+          // GitHub Pages(Project Pages)에서 /public/musicbook/<...> 딥링크는 404가 난다.
+          // -> 404에서 송북 엔트리로 이동시키고, 원래 경로는 sessionStorage로 넘겨서 SPA가 복구한다.
+          var full = location.pathname + location.search + location.hash;
+          sessionStorage.setItem('mb_spa_redirect_v1', full);
+        } catch {}
+
+        // repo root 배포 기준: public/musicbook/로 보내면 된다.
+        try {
+          location.replace('./public/musicbook/');
+        } catch {
+          location.href = './public/musicbook/';
+        }
+      })();
+    </script>
+  </body>
+</html>
+

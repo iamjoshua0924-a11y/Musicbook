@@ -127,9 +127,14 @@ function setArchiveShellUI() {
     if (row) row.style.display = 'flex';
     const t = $('archiveTitleText');
     if (t) {
-      t.style.display = 'block';
+      // 이름 텍스트는 좌측 컬럼으로 이동(가독성/레이아웃 안정)
+      t.style.display = 'none';
+    }
+    const navTitle = $('archiveNavTitle');
+    if (navTitle) {
       const name = state.archiveDisplayName || state.archiveTargetUserId;
-      t.textContent = `${name}의 노래책`;
+      navTitle.style.display = 'block';
+      navTitle.textContent = `${name}의 노래책`;
     }
     const img = $('songsTitleLogo');
     if (img) {
@@ -308,8 +313,32 @@ function highlightHtml(text, q) {
   }
 }
 
+let _loadingShownAt = 0;
+let _loadingHideTimer = null;
 function showLoading(on) {
-  $('loadingScreen').classList.toggle('active', Boolean(on));
+  const el = $('loadingScreen');
+  if (!el) return;
+  const enabled = Boolean(on);
+  if (_loadingHideTimer) {
+    clearTimeout(_loadingHideTimer);
+    _loadingHideTimer = null;
+  }
+  if (enabled) {
+    _loadingShownAt = Date.now();
+    // 애니메이션 재시작을 위해 active를 강제로 토글
+    el.classList.remove('active');
+    // force reflow
+    void el.offsetHeight; // eslint-disable-line no-unused-expressions
+    el.classList.add('active');
+    return;
+  }
+
+  // 개인 노래책에서는 로딩 애니메이션이 눈에 보이도록 최소 노출 시간을 준다.
+  const minMs = state?.isArchiveMode ? 1100 : 0;
+  const elapsed = Date.now() - (_loadingShownAt || 0);
+  const wait = Math.max(0, minMs - elapsed);
+  if (wait) _loadingHideTimer = setTimeout(() => el.classList.remove('active'), wait);
+  else el.classList.remove('active');
 }
 
 // T-21: 로딩 중 이전 결과 유지(리스트 흐림 처리)
@@ -2192,14 +2221,16 @@ function wireEvents() {
   };
 
   // 가능보컬 필터(AND 멀티 선택)
-  $('availableVocalOpenBtn').onclick = () => openAvailableVocalModal();
-  $('availableVocalCloseBtn').onclick = () => closeAvailableVocalModal();
-  $('availableVocalModal')?.addEventListener('click', (e) => {
-    if (e.target?.id === 'availableVocalModal') closeAvailableVocalModal();
-  });
-  $('availableVocalSearch')?.addEventListener('input', (e) => {
-    renderAvailableVocalModalList(e.target.value || '');
-  });
+  if (!state.isArchiveMode) {
+    $('availableVocalOpenBtn').onclick = () => openAvailableVocalModal();
+    $('availableVocalCloseBtn').onclick = () => closeAvailableVocalModal();
+    $('availableVocalModal')?.addEventListener('click', (e) => {
+      if (e.target?.id === 'availableVocalModal') closeAvailableVocalModal();
+    });
+    $('availableVocalSearch')?.addEventListener('input', (e) => {
+      renderAvailableVocalModalList(e.target.value || '');
+    });
+  }
 
   // action modals
   $('keySelectCancelBtn').onclick = () => closeModal('keySelectModal');

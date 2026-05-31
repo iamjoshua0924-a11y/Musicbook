@@ -6457,7 +6457,20 @@ socket.on('viewer:settings', (p) => {
   }
 
   state._lastLayoutRenderAt = Date.now();
-  renderSpread(state.pageNo).catch(() => {});
+  const targetPage = Number(state.pageNo || 1) || 1;
+  renderSpread(targetPage).catch(() => {});
+  // 일부 브라우저/레이아웃 상태에서 첫 렌더가 "기존 레이아웃" 기준으로 남는 케이스가 있다.
+  // (사용자가 도구바/보기옵션을 눌러 reflow가 발생하면 그때서야 반영되는 문제)
+  // => 짧게 한 번 더 렌더해서 즉각 반영되도록 보장한다.
+  setTimeout(() => {
+    try {
+      if (!state.isInSession) return;
+      if (state.isPageTurner) return;
+      if (!state.isPdfReady || !state.pdfDoc) return;
+      if (p?.fileId && String(p.fileId) !== String(state.fileId || '')) return;
+      renderSpread(targetPage).catch(() => {});
+    } catch {}
+  }, 260);
 });
 
 socket.on('viewer:laser', async (p) => {

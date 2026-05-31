@@ -2395,8 +2395,10 @@ function setMode(mode) {
 
   setHidden('pdf-container', mode !== 'pdf');
   setHidden('chordwikiPane', mode !== 'chord');
-  // 코드위키 편집 버튼은 chord 모드에서만 노출
-  setHidden('cwEditGroup', mode !== 'chord');
+  // 코드위키 편집 버튼은 "실제 코드위키 문서"일 때만 노출
+  // (평범한 PDF 뷰어 사용 시에는 코드편집 UI가 나오면 혼동됨)
+  const hasChordDoc = Boolean(state.chordDocId || state.chordBlocksRaw || (Array.isArray(state.chordBlocks) && state.chordBlocks.length));
+  setHidden('cwEditGroup', !(mode === 'chord' && hasChordDoc));
   try {
     updateCwKrToggleUI();
   } catch {}

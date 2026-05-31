@@ -76,6 +76,16 @@ const state = {
   _lastSearchIsCho: false
 };
 
+// GitHub Pages/정적 호스팅 딥링크(404.html -> /public/musicbook/ 리다이렉트) 복구
+try {
+  const redir = sessionStorage.getItem('mb_spa_redirect_v1') || '';
+  if (redir) {
+    sessionStorage.removeItem('mb_spa_redirect_v1');
+    // 원래 경로로 URL을 복구해야 archive userId(path 기반)가 정상 인식된다.
+    window.history.replaceState(null, '', redir);
+  }
+} catch {}
+
 function detectArchiveTargetUserId() {
   const parts = String(window.location.pathname || '')
     .split('/')

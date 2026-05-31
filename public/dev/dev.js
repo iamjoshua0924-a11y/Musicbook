@@ -514,7 +514,6 @@ function setAutoRefresh(on) {
   if (!enabled) return;
   autoPoller = setInterval(() => {
     // best-effort: these should not throw
-    loadUsers().catch(() => {});
     loadSessions().catch(() => {});
     loadConnections().catch(() => {});
     loadSync().catch(() => {});

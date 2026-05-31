@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MusicBook</title>
+  </head>
+  <body>
+    <script>
+      (function () {
+        try {
+          // GitHub Pages/정적 호스팅에서 /public/musicbook/<id> 같은 "딥링크"는 404가 발생한다.
+          // -> 404에서 musicbook 루트로 이동시키고, 원래 경로는 sessionStorage로 넘겨서 SPA가 복구한다.
+          var full = location.pathname + location.search + location.hash;
+          sessionStorage.setItem('mb_spa_redirect_v1', full);
+        } catch {}
+
+        var p = String(location.pathname || '');
+        var base = '/';
+        var idx1 = p.indexOf('/public/musicbook/');
+        if (idx1 >= 0) base = p.slice(0, idx1) + '/public/musicbook/';
+        else {
+          var idx2 = p.indexOf('/musicbook/');
+          if (idx2 >= 0) base = p.slice(0, idx2) + '/musicbook/';
+          else base = './musicbook/';
+        }
+        location.replace(base);
+      })();
+    </script>
+  </body>
+</html>
+

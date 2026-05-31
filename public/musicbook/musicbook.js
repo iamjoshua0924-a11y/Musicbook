@@ -143,20 +143,21 @@ function setArchiveShellUI() {
 
 function setLoadingContext({ titleImage = '', profilePhoto = '', displayName = '' } = {}) {
   try {
+    const blank = 'data:image/gif;base64,R0lGODlhAQABAAAAACw=';
     const ti = document.getElementById('loadingTitleImage');
     if (ti) {
       const u = normalizeProfilePhotoUrl(titleImage || '', 1200);
-      ti.src = u || '';
-      ti.style.display = u ? 'block' : 'none';
+      ti.src = u || blank;
+      ti.style.display = 'block';
     }
     const pi = document.getElementById('loadingProfileImage');
     if (pi) {
       const u = normalizeProfilePhotoUrl(profilePhoto || '', 240);
-      pi.src = u || '';
-      pi.style.display = u ? 'block' : 'none';
+      pi.src = u || blank;
+      pi.style.display = 'block';
     }
     const nn = document.getElementById('loadingNickname');
-    if (nn) nn.textContent = String(displayName || '').trim();
+    if (nn) nn.textContent = String(displayName || '').trim() || '로딩 중...';
   } catch {}
 }
 
@@ -1650,8 +1651,6 @@ async function refreshSession() {
     state.profilePhoto = '';
     updateProfileImage('profilePhoto', '');
   }
-  applyRoleUI();
-
   // Archive access check (best-effort)
   if (state.isArchiveMode && state.archiveTargetUserId) {
     const isAdmin = state.role === 'admin';
@@ -1683,6 +1682,9 @@ async function refreshSession() {
     if (isOwner && state.isPrivate) state.archiveViewOnly = false;
     setArchiveShellUI();
   }
+
+  // role UI는 archiveAuthorized/archiveViewOnly 반영 후 렌더되어야 한다.
+  applyRoleUI();
 
   // update presence role on socket (best-effort)
   state._socket?.emit?.('main:join', {
@@ -1785,7 +1787,8 @@ function openProfileModal() {
   $('profileNewPw2').value = '';
   try {
     const btn = $('privateArchiveOpenBtn');
-    if (btn) btn.style.display = state.isPrivate && state.privateArchivePath ? 'inline-flex' : 'none';
+    // 개인 노래책 페이지 안에서는 "노래책 보기" 버튼을 숨긴다(자기 자신을 다시 여는 버튼 불필요)
+    if (btn) btn.style.display = !state.isArchiveMode && state.isPrivate && state.privateArchivePath ? 'inline-flex' : 'none';
   } catch {}
   openModal('profileModal');
 }

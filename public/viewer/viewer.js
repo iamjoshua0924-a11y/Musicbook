@@ -1396,6 +1396,8 @@ const state = {
   chordBlocks: null,
   // compact blocks object(대용량) 보관용
   chordBlocksRaw: null,
+  // chord view: 독음(번역) 표시 여부 (기본 ON)
+  cwShowKr: (localStorage.getItem('mb_cw_showKr') ?? '1') !== '0',
   // 마지막으로 "실제로 렌더 완료"된 fileId (동기화/리커버리 판단용)
   renderedFileId: '',
   // follow 이벤트(곡 전환) 시퀀스
@@ -2395,6 +2397,9 @@ function setMode(mode) {
   setHidden('chordwikiPane', mode !== 'chord');
   // 코드위키 편집 버튼은 chord 모드에서만 노출
   setHidden('cwEditGroup', mode !== 'chord');
+  try {
+    updateCwKrToggleUI();
+  } catch {}
 
   if (mode === 'pdf') {
     document.getElementById('linkInput')?.setAttribute('placeholder', '구글드라이브 PDF 링크 또는 fileId');
@@ -2418,6 +2423,36 @@ function setMode(mode) {
   // chord 모드 주석/선택/이모지 모두 입력을 받아야 하므로 항상 활성화
   if (cwHost) cwHost.style.pointerEvents = state.mode === 'chord' ? 'auto' : 'none';
   updateToolActiveUI();
+}
+
+function updateCwKrToggleUI() {
+  const btn = document.getElementById('cwKrToggleBtn');
+  if (!btn) return;
+  const on = Boolean(state.cwShowKr);
+  btn.textContent = on ? '독음 ON' : '독음 OFF';
+  btn.classList.toggle('active', on);
+}
+
+function rerenderChordKeepScroll() {
+  if (state.mode !== 'chord') return;
+  const hasData = Boolean(state.chordBlocksRaw || (Array.isArray(state.chordBlocks) && state.chordBlocks.length));
+  if (!hasData) return;
+  const ratio = (() => {
+    try {
+      const el = document.getElementById('cwScroll');
+      return el ? getScrollRatio(el) : 0;
+    } catch {
+      return 0;
+    }
+  })();
+  try {
+    if (state.chordBlocksRaw) renderChordCompact(state.chordBlocksRaw);
+    else renderChordBlocks(state.chordBlocks);
+  } catch {}
+  try {
+    const el = document.getElementById('cwScroll');
+    if (el) setScrollRatio(el, ratio, false);
+  } catch {}
 }
 
 document.getElementById('pdfModeBtn')?.addEventListener('click', () => setMode('pdf'));
@@ -2444,6 +2479,15 @@ document.getElementById('chordModeBtn')?.addEventListener('click', async () => {
       await openChordByDocId(state.chordDocId, { broadcast: false });
     }
   } catch {}
+});
+
+document.getElementById('cwKrToggleBtn')?.addEventListener('click', () => {
+  state.cwShowKr = !state.cwShowKr;
+  try {
+    localStorage.setItem('mb_cw_showKr', state.cwShowKr ? '1' : '0');
+  } catch {}
+  updateCwKrToggleUI();
+  rerenderChordKeepScroll();
 });
 
 function renderChordBlocks(blocks) {
@@ -2515,7 +2559,8 @@ function renderChordBlocks(blocks) {
     let col = 0;
     for (const b of ln) {
       let chordTok = String(b?.chord || '').trim();
-      let lyricText = String(b?.lyric_kr ?? b?.lyric_raw ?? '');
+      let lyricText = state.cwShowKr ? String(b?.lyric_kr ?? '') : String(b?.lyric_raw ?? '');
+      if (!lyricText) lyricText = String(b?.lyric_raw ?? '');
       // ♥♠ 등 보컬 분배 기호는 "코드"가 아니라 가사로 보여야 한다(기존 데이터 호환)
       if (/^[♥♠♦♣♡○●◎★☆▲▼■□▶◀]+$/.test(chordTok) && !String(lyricText || '').trim()) {
         lyricText = chordTok;
@@ -2819,8 +2864,12 @@ function renderChordCompact(compact) {
   };
 
   const decodeLineText = (ln) => {
-    if (fmt === 'mb_chord_compact_v2') return rleDecode(ln?.krRle) || rleDecode(ln?.rawRle) || '';
-    return String(ln?.kr || ln?.raw || '');
+    if (fmt === 'mb_chord_compact_v2') {
+      if (state.cwShowKr) return rleDecode(ln?.krRle) || rleDecode(ln?.rawRle) || '';
+      return rleDecode(ln?.rawRle) || rleDecode(ln?.krRle) || '';
+    }
+    if (state.cwShowKr) return String(ln?.kr || ln?.raw || '');
+    return String(ln?.raw || ln?.kr || '');
   };
 
   // renderChordBlocks와 동일한 정책:

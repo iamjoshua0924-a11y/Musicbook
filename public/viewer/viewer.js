@@ -4383,6 +4383,14 @@ function applyPanScroll() {
   state.panX = clamp01(state.panX);
   state.panY = clamp01(state.panY);
 
+  // NOTE:
+  // 세션에서 "스크롤(팬) 팔로우"가 안 되는 케이스가 있었는데,
+  // 이는 viewer:settings(pan)이 PDF 렌더보다 먼저 도착하면 _contentW/_contentH가 아직 0에 가까워
+  // 여기서 panX/panY가 0으로 초기화되며(아래 분기), 이후 렌더가 끝나도 마지막 팬 값이 사라지는 레이스 때문이다.
+  // => 컨텐츠 크기가 아직 측정되지 않은 상태에서는(초기 렌더 전) 여기서 아무 것도 하지 않고 다음 renderSpread 후 적용되게 둔다.
+  const contentMeasured = Number(state._contentW || 0) > 50 && Number(state._contentH || 0) > 50;
+  if (!state.fitMode && !contentMeasured) return;
+
   // followers: 줌 상태에서는 스크롤이 우선(캔버스가 터치를 먹지 않게)
   const isFollower = state.isInSession && !state.isPageTurner;
   els.canvasStack.classList.toggle('scroll-pan', Boolean(isFollower) && !state.fitMode);

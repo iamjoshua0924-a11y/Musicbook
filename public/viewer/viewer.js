@@ -1583,6 +1583,20 @@ function setSessionUiDefaultsIfNeeded() {
   document.body.classList.add('link-collapsed');
   document.getElementById('viewBar')?.classList.add('isHidden');
   document.getElementById('toolBar')?.classList.add('isHidden');
+
+  // IMPORTANT:
+  // 세션 진입 직후(또는 팔로워가 늦게 합류했을 때) page turner의 viewer:settings(zoom/spread/pan)이
+  // "툴바/보기옵션 숨김" 적용보다 먼저 도착하면,
+  // pdfContainer의 실제 크기가 바뀌면서 렌더 결과가 안 맞고,
+  // 사용자가 토글을 한 번 눌러 resize가 발생해야만 따라가는 현상이 생길 수 있다.
+  // => UI 상태를 강제로 고정한 뒤 짧게 한 번 더 렌더해서 즉시 반영한다.
+  setTimeout(() => {
+    try {
+      if (!state.isInSession) return;
+      if (!state.isPdfReady || !state.pdfDoc) return;
+      renderSpread(state.pageNo).catch(() => {});
+    } catch {}
+  }, 0);
 }
 
 function restoreUiAfterLeavingSession() {
@@ -1614,6 +1628,8 @@ function updateSongBookPickVisibility() {
 function joinSession(roomCode) {
   state.roomCode = safeRoomCode(roomCode);
   state.isInSession = true;
+  // UI는 ack 이전에 먼저 고정해야, 서버가 보내는 초기 viewer:settings(init)가 올바른 레이아웃 크기 기준으로 적용된다.
+  setSessionUiDefaultsIfNeeded();
   document.getElementById('sessionFloatBtn').textContent = '세션 나가기';
   setHidden('sessionBadge', false);
   setText('sessionBadge', `세션: ${state.roomCode} (연결중...)`);

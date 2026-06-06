@@ -151,7 +151,15 @@ async function syncDriveFolderTree({
                   driveModifiedTime,
                   // 최소 정보는 항상 채워서 "제목없음" 스텁 데이터가 쌓이지 않게 한다.
                   driveUrl: buildViewUrl(f.id),
-                  folderPath: path
+                  folderPath: path,
+                  // IMPORTANT:
+                  // pruneMissing(누락 파일 숨김)으로 hidden=true가 된 곡도,
+                  // 실제로 Drive에서 "존재하는 파일"임이 확인되면 즉시 hidden=false로 복구되어야 한다.
+                  // incremental 모드에서 변경이 없다고 skip 처리되면 hidden이 그대로 남아
+                  // UI에서 "전체 곡 수가 600/1200처럼 줄어드는" 현상이 생길 수 있다.
+                  hidden: hiddenByPattern ? true : false,
+                  // 최신 배지(기존 값이 남아 있을 수 있어 갱신)
+                  isLatest
                 }
               },
               {

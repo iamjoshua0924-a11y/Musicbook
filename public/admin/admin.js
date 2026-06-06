@@ -183,7 +183,7 @@ async function syncDrive() {
   const payload = {
     rootFolderId: ($('rootFolderId')?.value || '').trim(),
     latestDays: Number($('latestDays')?.value || 30),
-    limit: 5000,
+    limit: 7000,
     incremental: Boolean($('incrementalToggle')?.checked),
     pruneMissing: Boolean($('pruneToggle')?.checked)
   };

@@ -346,13 +346,30 @@ router.post(
   requireDev,
   asyncHandler(async (req, res) => {
     const latestDays = Number(req.body?.latestDays || 1);
-    const limit = Number(req.body?.limit || 5000);
+    const limit = Number(req.body?.limit || 7000);
     const pruneMissing = req.body?.pruneMissing !== undefined ? Boolean(req.body.pruneMissing) : true;
     const incremental = Boolean(req.body?.incremental);
     const rootFolderId = String(req.body?.rootFolderId || '').trim();
     const r = await restartDriveSync({ latestDays, limit, pruneMissing, incremental, rootFolderId });
     if (!r.ok) return res.status(400).json({ ok: false, error: r.error || 'SYNC_FAILED' });
     res.json({ ok: true, ...r });
+  })
+);
+
+// Delete normal user (dev only) - safety: don't delete admin/private
+router.delete(
+  '/users/:userId',
+  requireDev,
+  asyncHandler(async (req, res) => {
+    const userId = String(req.params?.userId || '').trim();
+    if (!userId) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+    const existed = await User.findOne({ userId }).lean();
+    if (!existed) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
+    if (existed.isPrivate) return res.status(400).json({ ok: false, error: 'NOT_ALLOWED_PRIVATE' });
+    if (String(existed.role || '') === 'admin') return res.status(400).json({ ok: false, error: 'NOT_ALLOWED_ADMIN' });
+    await Availability.deleteMany({ userId });
+    await User.deleteOne({ userId });
+    res.json({ ok: true });
   })
 );
 router.post(

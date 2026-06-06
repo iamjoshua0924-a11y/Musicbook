@@ -33,7 +33,7 @@ router.get('/songs', async (req, res) => {
 
   const page = Math.max(1, Number(req.query.page || 1));
   // UI 이식 단계에서는 “전체 목록을 한번에 받아서 클라이언트에서 필터/페이징”을 하는 경우가 많아 상한을 넉넉히 둠
-  const limit = Math.min(5000, Math.max(10, Number(req.query.limit || 100)));
+  const limit = Math.min(7000, Math.max(10, Number(req.query.limit || 100)));
   const skip = (page - 1) * limit;
 
   const filter = { hidden: { $ne: true } };
@@ -109,7 +109,7 @@ router.get('/songs/cards', async (req, res) => {
   }
 
   const [songs, totalDocs, totalCardsAgg] = await Promise.all([
-    Song.find(filter).sort({ title: 1, artist: 1, key: 1, googleFileId: 1 }).limit(5000).lean(),
+    Song.find(filter).sort({ title: 1, artist: 1, key: 1, googleFileId: 1 }).limit(7000).lean(),
     Song.countDocuments(filter),
     Song.aggregate([
       { $match: filter },

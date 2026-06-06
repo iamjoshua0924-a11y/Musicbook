@@ -108,8 +108,14 @@ router.get('/songs/cards', async (req, res) => {
     availSet = new Set((items || []).map((x) => x.googleFileId));
   }
 
+  // IMPORTANT:
+  // cards 응답은 UI에서 "전체 카드"를 메모리로 받아 클라이언트에서 필터/정렬/페이징을 하므로,
+  // 여기서 Song.find에 낮은 limit을 걸면 "어느 날은 600개, 어느 날은 3000개"처럼 카드 수가 출렁일 수 있다.
+  // (Drive 동기화/정규화로 정렬 순서가 바뀌면서, 상한(limit) 안에 포함되는 문서 집합이 계속 바뀌기 때문)
+  // => 카드 생성용 원본 문서는 충분히 크게 받아온다.
+  const MAX_DOCS_FOR_CARDS = 50_000;
   const [songs, totalDocs, totalCardsAgg] = await Promise.all([
-    Song.find(filter).sort({ title: 1, artist: 1, key: 1, googleFileId: 1 }).limit(7000).lean(),
+    Song.find(filter).sort({ title: 1, artist: 1, key: 1, googleFileId: 1 }).limit(MAX_DOCS_FOR_CARDS).lean(),
     Song.countDocuments(filter),
     Song.aggregate([
       { $match: filter },
@@ -265,7 +271,7 @@ router.get('/songs/cards', async (req, res) => {
     totalCards,
     // 하위 호환: 기존 클라이언트용
     total: totalCards,
-    truncated: Number(totalDocs || 0) > 5000
+    truncated: Number(totalDocs || 0) > MAX_DOCS_FOR_CARDS
   });
 });
 

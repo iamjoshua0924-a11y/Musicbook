@@ -103,9 +103,11 @@ router.get('/songs/cards', async (req, res) => {
   if (vocal) filter.vocal = vocal;
 
   let availSet = null;
+  let availMap = null;
   if (availableUserId) {
     const items = await Availability.find({ userId: availableUserId, available: true }).lean();
-    availSet = new Set((items || []).map((x) => x.googleFileId));
+    availMap = new Map((items || []).map((x) => [String(x.googleFileId || ''), x]));
+    availSet = new Set(Array.from(availMap.keys()));
   }
 
   // IMPORTANT:
@@ -192,12 +194,14 @@ router.get('/songs/cards', async (req, res) => {
     const k = String(key || '').trim();
     const existing = card.variantsByKey.get(k);
     if (!existing || String(s.googleFileId) < String(existing.googleFileId)) {
+      const myAvail = availableUserId ? availMap?.get(String(s.googleFileId || '')) : null;
       card.variantsByKey.set(k, {
         key: k,
         songId: String(s._id),
         googleFileId: s.googleFileId,
         driveUrl: s.driveUrl || '',
-        driveModifiedMs: s.driveModifiedTime ? new Date(s.driveModifiedTime).getTime() : 0
+        driveModifiedMs: s.driveModifiedTime ? new Date(s.driveModifiedTime).getTime() : 0,
+        proficiency: Number(myAvail?.proficiency || 0) || 0
       });
     }
     fileIdToCardKey.set(String(s.googleFileId), cardKey);
@@ -235,6 +239,7 @@ router.get('/songs/cards', async (req, res) => {
     const searchText = `${card.title} ${card.artist} ${card.genre} ${card.mood} ${card.vocal} ${keys.join(' ')}`.toLowerCase();
     const latestMs =
       Number(card.latestModifiedMs || 0) || Math.max(0, ...variants.map((v) => Number(v.driveModifiedMs || 0)));
+    const proficiencyLevel = availableUserId ? Math.max(0, ...variants.map((v) => Number(v.proficiency || 0) || 0)) : 0;
     const uids = Array.from(cardAvailUsers.get(card.cardId) || []);
     const availableUsers = uids
       .map((uid) => {
@@ -258,6 +263,7 @@ router.get('/songs/cards', async (req, res) => {
       createdAt: latestMs || 0,
       keys,
       variants,
+      proficiencyLevel,
       availableUsers,
       searchText
     });

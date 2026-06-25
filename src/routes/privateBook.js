@@ -4,6 +4,7 @@ const { requireLogin } = require('../middleware/auth');
 const { driveToThumb } = require('../services/legacyCsvImport');
 
 const router = express.Router();
+const PRIVATE_THEMES = new Set(['pink', 'dark', 'sky', 'green', 'amber']);
 
 // Public: 개인 노래책 공개 프로필(stealth 계정만)
 router.get('/private-book/:userId', async (req, res) => {
@@ -19,25 +20,36 @@ router.get('/private-book/:userId', async (req, res) => {
       userId: user.userId,
       displayName: user.displayName || user.userId,
       profilePhoto: user.profilePhoto || '',
-      titleImage: user.privateTitleImage || ''
+      titleImage: user.privateTitleImage || '',
+      theme: PRIVATE_THEMES.has(String(user.privateTheme || '')) ? String(user.privateTheme) : 'pink'
     }
   });
 });
 
 // Private(로그인): 본인 개인 노래책 설정 저장(stealth 계정만)
 router.patch('/private-book', requireLogin, async (req, res) => {
+  const hasTitleImage = req.body?.titleImage !== undefined;
+  const hasTheme = req.body?.theme !== undefined;
   const titleImage = String(req.body?.titleImage || '').trim();
+  const theme = String(req.body?.theme || '').trim().toLowerCase();
   const user = await User.findById(req.session.user.id);
   if (!user) return res.status(401).json({ ok: false, error: 'UNAUTHORIZED' });
   if (!user.isPrivate) return res.status(403).json({ ok: false, error: 'FORBIDDEN' });
 
   // Drive 링크(/view 등)도 받을 수 있게 thumbnail로 저장
-  user.privateTitleImage = titleImage ? driveToThumb(titleImage, 1200) : '';
+  if (hasTitleImage) user.privateTitleImage = titleImage ? driveToThumb(titleImage, 1200) : '';
+  if (hasTheme) {
+    if (!PRIVATE_THEMES.has(theme)) return res.status(400).json({ ok: false, error: 'BAD_THEME' });
+    user.privateTheme = theme;
+  }
   user.updatedAt = new Date();
   await user.save();
 
-  res.json({ ok: true, titleImage: user.privateTitleImage || '' });
+  res.json({
+    ok: true,
+    titleImage: user.privateTitleImage || '',
+    theme: PRIVATE_THEMES.has(String(user.privateTheme || '')) ? String(user.privateTheme) : 'pink'
+  });
 });
 
 module.exports = router;
-

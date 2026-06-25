@@ -4,6 +4,7 @@ const { requireSessionOrAdmin } = require('../middleware/auth');
 const User = require('../models/User');
 
 const router = express.Router();
+const clampProficiency = (v) => Math.max(0, Math.min(3, Number(v || 0) || 0));
 
 // Public read (used by viewer filters later)
 router.get('/availability', async (req, res) => {
@@ -47,12 +48,20 @@ router.get('/availability/users', async (_req, res) => {
 router.put('/availability', requireSessionOrAdmin, async (req, res) => {
   const userId = String(req.body?.userId || '').trim();
   const googleFileId = String(req.body?.googleFileId || '').trim();
+  const hasAvailable = req.body?.available !== undefined;
+  const hasProficiency = req.body?.proficiency !== undefined;
   const available = Boolean(req.body?.available);
+  const proficiency = clampProficiency(req.body?.proficiency);
   if (!userId || !googleFileId) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+  if (!hasAvailable && !hasProficiency) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
 
+  /** @type {Record<string, any>} */
+  const $set = { userId, googleFileId, updatedAt: new Date() };
+  if (hasAvailable) $set.available = available;
+  if (hasProficiency) $set.proficiency = proficiency;
   await Availability.findOneAndUpdate(
     { userId, googleFileId },
-    { $set: { userId, googleFileId, available, updatedAt: new Date() } },
+    { $set },
     { upsert: true }
   );
   res.json({ ok: true });
@@ -65,22 +74,33 @@ router.post('/availability/bulk', requireSessionOrAdmin, async (req, res) => {
   if (!userId || !items.length) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
 
   const ops = items
-    .map((it) => ({
-      userId,
-      googleFileId: String(it.googleFileId || '').trim(),
-      available: Boolean(it.available)
-    }))
-    .filter((it) => it.googleFileId);
+    .map((it) => {
+      const hasAvailable = it?.available !== undefined;
+      const hasProficiency = it?.proficiency !== undefined;
+      return {
+        userId,
+        googleFileId: String(it?.googleFileId || '').trim(),
+        hasAvailable,
+        hasProficiency,
+        available: Boolean(it?.available),
+        proficiency: clampProficiency(it?.proficiency)
+      };
+    })
+    .filter((it) => it.googleFileId && (it.hasAvailable || it.hasProficiency));
 
   if (!ops.length) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
 
   const bulk = Availability.collection.initializeUnorderedBulkOp();
   const now = new Date();
   ops.forEach((it) => {
+    /** @type {Record<string, any>} */
+    const $set = { userId: it.userId, googleFileId: it.googleFileId, updatedAt: now };
+    if (it.hasAvailable) $set.available = it.available;
+    if (it.hasProficiency) $set.proficiency = it.proficiency;
     bulk
       .find({ userId: it.userId, googleFileId: it.googleFileId })
       .upsert()
-      .updateOne({ $set: { ...it, updatedAt: now } });
+      .updateOne({ $set });
   });
 
   await bulk.execute();

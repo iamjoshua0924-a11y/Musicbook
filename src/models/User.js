@@ -13,6 +13,8 @@ const UserSchema = new mongoose.Schema(
     isPrivate: { type: Boolean, default: false, index: true },
     // 개인 노래책 타이틀 배너(이미지)
     privateTitleImage: { type: String, default: '' },
+    // 개인 노래책 전용 테마
+    privateTheme: { type: String, enum: ['pink', 'dark', 'sky', 'green', 'amber'], default: 'pink' },
 
     mustChangePassword: { type: Boolean, default: false },
     legacyPasswordHash: { type: String, default: '' }, // 기존 GAS 시트의 해시(참조용)

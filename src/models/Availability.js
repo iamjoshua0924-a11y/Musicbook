@@ -10,6 +10,8 @@ const AvailabilitySchema = new mongoose.Schema(
     googleFileId: { type: String, required: true, index: true },
     userId: { type: String, required: true, index: true },
     available: { type: Boolean, required: true, default: true },
+    // 개인 노래책 숙련도: 0(미설정) / 1(더듬더듬) / 2(보통) / 3(잘할수있음)
+    proficiency: { type: Number, required: true, default: 0, min: 0, max: 3 },
     updatedAt: { type: Date, default: () => new Date() }
   },
   { minimize: false }
@@ -23,4 +25,3 @@ AvailabilitySchema.pre('save', function preSave(next) {
 });
 
 module.exports = mongoose.model('Availability', AvailabilitySchema);
-

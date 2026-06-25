@@ -37,6 +37,7 @@ router.get('/admin/me', requireLogin, async (req, res) => {
       mustChangePassword: Boolean(user.mustChangePassword),
       isPrivate: Boolean(user.isPrivate),
       privateTitleImage: user.privateTitleImage || '',
+      privateTheme: String(user.privateTheme || 'pink'),
       privateArchivePath
     }
   });
@@ -95,15 +96,17 @@ router.post('/admin/login', async (req, res) => {
 });
 
 router.patch('/admin/profile', requireLogin, async (req, res) => {
+  const hasDisplayName = req.body?.displayName !== undefined;
+  const hasProfilePhoto = req.body?.profilePhoto !== undefined;
   const displayName = String(req.body?.displayName || '').trim();
   const profilePhoto = String(req.body?.profilePhoto || '').trim();
 
   const user = await User.findById(req.session.user.id);
   if (!user) return res.status(401).json({ ok: false, error: 'UNAUTHORIZED' });
 
-  if (displayName) user.displayName = displayName;
+  if (hasDisplayName) user.displayName = displayName;
   // Accept Drive share links (/view) and store as thumbnail URL so <img> can render
-  user.profilePhoto = profilePhoto ? driveToThumb(profilePhoto, 240) : '';
+  if (hasProfilePhoto) user.profilePhoto = profilePhoto ? driveToThumb(profilePhoto, 240) : '';
   user.updatedAt = new Date();
   await user.save();
 

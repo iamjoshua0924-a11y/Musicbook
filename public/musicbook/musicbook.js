@@ -37,6 +37,8 @@ const state = {
   archiveDisplayName: '',
   archiveProfilePhoto: '',
   archiveTitleImage: '',
+  archiveTheme: 'pink',
+  profilePhoto: '',
   main: null,
   songCardsAll: [],
   songCardsFiltered: [],
@@ -57,10 +59,14 @@ const state = {
 
   // 본인 가능곡 편집용
   myAvailabilitySet: null, // Set<googleFileId>
+  myAvailabilityProficiencyMap: null, // Map<googleFileId, 0|1|2|3>
   availabilityEditMode: false,
   availabilityOriginalSet: null, // Set<googleFileId>
   availabilityDraftSet: null, // Set<googleFileId>
   availabilityHideExisting: false,
+  proficiencyEditMode: false,
+  proficiencyOriginalMap: null, // Map<googleFileId, proficiency>
+  proficiencyDraftMap: null, // Map<googleFileId, proficiency>
   _forceAllSongsForEdit: false,
 
   sessionRoomCode: '',
@@ -80,6 +86,21 @@ const state = {
   _lastSearchRaw: '',
   _lastSearchIsCho: false
 };
+
+function getProficiencyLabel(level) {
+  const v = Math.max(0, Math.min(3, Number(level || 0) || 0));
+  if (v === 1) return '더듬';
+  if (v === 2) return '보통';
+  if (v === 3) return '잘함';
+  return '미설정';
+}
+
+function applyArchiveTheme() {
+  try {
+    const theme = String(state.archiveTheme || 'pink').trim() || 'pink';
+    document.body.dataset.privateTheme = theme;
+  } catch {}
+}
 
 // GitHub Pages/정적 호스팅 딥링크(404.html -> /public/musicbook/ 리다이렉트) 복구
 try {
@@ -112,6 +133,7 @@ function detectArchiveTargetUserId() {
 
 function setArchiveShellUI() {
   document.body.classList.add('archive-mode');
+  applyArchiveTheme();
   // 메인/패널 제거 + 곡 리스트만 노출
   try {
     document.querySelectorAll('.page').forEach((p) => p.classList.remove('active'));
@@ -142,7 +164,7 @@ function setArchiveShellUI() {
       img.src = u || '';
       img.style.display = u ? 'block' : 'none';
     }
-    document.title = `${state.archiveTargetUserId}의 노래책`;
+    document.title = `${state.archiveDisplayName || state.archiveTargetUserId}의 노래책`;
   } catch {}
 }
 
@@ -736,14 +758,18 @@ function renderAvailableVocalModalList(query) {
 async function loadMyAvailabilitySet() {
   const userId = state.isArchiveMode && state.archiveTargetUserId ? state.archiveTargetUserId : state.userId || '';
   state.myAvailabilitySet = null;
+  state.myAvailabilityProficiencyMap = null;
   if (!userId) return null;
   const data = await apiGet(`/api/availability?userId=${encodeURIComponent(userId)}`);
   if (!data.ok) return null;
   const set = new Set();
+  const profMap = new Map();
   (data.items || []).forEach((a) => {
     if (a.available) set.add(a.googleFileId);
+    profMap.set(String(a.googleFileId || ''), Math.max(0, Math.min(3, Number(a.proficiency || 0) || 0)));
   });
   state.myAvailabilitySet = set;
+  state.myAvailabilityProficiencyMap = profMap;
   return set;
 }
 
@@ -764,7 +790,7 @@ function applySongFilters() {
 
   const hideTags = true; // 기본은 항상 태그 숨김(토글 제거)
 
-  if (state.availabilityEditMode) {
+  if (state.availabilityEditMode || state.proficiencyEditMode) {
     let list = state.songFilesAll.slice().filter((s) => !s.hidden);
     if (genre) list = list.filter((s) => s.genre === genre);
     if (mood) list = list.filter((s) => s.mood === mood);
@@ -812,9 +838,15 @@ function applySongFilters() {
     }
 
     // 옵션: 기존 가능곡(이미 체크된 곡) 숨기기
-    if (state.availabilityHideExisting && state.availabilityDraftSet) {
+    if (state.availabilityEditMode && state.availabilityHideExisting && state.availabilityDraftSet) {
       const set = state.availabilityDraftSet;
       list = list.filter((s) => !set.has(String(s.googleFileId || '')));
+    }
+
+    // 숙련도 설정 모드에서는 "내 가능곡"만 노출
+    if (state.proficiencyEditMode) {
+      const set = state.myAvailabilitySet || new Set();
+      list = list.filter((s) => set.has(String(s.googleFileId || '')));
     }
 
     const f = state.sortField;
@@ -830,7 +862,8 @@ function applySongFilters() {
     state.songFilesFiltered = list;
     const totalLabel = !state.isArchiveMode && state.songFilesTotal ? ` / 전체: ${state.songFilesTotal}개` : '';
     $('resultCount').textContent = `검색 결과: ${list.length}개(파일 단위)${totalLabel}`;
-    renderAvailabilityEditCards(hideTags);
+    if (state.proficiencyEditMode) renderProficiencyEditCards(hideTags);
+    else renderAvailabilityEditCards(hideTags);
     renderPager();
     return;
   }
@@ -910,6 +943,8 @@ function renderSongCards(hideTags) {
     el.className = canOpen ? 'song-card clickable' : 'song-card';
     const title = c.title || '(제목없음)';
     const keyLabel = c.keyLabel || '-';
+    const proficiencyLevel = Math.max(0, Math.min(3, Number(c.proficiencyLevel || 0) || 0));
+    const showProficiency = state.isArchiveMode && proficiencyLevel > 0;
 
     const isAdmin = state.role === 'admin';
     const users = Array.isArray(c.availableUsers) ? c.availableUsers : [];
@@ -957,6 +992,16 @@ function renderSongCards(hideTags) {
           <span class="chip">${esc(c.vocal || '-')}</span>
         </div>
       `}
+      ${showProficiency ? `
+        <div class="song-card-footer">
+          <div class="song-proficiency">
+            <div class="song-proficiency-label">${esc(getProficiencyLabel(proficiencyLevel))}</div>
+            <div class="song-proficiency-track">
+              <div class="song-proficiency-fill level-${proficiencyLevel}"></div>
+            </div>
+          </div>
+        </div>
+      ` : ''}
     `;
     el.querySelector('[data-action="editSong"]')?.addEventListener('click', (e) => {
       e.preventDefault();
@@ -995,6 +1040,23 @@ function updateAvailabilityEditCount() {
     if (!orig.has(fid)) added += 1;
   }
   el.textContent = `새로 체크: ${added}곡`;
+}
+
+function updateProficiencyEditCount() {
+  const el = $('proficiencyEditCount');
+  if (!el) return;
+  if (!state.proficiencyEditMode) {
+    el.textContent = '';
+    return;
+  }
+  const orig = state.proficiencyOriginalMap || new Map();
+  const draft = state.proficiencyDraftMap || new Map();
+  const keys = new Set([...orig.keys(), ...draft.keys()]);
+  let changed = 0;
+  keys.forEach((fid) => {
+    if ((Number(orig.get(fid) || 0) || 0) !== (Number(draft.get(fid) || 0) || 0)) changed += 1;
+  });
+  el.textContent = `변경됨: ${changed}곡`;
 }
 
 function renderAvailabilityEditCards(hideTags) {
@@ -1049,6 +1111,70 @@ function renderAvailabilityEditCards(hideTags) {
       }
       await toggleAvailabilityForFile(userId, s.googleFileId, next);
     };
+    wrap.appendChild(el);
+  });
+}
+
+function setDraftProficiency(googleFileId, level) {
+  if (!state.proficiencyDraftMap) state.proficiencyDraftMap = new Map();
+  state.proficiencyDraftMap.set(String(googleFileId || ''), Math.max(0, Math.min(3, Number(level || 0) || 0)));
+}
+
+function renderProficiencyEditCards(hideTags) {
+  const wrap = $('songCardList');
+  wrap.innerHTML = '';
+
+  const totalPages = Math.max(1, Math.ceil(state.songFilesFiltered.length / state.pageSize));
+  state.page = Math.min(state.page, totalPages);
+  const start = (state.page - 1) * state.pageSize;
+  const items = state.songFilesFiltered.slice(start, start + state.pageSize);
+  const profMap = state.proficiencyDraftMap || state.myAvailabilityProficiencyMap || new Map();
+
+  items.forEach((s) => {
+    const el = document.createElement('div');
+    el.className = 'song-card';
+    const title = s.displayTitle || s.title || '(제목없음)';
+    const current = Math.max(0, Math.min(3, Number(profMap.get(String(s.googleFileId || '')) || 0) || 0));
+    el.innerHTML = `
+      <div class="song-card-header">
+        <div>
+          <div class="song-card-title">${highlightHtml(title, state._lastSearchRaw)} ${s.isLatest ? `<span class="new-badge">new!</span>` : ''}</div>
+          <div class="song-card-artist">${highlightHtml(s.artist || '', state._lastSearchRaw)}</div>
+        </div>
+        <div class="song-card-right">
+          <div class="song-proficiency-label" style="position:static;">${esc(getProficiencyLabel(current))}</div>
+        </div>
+      </div>
+      ${hideTags ? '' : `
+        <div class="song-chips">
+          <span class="chip">${esc(s.key || '-')}</span>
+          <span class="chip">${esc(s.genre || '-')}</span>
+          <span class="chip">${esc(s.mood || '-')}</span>
+          <span class="chip">${esc(s.vocal || '-')}</span>
+        </div>
+      `}
+      <div class="song-card-footer">
+        <div class="song-proficiency">
+          <div class="song-proficiency-track">
+            <div class="song-proficiency-fill level-${current}"></div>
+          </div>
+        </div>
+        <div class="proficiency-picker" style="margin-top:10px;">
+          <button type="button" class="prof-option ${current === 1 ? 'active level-1' : ''}" data-level="1">더듬더듬</button>
+          <button type="button" class="prof-option ${current === 2 ? 'active level-2' : ''}" data-level="2">보통</button>
+          <button type="button" class="prof-option ${current === 3 ? 'active level-3' : ''}" data-level="3">잘할수있음</button>
+        </div>
+      </div>
+    `;
+    el.querySelectorAll('[data-level]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const clicked = Number(btn.dataset.level || 0) || 0;
+        const next = current === clicked ? 0 : clicked;
+        setDraftProficiency(s.googleFileId, next);
+        updateProficiencyEditCount();
+        renderProficiencyEditCards(hideTags);
+      });
+    });
     wrap.appendChild(el);
   });
 }
@@ -1234,7 +1360,7 @@ async function openInViewer() {
 }
 
 function renderPager() {
-  const total = state.availabilityEditMode ? state.songFilesFiltered.length : state.songCardsFiltered.length;
+  const total = state.availabilityEditMode || state.proficiencyEditMode ? state.songFilesFiltered.length : state.songCardsFiltered.length;
   const totalPages = Math.max(1, Math.ceil(total / state.pageSize));
   $('pageInfo').textContent = `${state.page} / ${totalPages}`;
   $('prevPageBtn').disabled = state.page <= 1;
@@ -1629,6 +1755,8 @@ function applyRoleUI() {
   const canEditArchiveAvailability =
     state.isArchiveMode && !state.archiveViewOnly && Boolean(state.isPrivate) && String(state.userId || '') === String(state.archiveTargetUserId || '');
   $('availabilityEditToggleBtn').style.display = state.isArchiveMode ? (canEditArchiveAvailability ? 'inline-flex' : 'none') : isPriv ? 'inline-flex' : 'none';
+  const profBtn = $('proficiencyEditToggleBtn');
+  if (profBtn) profBtn.style.display = canEditArchiveAvailability ? 'inline-flex' : 'none';
   // (legacy) 단일 가능보컬 드롭다운은 사용하지 않음(멀티 선택 모달로 대체)
 
   $('clearRequestsBtn').style.display = isAdmin ? 'inline-flex' : 'none';
@@ -1662,15 +1790,23 @@ async function submitCreateUser() {
 async function refreshSession() {
   const me = await apiGet('/api/admin/me');
   if (me.ok) {
+    const isOwnerArchive = state.isArchiveMode && String(me.user.userId || '') === String(state.archiveTargetUserId || '');
     state.role = me.user.role;
     state.displayName = me.user.displayName || me.user.userId;
     state.userId = me.user.userId || '';
     state.isPrivate = Boolean(me.user.isPrivate);
     state.privateArchivePath = String(me.user.privateArchivePath || '').trim();
-    // 본인(private)일 때만 설정값이 의미 있음
-    if (state.isPrivate) state.archiveTitleImage = String(me.user.privateTitleImage || '').trim() || state.archiveTitleImage;
+    if (!state.isArchiveMode || isOwnerArchive) {
+      state.archiveTheme = String(me.user.privateTheme || 'pink').trim() || state.archiveTheme || 'pink';
+      // 본인(private)일 때만 설정값이 의미 있음
+      if (state.isPrivate) state.archiveTitleImage = String(me.user.privateTitleImage || '').trim() || state.archiveTitleImage;
+    }
     state.profilePhoto = me.user.profilePhoto || '';
     updateProfileImage('profilePhoto', state.profilePhoto);
+    if (isOwnerArchive) {
+      state.archiveDisplayName = state.displayName || state.archiveDisplayName || state.archiveTargetUserId;
+      state.archiveProfilePhoto = state.profilePhoto || state.archiveProfilePhoto;
+    }
   } else {
     state.role = 'viewer';
     state.displayName = '방문자';
@@ -1678,6 +1814,7 @@ async function refreshSession() {
     state.isPrivate = false;
     state.privateArchivePath = '';
     state.profilePhoto = '';
+    state.archiveTheme = state.archiveTheme || 'pink';
     updateProfileImage('profilePhoto', '');
   }
   // Archive access check (best-effort)
@@ -1808,6 +1945,7 @@ async function syncDrive(isFast) {
 
 function openProfileModal() {
   if (state.role === 'viewer') return openModal('loginModal');
+  $('profileDisplayNameInput').value = state.displayName || '';
   $('profilePhotoInput').value = state.profilePhoto || '';
   updateProfileImage('profilePreview', state.profilePhoto || '');
   $('profilePasswordBox').style.display = 'none';
@@ -1843,21 +1981,37 @@ async function submitPasswordChangeFromProfile() {
 }
 
 async function submitProfilePhoto() {
+  const displayName = $('profileDisplayNameInput').value.trim();
   const profilePhoto = $('profilePhotoInput').value.trim();
-  const res = await apiJson('/api/admin/profile', 'PATCH', { profilePhoto });
+  const res = await apiJson('/api/admin/profile', 'PATCH', { displayName, profilePhoto });
   if (!res.ok) return toast('프로필 저장 실패');
+  state.displayName = res.displayName || state.userId || '방문자';
   state.profilePhoto = res.profilePhoto || '';
+  $('userDisplayName').textContent = state.displayName;
   updateProfileImage('profilePhoto', state.profilePhoto);
   updateProfileImage('profilePreview', state.profilePhoto);
-  toast('프로필 사진을 저장했습니다.');
+  if (state.isArchiveMode && String(state.userId || '') === String(state.archiveTargetUserId || '')) {
+    state.archiveDisplayName = state.displayName || state.archiveTargetUserId;
+    state.archiveProfilePhoto = state.profilePhoto || '';
+    setArchiveShellUI();
+    setLoadingContext({
+      titleImage: state.archiveTitleImage,
+      profilePhoto: state.archiveProfilePhoto,
+      displayName: state.archiveDisplayName
+    });
+  }
+  await refreshSocketMetaAndReconnect();
+  toast('프로필을 저장했습니다.');
   closeModal('profileModal');
 }
 
 async function saveBookSettings() {
   const v = String($('bookTitleImageInput')?.value || '').trim();
-  const res = await apiJson('/api/private-book', 'PATCH', { titleImage: v });
+  const theme = String($('bookThemeSelect')?.value || 'pink').trim() || 'pink';
+  const res = await apiJson('/api/private-book', 'PATCH', { titleImage: v, theme });
   if (!res.ok) return toast(`저장 실패: ${res.error || ''}`);
   state.archiveTitleImage = String(res.titleImage || '').trim();
+  state.archiveTheme = String(res.theme || 'pink').trim() || 'pink';
   // header + loading 갱신
   setArchiveShellUI();
   setLoadingContext({ titleImage: state.archiveTitleImage, profilePhoto: state.archiveProfilePhoto, displayName: state.archiveDisplayName });
@@ -1910,6 +2064,7 @@ function wireEvents() {
   $('bookSettingsBtn').onclick = () => {
     try {
       $('bookTitleImageInput').value = state.archiveTitleImage || '';
+      $('bookThemeSelect').value = state.archiveTheme || 'pink';
       const pv = $('bookTitleImagePreview');
       if (pv) {
         const u = normalizeProfilePhotoUrl(state.archiveTitleImage || '', 1200);
@@ -2040,6 +2195,10 @@ function wireEvents() {
       if (sp) sp.style.display = 'inline-block';
       // 편집 모드에서는 전체 곡을 봐야 한다.
       try {
+        state.proficiencyEditMode = false;
+        state.proficiencyOriginalMap = null;
+        state.proficiencyDraftMap = null;
+        $('proficiencyEditBar').style.display = 'none';
         state._forceAllSongsForEdit = true;
         await loadSongFiles(true);
       } finally {
@@ -2122,6 +2281,82 @@ function wireEvents() {
     toast('저장 완료');
   };
 
+  $('proficiencyEditToggleBtn').onclick = async () => {
+    const userId = state.isArchiveMode && state.archiveTargetUserId ? state.archiveTargetUserId : state.userId || '';
+    if (!userId) return toast('로그인이 필요합니다.');
+    if (state.archiveViewOnly || !state.isPrivate || String(state.userId || '') !== String(state.archiveTargetUserId || '')) return;
+    try {
+      state.availabilityEditMode = false;
+      state.availabilityOriginalSet = null;
+      state.availabilityDraftSet = null;
+      $('availabilityEditBar').style.display = 'none';
+      state._forceAllSongsForEdit = true;
+      await loadSongFiles(true);
+    } finally {
+      state._forceAllSongsForEdit = false;
+    }
+    await loadMyAvailabilitySet();
+    state.proficiencyOriginalMap = new Map(Array.from(state.myAvailabilityProficiencyMap || new Map()));
+    state.proficiencyDraftMap = new Map(Array.from(state.myAvailabilityProficiencyMap || new Map()));
+    state.proficiencyEditMode = true;
+    state.sortField = 'createdAt';
+    state.sortDir = 'desc';
+    document.querySelectorAll('.sort-btn').forEach((b) => b.classList.toggle('active', b.dataset.sortField === state.sortField));
+    $('proficiencyEditBar').style.display = 'flex';
+    updateProficiencyEditCount();
+    state.page = 1;
+    applySongFilters();
+  };
+
+  $('proficiencyEditCancelBtn').onclick = async () => {
+    state.proficiencyEditMode = false;
+    state.proficiencyDraftMap = null;
+    state.myAvailabilityProficiencyMap = state.proficiencyOriginalMap
+      ? new Map(Array.from(state.proficiencyOriginalMap))
+      : state.myAvailabilityProficiencyMap;
+    state.proficiencyOriginalMap = null;
+    $('proficiencyEditBar').style.display = 'none';
+    applyRoleUI();
+    updateProficiencyEditCount();
+    if (state.isArchiveMode) {
+      state.songCardsAll = [];
+      await loadSongs(true);
+    }
+    applySongFilters();
+    toast('취소됨');
+  };
+
+  $('proficiencyEditSaveBtn').onclick = async () => {
+    const userId = state.isArchiveMode && state.archiveTargetUserId ? state.archiveTargetUserId : state.userId || '';
+    if (!userId) return;
+    const before = state.proficiencyOriginalMap || new Map();
+    const after = state.proficiencyDraftMap || new Map();
+    const all = new Set([...before.keys(), ...after.keys()]);
+    const items = [];
+    all.forEach((fid) => {
+      const b = Number(before.get(fid) || 0) || 0;
+      const a = Number(after.get(fid) || 0) || 0;
+      if (a !== b) items.push({ googleFileId: fid, proficiency: a });
+    });
+    if (items.length) {
+      const res = await apiJson('/api/availability/bulk', 'POST', { userId, items });
+      if (!res.ok) return toast('저장 실패');
+    }
+    state.myAvailabilityProficiencyMap = new Map(Array.from(after));
+    state.proficiencyEditMode = false;
+    state.proficiencyOriginalMap = null;
+    state.proficiencyDraftMap = null;
+    $('proficiencyEditBar').style.display = 'none';
+    applyRoleUI();
+    updateProficiencyEditCount();
+    if (state.isArchiveMode) {
+      state.songCardsAll = [];
+      await loadSongs(true);
+    }
+    applySongFilters();
+    toast('저장 완료');
+  };
+
   $('availabilityHideExistingToggle').onchange = () => {
     state.availabilityHideExisting = Boolean($('availabilityHideExistingToggle')?.checked);
     state.page = 1;
@@ -2155,7 +2390,7 @@ function wireEvents() {
     applySongFilters();
   };
   $('nextPageBtn').onclick = () => {
-    const total = state.availabilityEditMode ? state.songFilesFiltered.length : state.songCardsFiltered.length;
+    const total = state.availabilityEditMode || state.proficiencyEditMode ? state.songFilesFiltered.length : state.songCardsFiltered.length;
     const totalPages = Math.max(1, Math.ceil(total / state.pageSize));
     state.page = Math.min(totalPages, state.page + 1);
     applySongFilters();
@@ -2561,7 +2796,10 @@ async function bootstrap() {
     state.archiveTargetUserId = detectArchiveTargetUserId();
     state.isArchiveMode = Boolean(state.archiveTargetUserId);
     // 로딩 화면부터 아카이브 전용 UI/애니메이션이 적용되도록, 초기에 class를 세팅한다.
-    if (state.isArchiveMode) document.body.classList.add('archive-mode');
+    if (state.isArchiveMode) {
+      document.body.classList.add('archive-mode');
+      applyArchiveTheme();
+    }
 
     wireEvents();
     // archive public profile (for header/loading animation)
@@ -2572,6 +2810,8 @@ async function bootstrap() {
           state.archiveDisplayName = String(r.user.displayName || r.user.userId || state.archiveTargetUserId);
           state.archiveProfilePhoto = String(r.user.profilePhoto || '');
           state.archiveTitleImage = String(r.user.titleImage || '');
+          state.archiveTheme = String(r.user.theme || 'pink').trim() || 'pink';
+          applyArchiveTheme();
           setLoadingContext({
             titleImage: state.archiveTitleImage,
             profilePhoto: state.archiveProfilePhoto,

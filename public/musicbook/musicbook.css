@@ -24,6 +24,7 @@
   --soft-surface: rgba(255,255,255,0.88);
   --card-bg: rgba(255,255,255,0.86);
   --card-border: rgba(59,109,246,0.55);
+  --card-hover-border: rgba(255, 140, 190, 0.88);
   --modal-surface: rgba(255, 255, 255, 0.92);
   --muted-surface: rgba(0, 0, 0, 0.04);
   --overlay-bg: rgba(0, 0, 0, 0.35);
@@ -52,6 +53,7 @@ body.archive-mode[data-private-theme="dark"]{
   --soft-surface: rgba(34, 42, 58, 0.88);
   --card-bg: rgba(30, 37, 51, 0.92);
   --card-border: rgba(132, 178, 255, 0.42);
+  --card-hover-border: rgba(132, 178, 255, 0.92);
   --modal-surface: rgba(26, 32, 44, 0.96);
   --muted-surface: rgba(255,255,255,0.06);
   --overlay-bg: rgba(0,0,0,0.55);
@@ -64,6 +66,7 @@ body.archive-mode[data-private-theme="sky"]{
   --border: rgba(162, 208, 255, 0.55);
   --shadow: 0 12px 34px rgba(55, 125, 200, 0.12);
   --card-border: rgba(88, 172, 255, 0.45);
+  --card-hover-border: rgba(88, 172, 255, 0.90);
 }
 body.archive-mode[data-private-theme="green"]{
   --page-bg: linear-gradient(180deg, #f5fff1 0%, #f6fff8 38%, #efffed 100%);
@@ -73,6 +76,7 @@ body.archive-mode[data-private-theme="green"]{
   --border: rgba(163, 225, 156, 0.56);
   --shadow: 0 12px 34px rgba(77, 151, 68, 0.14);
   --card-border: rgba(109, 189, 98, 0.45);
+  --card-hover-border: rgba(109, 189, 98, 0.90);
 }
 body.archive-mode[data-private-theme="amber"]{
   --page-bg: linear-gradient(180deg, #fff8eb 0%, #fffdf3 35%, #fff6df 100%);
@@ -82,6 +86,7 @@ body.archive-mode[data-private-theme="amber"]{
   --border: rgba(244, 192, 112, 0.52);
   --shadow: 0 12px 34px rgba(186, 127, 43, 0.15);
   --card-border: rgba(238, 162, 74, 0.48);
+  --card-hover-border: rgba(238, 162, 74, 0.92);
 }
 
 .layout {
@@ -678,7 +683,7 @@ textarea {
 .song-card.clickable:hover{ transform:translateY(-2px) scale(1.012); box-shadow:0 20px 52px rgba(0,0,0,0.14); }
 .song-card.clickable:hover::before{ opacity: 1; }
 body.archive-mode .song-card.clickable:hover{
-  border-color: rgba(255, 140, 190, 0.88);
+  border-color: var(--card-hover-border);
   filter: saturate(1.04);
 }
 .song-card.clickable:active{

@@ -462,7 +462,7 @@ function renderGuestbook() {
   const list = $('guestbookList');
   if (!panel || !showBtn || !list) return;
   const visible = state.isArchiveMode;
-  panel.style.display = visible ? 'block' : 'none';
+  panel.style.display = visible ? 'flex' : 'none';
   showBtn.style.display = 'none';
   const nickInput = $('guestbookNicknameInput');
   if (nickInput && !nickInput.value.trim()) nickInput.value = getGuestbookNicknameSeed();
@@ -512,7 +512,7 @@ function ensureGuestbookPosition() {
   if (!panel) return;
   if (!panel.dataset.positioned) {
     panel.style.left = '22px';
-    panel.style.top = '160px';
+    panel.style.top = '220px';
     panel.dataset.positioned = '1';
   }
 }
@@ -2646,7 +2646,7 @@ function wireEvents() {
     $('guestbookShowBtn').style.display = state.isArchiveMode ? 'inline-flex' : 'none';
   };
   $('guestbookShowBtn').onclick = () => {
-    $('guestbookPanel').style.display = 'block';
+    $('guestbookPanel').style.display = 'flex';
     $('guestbookShowBtn').style.display = 'none';
     ensureGuestbookPosition();
     renderGuestbook();

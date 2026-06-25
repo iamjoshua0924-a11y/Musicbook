@@ -38,6 +38,8 @@ const state = {
   archiveProfilePhoto: '',
   archiveTitleImage: '',
   archiveTheme: 'pink',
+  archiveGuestbookLoaded: false,
+  guestbookItems: [],
   profilePhoto: '',
   main: null,
   songCardsAll: [],
@@ -84,7 +86,8 @@ const state = {
   _pendingVariant: null,
   _rouletteCandidates: [],
   _lastSearchRaw: '',
-  _lastSearchIsCho: false
+  _lastSearchIsCho: false,
+  _guestbookDrag: null
 };
 
 function getProficiencyLabel(level) {
@@ -157,6 +160,13 @@ function setArchiveShellUI() {
       const name = state.archiveDisplayName || state.archiveTargetUserId;
       navTitle.style.display = 'block';
       navTitle.textContent = `${name}의 노래책`;
+    }
+    const profileWrap = $('archiveNavProfileWrap');
+    const profileImg = $('archiveNavProfile');
+    if (profileWrap && profileImg) {
+      const photo = normalizeProfilePhotoUrl(state.archiveProfilePhoto || '', 320);
+      profileImg.src = photo || '';
+      profileWrap.style.display = photo ? 'flex' : 'none';
     }
     const img = $('songsTitleLogo');
     if (img) {
@@ -384,6 +394,124 @@ function openModal(id) {
 }
 function closeModal(id) {
   $(id).classList.remove('active');
+}
+
+function formatDateTime(v) {
+  try {
+    return new Date(v).toLocaleString('ko-KR', {
+      year: '2-digit',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  } catch {
+    return '';
+  }
+}
+
+function canManageGuestbook() {
+  if (!state.isArchiveMode) return false;
+  if (state.role === 'admin') return true;
+  return Boolean(state.isPrivate) && String(state.userId || '') === String(state.archiveTargetUserId || '');
+}
+
+function getGuestbookNicknameSeed() {
+  const stored = String(localStorage.getItem('mb_guestbook_nick') || '').trim();
+  if (stored) return stored;
+  if (state.role !== 'viewer' && String(state.displayName || '').trim()) return String(state.displayName || '').trim();
+  return '';
+}
+
+function renderGuestbook() {
+  const panel = $('guestbookPanel');
+  const showBtn = $('guestbookShowBtn');
+  const list = $('guestbookList');
+  if (!panel || !showBtn || !list) return;
+  const visible = state.isArchiveMode;
+  panel.style.display = visible ? 'block' : 'none';
+  showBtn.style.display = 'none';
+  const nickInput = $('guestbookNicknameInput');
+  if (nickInput && !nickInput.value.trim()) nickInput.value = getGuestbookNicknameSeed();
+  if (!visible) return;
+
+  list.innerHTML = '';
+  const items = Array.isArray(state.guestbookItems) ? state.guestbookItems : [];
+  if (!items.length) {
+    list.innerHTML = `<div class="guestbook-item"><div class="guestbook-item-content">아직 방명록이 없습니다.</div></div>`;
+    return;
+  }
+  items.forEach((item) => {
+    const el = document.createElement('div');
+    el.className = 'guestbook-item';
+    const canDelete = canManageGuestbook();
+    el.innerHTML = `
+      <div class="guestbook-item-top">
+        <div>
+          <div class="guestbook-item-name">${esc(item.nickname || '익명')}</div>
+          <div class="guestbook-item-date">${esc(formatDateTime(item.createdAt))}</div>
+        </div>
+        ${canDelete ? `<button class="floating-btn compact-btn" data-del="${esc(item._id || '')}" type="button">삭제</button>` : ''}
+      </div>
+      <div class="guestbook-item-content">${esc(item.content || '')}</div>
+    `;
+    el.querySelector('[data-del]')?.addEventListener('click', async () => {
+      const r = await apiJson(`/api/guestbook/${encodeURIComponent(item._id)}`, 'DELETE', {});
+      if (!r.ok) return toast('삭제 실패');
+      await loadGuestbook(true);
+    });
+    list.appendChild(el);
+  });
+}
+
+async function loadGuestbook(force = false) {
+  if (!state.isArchiveMode || !state.archiveTargetUserId) return;
+  if (!force && state.archiveGuestbookLoaded) return;
+  const r = await apiGet(`/api/guestbook/${encodeURIComponent(state.archiveTargetUserId)}`);
+  if (!r?.ok) return;
+  state.guestbookItems = Array.isArray(r.items) ? r.items : [];
+  state.archiveGuestbookLoaded = true;
+  renderGuestbook();
+}
+
+function ensureGuestbookPosition() {
+  const panel = $('guestbookPanel');
+  if (!panel) return;
+  if (!panel.dataset.positioned) {
+    panel.style.left = '22px';
+    panel.style.top = '160px';
+    panel.dataset.positioned = '1';
+  }
+}
+
+function initGuestbookDrag() {
+  const panel = $('guestbookPanel');
+  const handle = $('guestbookDragHandle');
+  if (!panel || !handle || handle.dataset.bound === '1') return;
+  handle.dataset.bound = '1';
+  const onPointerMove = (e) => {
+    if (!state._guestbookDrag) return;
+    const nextLeft = e.clientX - state._guestbookDrag.offsetX;
+    const nextTop = e.clientY - state._guestbookDrag.offsetY;
+    const maxLeft = Math.max(0, window.innerWidth - panel.offsetWidth - 8);
+    const maxTop = Math.max(0, window.innerHeight - panel.offsetHeight - 8);
+    panel.style.left = `${Math.max(8, Math.min(maxLeft, nextLeft))}px`;
+    panel.style.top = `${Math.max(8, Math.min(maxTop, nextTop))}px`;
+  };
+  const onPointerUp = () => {
+    state._guestbookDrag = null;
+    handle.style.cursor = 'grab';
+    window.removeEventListener('pointermove', onPointerMove);
+    window.removeEventListener('pointerup', onPointerUp);
+  };
+  handle.addEventListener('pointerdown', (e) => {
+    if (!state.isArchiveMode) return;
+    const rect = panel.getBoundingClientRect();
+    state._guestbookDrag = { offsetX: e.clientX - rect.left, offsetY: e.clientY - rect.top };
+    handle.style.cursor = 'grabbing';
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+  });
 }
 
 function switchPage(page) {
@@ -1774,6 +1902,8 @@ function applyRoleUI() {
   $('authButton').textContent = state.role === 'viewer' ? '세션 / 관리자 로그인' : '로그아웃';
   if (!isAdmin) state.requestManageMode = false;
 
+  renderGuestbook();
+
   if (isAdmin) startChzzkStatusPolling();
 }
 
@@ -1831,31 +1961,11 @@ async function refreshSession() {
   if (state.isArchiveMode && state.archiveTargetUserId) {
     const isAdmin = state.role === 'admin';
     const isOwner = String(state.userId || '') === String(state.archiveTargetUserId || '');
-    state.archiveViewOnly = isAdmin ? true : false;
-    state.archiveAuthorized = false;
-
-    // 1) viewer(미로그인)면: 메인으로 쫓아내지 말고, 아카이브 셸만 띄운 뒤 로그인 유도
-    if (state.role === 'viewer') {
-      setArchiveShellUI();
-      toast('개인 노래책은 로그인 후 이용 가능합니다.');
-      try {
-        openModal('loginModal');
-      } catch {}
-      return;
-    }
-
-    // 2) admin은 보기 전용으로 접근 가능(데이터 노출은 "내 가능곡"만이므로 문제 없음)
-    // 3) 본인(private)만 편집 가능
-    if (!isAdmin && !(isOwner && state.isPrivate)) {
-      toast('접근 권한이 없습니다.');
-      // 접근 불가: 메인으로 보내지 않고 빈 화면 유지(정보 노출 방지)
-      setArchiveShellUI();
-      return;
-    }
-
     state.archiveAuthorized = true;
-    // owner라면 편집 가능, admin은 view only
+    state.archiveViewOnly = true;
+    // 개인 노래책은 방문자/타 사용자도 읽기 가능, 본인(private)만 편집 가능
     if (isOwner && state.isPrivate) state.archiveViewOnly = false;
+    if (isAdmin) state.archiveViewOnly = true;
     setArchiveShellUI();
   }
 
@@ -2406,6 +2516,18 @@ function wireEvents() {
     state.page = Math.min(totalPages, state.page + 1);
     applySongFilters();
   };
+  const goPage = () => {
+    const total = state.availabilityEditMode || state.proficiencyEditMode ? state.songFilesFiltered.length : state.songCardsFiltered.length;
+    const totalPages = Math.max(1, Math.ceil(total / state.pageSize));
+    const raw = Number($('pageJumpInput')?.value || 0) || 0;
+    if (!raw) return;
+    state.page = Math.max(1, Math.min(totalPages, raw));
+    applySongFilters();
+  };
+  $('pageJumpBtn').onclick = () => goPage();
+  $('pageJumpInput')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') goPage();
+  });
 
   document.querySelectorAll('.sort-btn').forEach((btn) => {
     btn.onclick = () => {
@@ -2477,6 +2599,31 @@ function wireEvents() {
       renderAvailableVocalModalList(e.target.value || '');
     });
   }
+
+  $('guestbookHideBtn').onclick = () => {
+    $('guestbookPanel').style.display = 'none';
+    $('guestbookShowBtn').style.display = state.isArchiveMode ? 'inline-flex' : 'none';
+  };
+  $('guestbookShowBtn').onclick = () => {
+    $('guestbookPanel').style.display = 'block';
+    $('guestbookShowBtn').style.display = 'none';
+    ensureGuestbookPosition();
+    renderGuestbook();
+  };
+  $('guestbookSubmitBtn').onclick = async () => {
+    if (!state.isArchiveMode || !state.archiveTargetUserId) return;
+    const nickname = String($('guestbookNicknameInput')?.value || '').trim();
+    const content = String($('guestbookContentInput')?.value || '').trim();
+    if (!nickname || !content) return toast('닉네임과 내용을 입력해 주세요.');
+    const r = await apiJson(`/api/guestbook/${encodeURIComponent(state.archiveTargetUserId)}`, 'POST', { nickname, content });
+    if (!r.ok) return toast('등록 실패');
+    try {
+      localStorage.setItem('mb_guestbook_nick', nickname);
+    } catch {}
+    $('guestbookContentInput').value = '';
+    await loadGuestbook(true);
+    toast('방명록을 남겼습니다.');
+  };
 
   // action modals
   $('keySelectCancelBtn').onclick = () => closeModal('keySelectModal');
@@ -2851,6 +2998,11 @@ async function bootstrap() {
     // 파일 단위 목록은 무거우므로 필요 시(가능곡 편집 진입 시) 로드
     if (!state.isArchiveMode) await loadSongFiles(true);
     await loadAvailabilityUsersIfNeeded();
+    if (state.isArchiveMode) {
+      ensureGuestbookPosition();
+      initGuestbookDrag();
+      await loadGuestbook(true);
+    }
     applySongFilters();
     if (!state.isArchiveMode) await loadRequests(true);
 

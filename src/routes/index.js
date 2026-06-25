@@ -10,6 +10,7 @@ router.use(require('./admin'));
 router.use(require('./mainPage'));
 router.use(require('./privateArchive'));
 router.use(require('./privateBook'));
+router.use(require('./guestbook'));
 router.use(require('./availability'));
 router.use(require('./socketMeta'));
 router.use(require('./proxyChord'));

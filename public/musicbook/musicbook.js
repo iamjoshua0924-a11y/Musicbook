@@ -410,6 +410,39 @@ function formatDateTime(v) {
   }
 }
 
+function runCardParticleBurst(event) {
+  if (!state.isArchiveMode) return Promise.resolve();
+  const x = Number(event?.clientX || 0);
+  const y = Number(event?.clientY || 0);
+  if (!x && !y) return Promise.resolve();
+  const host = document.createElement('div');
+  host.className = 'card-particle-burst';
+  const colors = ['#ffd7ea', '#ffe67c', '#b9ffd8', '#fff7fb', '#ffc4dd'];
+  const count = 14;
+  for (let i = 0; i < count; i += 1) {
+    const p = document.createElement('span');
+    p.className = 'card-particle';
+    const angle = (Math.PI * 2 * i) / count + Math.random() * 0.24;
+    const distance = 34 + Math.random() * 44;
+    const size = 5 + Math.random() * 8;
+    p.style.setProperty('--start-x', `${x}px`);
+    p.style.setProperty('--start-y', `${y}px`);
+    p.style.setProperty('--dx', `${Math.cos(angle) * distance}px`);
+    p.style.setProperty('--dy', `${Math.sin(angle) * distance}px`);
+    p.style.setProperty('--particle-color', colors[i % colors.length]);
+    p.style.width = `${size}px`;
+    p.style.height = `${size}px`;
+    host.appendChild(p);
+  }
+  document.body.appendChild(host);
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      host.remove();
+      resolve();
+    }, 240);
+  });
+}
+
 function canManageGuestbook() {
   if (!state.isArchiveMode) return false;
   if (state.role === 'admin') return true;
@@ -1144,8 +1177,16 @@ function renderSongCards(hideTags) {
       e.stopPropagation();
       openSongTagModal(c);
     });
+    el.addEventListener('pointermove', (e) => {
+      const rect = el.getBoundingClientRect();
+      const x = ((e.clientX - rect.left) / Math.max(1, rect.width)) * 100;
+      const y = ((e.clientY - rect.top) / Math.max(1, rect.height)) * 100;
+      el.style.setProperty('--hover-x', `${x}%`);
+      el.style.setProperty('--hover-y', `${y}%`);
+    });
     if (canOpen) {
-      el.onclick = () => {
+      el.onclick = async (e) => {
+        await runCardParticleBurst(e);
         openCardFlow(c).catch(() => {});
       };
     }

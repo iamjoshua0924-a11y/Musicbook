@@ -656,9 +656,65 @@ textarea {
   flex-direction:column;
   gap:10px;
   height:100%;
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
 }
-.song-card.clickable{ cursor:pointer; transition:0.15s; }
-.song-card.clickable:hover{ transform:translateY(-1px); box-shadow:0 18px 48px rgba(0,0,0,0.12); }
+.song-card.clickable{ cursor:pointer; transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease, filter 0.18s ease; }
+.song-card.clickable::before{
+  content:'';
+  position:absolute;
+  inset:-20%;
+  background: radial-gradient(circle at var(--hover-x, 50%) var(--hover-y, 50%), rgba(255,255,255,0.34), rgba(255,255,255,0) 46%);
+  opacity: 0;
+  transition: opacity 0.18s ease;
+  pointer-events: none;
+  z-index: 0;
+}
+.song-card.clickable > *{
+  position: relative;
+  z-index: 1;
+}
+.song-card.clickable:hover{ transform:translateY(-2px) scale(1.012); box-shadow:0 20px 52px rgba(0,0,0,0.14); }
+.song-card.clickable:hover::before{ opacity: 1; }
+body.archive-mode .song-card.clickable:hover{
+  border-color: rgba(255, 140, 190, 0.88);
+  filter: saturate(1.04);
+}
+.song-card.clickable:active{
+  transform: translateY(0) scale(0.992);
+}
+.card-particle-burst{
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 5000;
+}
+.card-particle{
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--particle-color, rgba(255,255,255,0.92));
+  box-shadow: 0 0 16px color-mix(in srgb, var(--particle-color, #fff) 68%, transparent);
+  animation: mbCardBurst 520ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+@keyframes mbCardBurst{
+  0%{
+    opacity: 0.98;
+    transform: translate3d(var(--start-x, 0), var(--start-y, 0), 0) scale(0.8);
+  }
+  70%{
+    opacity: 0.92;
+  }
+  100%{
+    opacity: 0;
+    transform: translate3d(calc(var(--start-x, 0) + var(--dx, 0px)), calc(var(--start-y, 0) + var(--dy, 0px)), 0) scale(0.22);
+  }
+}
 .song-card-header{ display:flex; flex-direction:column; gap:8px; }
 .song-card-top{ display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
 .song-card-actions{ flex:0 0 auto; display:flex; align-items:center; justify-content:flex-end; gap:6px; }

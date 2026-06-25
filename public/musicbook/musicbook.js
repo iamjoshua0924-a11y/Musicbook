@@ -786,6 +786,7 @@ function applySongFilters() {
   const genre = $('genreFilter').value;
   const mood = $('moodFilter').value;
   const vocal = $('vocalFilter').value;
+  const proficiencyFilter = Number($('proficiencyFilter')?.value || 0) || 0;
   const availableVocalUserIds = getSelectedAvailableVocalUserIds();
 
   const hideTags = true; // 기본은 항상 태그 숨김(토글 제거)
@@ -848,6 +849,10 @@ function applySongFilters() {
       const set = state.myAvailabilitySet || new Set();
       list = list.filter((s) => set.has(String(s.googleFileId || '')));
     }
+    if (proficiencyFilter > 0) {
+      const profMap = state.proficiencyDraftMap || state.myAvailabilityProficiencyMap || new Map();
+      list = list.filter((s) => (Number(profMap.get(String(s.googleFileId || '')) || 0) || 0) === proficiencyFilter);
+    }
 
     const f = state.sortField;
     const dir = state.sortDir === 'asc' ? 1 : -1;
@@ -872,6 +877,9 @@ function applySongFilters() {
   if (genre) list = list.filter((c) => c.genre === genre);
   if (mood) list = list.filter((c) => c.mood === mood);
   if (vocal) list = list.filter((c) => c.vocal === vocal);
+  if (proficiencyFilter > 0) {
+    list = list.filter((c) => (Number(c.proficiencyLevel || 0) || 0) === proficiencyFilter);
+  }
   if (q) {
     if (qIsCho) {
       const qq = qCho;
@@ -1757,6 +1765,8 @@ function applyRoleUI() {
   $('availabilityEditToggleBtn').style.display = state.isArchiveMode ? (canEditArchiveAvailability ? 'inline-flex' : 'none') : isPriv ? 'inline-flex' : 'none';
   const profBtn = $('proficiencyEditToggleBtn');
   if (profBtn) profBtn.style.display = canEditArchiveAvailability ? 'inline-flex' : 'none';
+  const profFilter = $('proficiencyFilter');
+  if (profFilter) profFilter.style.display = state.isArchiveMode ? 'block' : 'none';
   // (legacy) 단일 가능보컬 드롭다운은 사용하지 않음(멀티 선택 모달로 대체)
 
   $('clearRequestsBtn').style.display = isAdmin ? 'inline-flex' : 'none';
@@ -2170,6 +2180,7 @@ function wireEvents() {
     $('genreFilter').value = '';
     $('moodFilter').value = '';
     $('vocalFilter').value = '';
+    if ($('proficiencyFilter')) $('proficiencyFilter').value = '';
     state.filterAvailableVocalUserId = '';
     state.filterAvailableVocalSet = null;
     state.filterAvailableVocalUserIds = [];
@@ -2373,7 +2384,7 @@ function wireEvents() {
       }, 150);
     };
   })();
-  ['searchInput', 'genreFilter', 'moodFilter', 'vocalFilter'].forEach((id) => $(id).addEventListener('input', debouncedFilter));
+  ['searchInput', 'genreFilter', 'moodFilter', 'vocalFilter', 'proficiencyFilter'].forEach((id) => $(id)?.addEventListener('input', debouncedFilter));
   // 태그 토글 제거됨
 
   $('pageSizeSelect').onchange = () => {

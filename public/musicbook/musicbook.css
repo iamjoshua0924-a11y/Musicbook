@@ -414,20 +414,12 @@ body.archive-mode #userRoleText{ display:none !important; }
 .song-proficiency-fill{
   height: 100%;
   border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    var(--proficiency-red) 0%,
-    var(--proficiency-red) 33.333%,
-    var(--proficiency-yellow) 33.333%,
-    var(--proficiency-yellow) 66.666%,
-    var(--proficiency-green) 66.666%,
-    var(--proficiency-green) 100%
-  );
+  transition: width 0.18s ease, background-color 0.18s ease;
 }
 .song-proficiency-fill.level-0{ width: 0; }
-.song-proficiency-fill.level-1{ width: 33.333%; }
-.song-proficiency-fill.level-2{ width: 66.666%; }
-.song-proficiency-fill.level-3{ width: 100%; }
+.song-proficiency-fill.level-1{ width: 33.333%; background: var(--proficiency-red); }
+.song-proficiency-fill.level-2{ width: 66.666%; background: var(--proficiency-yellow); }
+.song-proficiency-fill.level-3{ width: 100%; background: var(--proficiency-green); }
 .proficiency-picker{
   display:flex;
   gap:6px;

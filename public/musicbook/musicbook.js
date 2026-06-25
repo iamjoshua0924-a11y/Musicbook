@@ -955,7 +955,7 @@ function renderSongCards(hideTags) {
     const showProficiency = state.isArchiveMode && proficiencyLevel > 0;
 
     const isAdmin = state.role === 'admin';
-    const users = Array.isArray(c.availableUsers) ? c.availableUsers : [];
+    const users = state.isArchiveMode ? [] : Array.isArray(c.availableUsers) ? c.availableUsers : [];
     const maxShown = 8;
     const shown = users.slice(0, maxShown);
     const more = users.length > maxShown ? users.length - maxShown : 0;

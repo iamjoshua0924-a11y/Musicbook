@@ -13,6 +13,31 @@ function escRegex(s) {
   return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function buildSearchClauses(rawQuery) {
+  const terms = String(rawQuery || '')
+    .trim()
+    .split(/\s+/)
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .slice(0, 6);
+  if (!terms.length) return [];
+  return terms.map((term) => {
+    const re = new RegExp(escRegex(term), 'i');
+    return {
+      $or: [
+        { searchText: re },
+        { displayTitle: re },
+        { title: re },
+        { artist: re },
+        { key: re },
+        { genre: re },
+        { mood: re },
+        { vocal: re }
+      ]
+    };
+  });
+}
+
 function normalizeKeySuffix(s) {
   const m = String(s || '').trim().match(KEY_SUFFIX_RE);
   if (!m) return { found: false, key: '', title: String(s || '').trim() };
@@ -26,7 +51,7 @@ function normalizeKeySuffix(s) {
 
 // Public read: viewer/main can list songs
 router.get('/songs', async (req, res) => {
-  const q = String(req.query.q || '').trim().toLowerCase();
+  const q = String(req.query.q || '').trim();
   const genre = String(req.query.genre || '').trim();
   const mood = String(req.query.mood || '').trim();
   const vocal = String(req.query.vocal || '').trim();
@@ -37,7 +62,10 @@ router.get('/songs', async (req, res) => {
   const skip = (page - 1) * limit;
 
   const filter = { hidden: { $ne: true } };
-  if (q) filter.searchText = { $regex: escRegex(q) };
+  {
+    const clauses = buildSearchClauses(q);
+    if (clauses.length) filter.$and = clauses;
+  }
   if (genre) filter.genre = genre;
   if (mood) filter.mood = mood;
   if (vocal) filter.vocal = vocal;
@@ -90,14 +118,17 @@ router.get('/songs', async (req, res) => {
  * - (title,artist,key)가 동일한 중복은 googleFileId 기준으로 "항상 동일하게" 1개만 남김
  */
 router.get('/songs/cards', async (req, res) => {
-  const q = String(req.query.q || '').trim().toLowerCase();
+  const q = String(req.query.q || '').trim();
   const genre = String(req.query.genre || '').trim();
   const mood = String(req.query.mood || '').trim();
   const vocal = String(req.query.vocal || '').trim();
   const availableUserId = String(req.query.availableUserId || '').trim();
 
   const filter = { hidden: { $ne: true } };
-  if (q) filter.searchText = { $regex: escRegex(q) };
+  {
+    const clauses = buildSearchClauses(q);
+    if (clauses.length) filter.$and = clauses;
+  }
   if (genre) filter.genre = genre;
   if (mood) filter.mood = mood;
   if (vocal) filter.vocal = vocal;

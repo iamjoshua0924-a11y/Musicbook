@@ -1131,8 +1131,8 @@ textarea {
   box-shadow: 0 18px 42px rgba(0,0,0,0.16);
 }
 .request-entry-center{
-  height: 100%;
-  min-height: 132px;
+  flex: 1 1 auto;
+  min-height: 0;
   display:flex;
   align-items:center;
   justify-content:center;
@@ -1140,6 +1140,7 @@ textarea {
   font-weight: 1000;
   font-size: 16px;
   color: var(--black);
+  padding: 8px 0;
 }
 .request-badge{
   display:inline-flex;

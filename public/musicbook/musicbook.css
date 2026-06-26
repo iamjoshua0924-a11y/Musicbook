@@ -403,19 +403,64 @@ body.archive-mode[data-private-theme="amber"]{
   justify-content:space-between;
   gap: 10px;
 }
+.song-card-list.view-list .song-card-list-row{
+  display:grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, auto) minmax(0, 1fr);
+  align-items:center;
+  gap: 12px;
+}
+.song-card-list.view-list .song-list-left{
+  min-width: 0;
+  justify-self: start;
+}
+.song-card-list.view-list .song-list-center{
+  min-width: 0;
+  justify-self: center;
+}
+.song-card-list.view-list .song-list-right{
+  min-width: 0;
+  justify-self: end;
+}
 .song-card-list.view-list .song-card-title{
   font-size: 14px;
+  justify-content:flex-start;
+  flex-wrap:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
 }
 .song-card-list.view-list .song-card-artist{
   font-size: 12px;
   opacity: 0.72;
   font-weight: 800;
-  margin-top: 2px;
+  margin-top: 0;
+  text-align:center;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.song-card-list.view-list .song-card-actions{
+  flex-wrap:wrap;
+  justify-content:flex-end;
 }
 .song-card-list.view-list .song-card-avatars{ display:none !important; }
 .song-card-list.view-list .song-card-footer{ display:none !important; }
 @media (max-width: 720px){
   .song-card-list.view-list{ grid-template-columns: 1fr; }
+  .song-card-list.view-list .song-card-list-row{
+    grid-template-columns: minmax(0, 1fr);
+    justify-items:start;
+  }
+  .song-card-list.view-list .song-list-center,
+  .song-card-list.view-list .song-list-right{
+    justify-self:start;
+  }
+  .song-card-list.view-list .song-card-artist{
+    text-align:left;
+  }
+  .song-card-list.view-list .song-card-actions{
+    justify-content:flex-start;
+  }
 }
 
 /* 모바일에서는 너무 커지지 않게 */

@@ -1153,6 +1153,67 @@ textarea {
   background: color-mix(in srgb, var(--btn-fill) 18%, rgba(255,255,255,0.0));
   border: 1px solid color-mix(in srgb, var(--btn-fill) 36%, rgba(255,255,255,0.0));
 }
+.request-search-item{
+  display:flex;
+  gap: 10px;
+  align-items:flex-start;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: var(--soft-surface);
+  border: 1px solid rgba(0,0,0,0.06);
+  cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+body.archive-mode[data-private-theme="dark"] .request-search-item{
+  border-color: rgba(255,255,255,0.10);
+}
+.request-search-item:hover,
+.request-search-item.selected{
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--btn-fill) 55%, rgba(255,255,255,0.0));
+  box-shadow: 0 14px 30px rgba(0,0,0,0.14);
+  background: color-mix(in srgb, var(--soft-surface) 76%, var(--btn-fill) 24%);
+}
+.request-search-note{
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 8px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-weight: 1000;
+  opacity: 0.7;
+  margin-top: 2px;
+}
+.request-search-main{
+  flex: 1 1 auto;
+  min-width: 0;
+  display:flex;
+  flex-direction:column;
+  gap: 4px;
+}
+.request-search-title{
+  font-weight: 1000;
+  font-size: 13px;
+  line-height: 1.35;
+  white-space: normal;
+  word-break: break-word;
+}
+.request-search-artist{
+  font-weight: 900;
+  font-size: 12px;
+  opacity: 0.76;
+  line-height: 1.35;
+  white-space: normal;
+  word-break: break-word;
+}
+.request-search-tags{
+  display:flex;
+  flex-wrap:wrap;
+  gap: 6px;
+  padding-top: 2px;
+}
 .song-card-list.list-enter .song-card{
   animation: mbCardListEnter 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
   animation-delay: calc(var(--stagger-index, 0) * 18ms);

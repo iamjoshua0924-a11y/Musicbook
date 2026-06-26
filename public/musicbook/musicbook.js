@@ -280,18 +280,17 @@ async function searchPrivateRequestSongs() {
   out.innerHTML = '';
   items.slice(0, 300).forEach((s) => {
     const row = document.createElement('div');
-    row.className = 'setlist-item';
+    row.className = 'request-search-item';
     const title = String(s.displayTitle || s.title || '').trim();
     const artist = String(s.artist || '').trim();
     const key = String(s.key || '').trim();
     row.innerHTML = `
-      <div class="setlist-handle" aria-hidden="true">♪</div>
-      <div class="setlist-row">
-        <div class="setlist-title-cell">${esc(title)}</div>
-        <div class="setlist-artist-cell">${esc(artist)}</div>
-        <div class="setlist-tag-cell">${key ? `<span class="chip">${esc(key)}</span>` : ''}</div>
+      <div class="request-search-note" aria-hidden="true">♪</div>
+      <div class="request-search-main">
+        <div class="request-search-title">${esc(title)}</div>
+        ${artist ? `<div class="request-search-artist">${esc(artist)}</div>` : ''}
+        ${key ? `<div class="request-search-tags"><span class="chip">${esc(key)}</span></div>` : ''}
       </div>
-      <div class="setlist-actions"></div>
     `;
     row.onclick = () => {
       state._requestDraft = {
@@ -307,8 +306,9 @@ async function searchPrivateRequestSongs() {
         sel.style.display = 'block';
       }
       // 선택 시 가볍게 강조
-      row.classList.add('copied');
-      setTimeout(() => row.classList.remove('copied'), 500);
+      row.classList.remove('selected');
+      void row.offsetWidth;
+      row.classList.add('selected');
     };
     out.appendChild(row);
   });

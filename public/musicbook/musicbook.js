@@ -209,6 +209,7 @@ function mergePrivateRequestsIntoCards() {
       _privateRequest: true,
       _requestStatus: String(r.status || 'pending'),
       _requestMemo: String(r.memo || ''),
+      _requestCreatedAtMs: new Date(r.createdAt || 0).getTime() || 0,
       title,
       artist,
       cardId,
@@ -1704,6 +1705,17 @@ function applySongFilters() {
   const f = state.sortField;
   const dir = state.sortDir === 'asc' ? 1 : -1;
   list.sort((a, b) => {
+    const aReq = Boolean(a?._privateRequest);
+    const bReq = Boolean(b?._privateRequest);
+    if (aReq !== bReq) return aReq ? -1 : 1;
+    if (aReq && bReq) {
+      const aPending = String(a?._requestStatus || '') === 'pending' ? 0 : 1;
+      const bPending = String(b?._requestStatus || '') === 'pending' ? 0 : 1;
+      if (aPending !== bPending) return aPending - bPending;
+      const aReqMs = Number(a?._requestCreatedAtMs || 0) || 0;
+      const bReqMs = Number(b?._requestCreatedAtMs || 0) || 0;
+      if (aReqMs !== bReqMs) return bReqMs - aReqMs;
+    }
     const av = getSortValue(a, f);
     const bv = getSortValue(b, f);
     if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;

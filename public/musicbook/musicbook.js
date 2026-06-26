@@ -338,11 +338,15 @@ function openPrivateRequestManage(card) {
 
   const v = Array.isArray(card.variants) ? card.variants[0] : null;
   const googleFileId = String(v?.googleFileId || '').trim();
+  const driveUrl = String(v?.driveUrl || '').trim();
   const status = String(card._requestStatus || 'pending');
   modal.dataset.fid = googleFileId;
   modal.dataset.status = status;
+  modal.dataset.driveUrl = driveUrl;
   if (title) title.textContent = `${String(card.title || '').trim()} 신청곡 관리`;
-  if (desc) desc.textContent = status === 'practicing' ? '상태: 신청곡 연습중' : '상태: 신청곡 대기중';
+  const memo = String(card._requestMemo || '').trim();
+  const statusText = status === 'practicing' ? '신청곡 연습중' : '신청곡 대기중';
+  if (desc) desc.textContent = `상태: ${statusText}${memo ? `\n코멘트: ${memo}` : '\n코멘트: (없음)'}`;
 
   if (status === 'practicing') {
     primary.textContent = '가능곡으로 설정';
@@ -3391,6 +3395,18 @@ function wireEvents() {
   $('privateRequestManageCancelBtn').onclick = () => {
     const m = $('privateRequestManageModal');
     if (m) m.style.display = 'none';
+  };
+  $('privateRequestManageCopyBtn').onclick = async () => {
+    const m = $('privateRequestManageModal');
+    if (!m) return;
+    const url = String(m.dataset.driveUrl || '').trim();
+    if (!url) return toast('링크가 없습니다.');
+    try {
+      await navigator.clipboard.writeText(url);
+      toast('링크 복사됨');
+    } catch {
+      toast('복사 실패(브라우저 권한 확인)');
+    }
   };
   $('privateRequestManageDeleteBtn').onclick = async () => {
     const m = $('privateRequestManageModal');

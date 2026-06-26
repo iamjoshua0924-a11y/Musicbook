@@ -1236,20 +1236,16 @@ function renderSongCards(hideTags) {
       </div>
     `;
     if (listMode) {
+      const tagText = `${keyLabel}${showProficiency ? ` · ${getProficiencyLabel(proficiencyLevel)}` : ''}`;
       el.innerHTML = `
-        <div class="song-card-header song-card-list-row">
-          <div class="song-list-left">
-            <div class="song-card-title">
-              <span>${highlightHtml(title, state._lastSearchRaw)}</span>
-              ${c.isLatest ? `<span class="new-badge">new!</span>` : ''}
-            </div>
+        <div class="song-list-row">
+          <div class="song-list-title">
+            <span class="song-list-title-text">${highlightHtml(title, state._lastSearchRaw)}</span>
+            ${c.isLatest ? `<span class="new-badge">new!</span>` : ''}
           </div>
-          <div class="song-list-center">
-            <div class="song-card-artist">${highlightHtml(c.artist || '', state._lastSearchRaw)}</div>
-          </div>
-          <div class="song-card-actions song-list-right">
-            <span class="chip">${esc(keyLabel)}</span>
-            ${showProficiency ? `<span class="chip">${esc(getProficiencyLabel(proficiencyLevel))}</span>` : ''}
+          <div class="song-list-artist">${highlightHtml(c.artist || '', state._lastSearchRaw)}</div>
+          <div class="song-list-tags">
+            <span class="chip">${esc(tagText)}</span>
           </div>
         </div>
       `;

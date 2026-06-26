@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Musicbook favicon">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff9ecf" />
+      <stop offset="55%" stop-color="#b28cff" />
+      <stop offset="100%" stop-color="#6fa8ff" />
+    </linearGradient>
+    <linearGradient id="note" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="100%" stop-color="#f5f7ff" />
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" rx="16" fill="url(#bg)"/>
+  <rect x="8" y="8" width="48" height="48" rx="12" fill="rgba(255,255,255,0.10)" stroke="rgba(255,255,255,0.28)" />
+  <path d="M40 17v23.5c-1.7-1.1-4.3-1.6-6.8-1.1-4 0.8-6.8 3.6-6.2 6.3 0.6 2.7 4.2 4.1 8.2 3.3 3.6-0.7 6.1-3 6.2-5.5V26.5l9-2.2v12.2c-1.7-1.1-4.3-1.6-6.8-1.1-4 0.8-6.8 3.6-6.2 6.3 0.6 2.7 4.2 4.1 8.2 3.3 3.8-0.7 6.3-3.2 6.2-5.8V17.8c0-1.1-1-1.9-2-1.7L40 17z" fill="url(#note)"/>
+</svg>

@@ -1616,10 +1616,12 @@ async function openInViewer() {
 function renderPager() {
   const total = state.availabilityEditMode || state.proficiencyEditMode ? state.songFilesFiltered.length : state.songCardsFiltered.length;
   const totalPages = Math.max(1, Math.ceil(total / state.pageSize));
-  $('pageInfo').textContent = `${state.page} / ${totalPages}`;
+  const pageInfo = $('pageInfo');
+  if (pageInfo && pageInfo.dataset.editing !== '1') {
+    pageInfo.textContent = `${state.page} / ${totalPages}`;
+  }
   $('prevPageBtn').disabled = state.page <= 1;
   $('nextPageBtn').disabled = state.page >= totalPages;
-  if ($('pageJumpInput')) $('pageJumpInput').value = String(state.page || 1);
   updateArchiveStatusCard();
 }
 
@@ -2636,18 +2638,38 @@ function wireEvents() {
     state.page = Math.min(totalPages, state.page + 1);
     applySongFilters();
   };
-  const goPage = () => {
+  $('pageInfo').ondblclick = () => {
+    const host = $('pageInfo');
+    if (!host || host.dataset.editing === '1') return;
+    host.dataset.editing = '1';
     const total = state.availabilityEditMode || state.proficiencyEditMode ? state.songFilesFiltered.length : state.songCardsFiltered.length;
     const totalPages = Math.max(1, Math.ceil(total / state.pageSize));
-    const raw = Number($('pageJumpInput')?.value || 0) || 0;
-    if (!raw) return;
-    state.page = Math.max(1, Math.min(totalPages, raw));
-    applySongFilters();
+    const input = document.createElement('input');
+    input.className = 'input pageinfo-inline-input';
+    input.inputMode = 'numeric';
+    input.value = String(state.page || 1);
+    host.textContent = '';
+    host.appendChild(input);
+    input.focus();
+    input.select();
+
+    const cleanup = () => {
+      host.dataset.editing = '0';
+      host.textContent = `${state.page} / ${totalPages}`;
+    };
+    const commit = () => {
+      const raw = Number(String(input.value || '').trim() || 0) || 0;
+      if (!raw) return cleanup();
+      state.page = Math.max(1, Math.min(totalPages, raw));
+      host.dataset.editing = '0';
+      applySongFilters();
+    };
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') commit();
+      if (e.key === 'Escape') cleanup();
+    });
+    input.addEventListener('blur', () => commit());
   };
-  $('pageJumpBtn').onclick = () => goPage();
-  $('pageJumpInput')?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') goPage();
-  });
 
   $('sortFieldSelect').onchange = () => {
     state.sortField = String($('sortFieldSelect').value || 'createdAt');

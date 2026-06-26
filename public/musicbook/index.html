@@ -5,7 +5,7 @@
     <title>밍긴어게인 노래책</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="https://www.gstatic.com/images/branding/product/1x/drive_2020q4_32dp.png" />
-    <link rel="stylesheet" href="musicbook.css?v=20260625_7" />
+    <link rel="stylesheet" href="musicbook.css?v=20260625_8" />
   </head>
 
   <body class="preload">
@@ -124,7 +124,18 @@
           <section id="songsPage" class="page">
             <div class="songs-title-row" id="songsTitleRow" style="display: none">
               <img id="songsTitleLogo" class="songs-title-logo" alt="" />
-              <div id="archiveTitleText" class="songs-title-text" style="display:none;"></div>
+              <div class="songs-title-side">
+                <div id="archiveTitleText" class="songs-title-text" style="display:none;"></div>
+                <div id="archiveStatusCard" class="archive-status-card" style="display:none;">
+                  <div class="archive-status-chip">STATUS</div>
+                  <div id="archiveStatusHeadline" class="archive-status-headline"></div>
+                  <div id="archiveStatusBody" class="archive-status-body"></div>
+                  <div class="archive-status-meta">
+                    <span id="archiveStatusCount"></span>
+                    <span id="archiveStatusTheme"></span>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div class="glass-card">
@@ -198,15 +209,21 @@
 
             <div class="glass-card">
               <div class="sort-bar">
-                <button class="sort-btn" data-sort-field="createdAt" data-label="최신곡" type="button">최신곡</button>
-                <button class="sort-btn" data-sort-field="title" data-label="곡명" type="button">곡명</button>
-                <button class="sort-btn" data-sort-field="key" data-label="키" type="button">키</button>
-                <button class="sort-btn" data-sort-field="artist" data-label="아티스트" type="button">아티스트</button>
-                <button class="sort-btn" data-sort-field="genre" data-label="장르" type="button">장르</button>
-                <button class="sort-btn" data-sort-field="mood" data-label="분위기" type="button">분위기</button>
-                <button class="sort-btn" data-sort-field="vocal" data-label="보컬" type="button">보컬</button>
-
-                <!-- 태그는 기본 숨김(토글 제거) -->
+                <div class="sort-title">정렬 필터</div>
+                <select id="sortFieldSelect" class="select sort-select">
+                  <option value="createdAt">최신순</option>
+                  <option value="title">곡명순</option>
+                  <option value="key">키순</option>
+                  <option value="artist">아티스트순</option>
+                  <option value="genre">장르순</option>
+                  <option value="mood">분위기순</option>
+                  <option value="vocal">보컬순</option>
+                  <option value="proficiency">숙련도순</option>
+                </select>
+                <div class="sort-actions">
+                  <button id="sortAscBtn" class="floating-btn compact-btn sort-dir-btn" type="button">오름차순</button>
+                  <button id="sortDescBtn" class="floating-btn compact-btn sort-dir-btn" type="button">내림차순</button>
+                </div>
               </div>
             </div>
 
@@ -637,6 +654,6 @@
     <script src="../config.js"></script>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
     <script src="../common/avatar.js?v=20260529_1"></script>
-    <script src="musicbook.js?v=20260625_6"></script>
+    <script src="musicbook.js?v=20260625_7"></script>
   </body>
 </html>

@@ -87,7 +87,9 @@ const state = {
   _rouletteCandidates: [],
   _lastSearchRaw: '',
   _lastSearchIsCho: false,
-  _guestbookDrag: null
+  _guestbookDrag: null,
+  _listAnimTimer: null,
+  _pageAnimTimer: null
 };
 
 function getProficiencyLabel(level) {
@@ -103,6 +105,61 @@ function applyArchiveTheme() {
     const theme = String(state.archiveTheme || 'pink').trim() || 'pink';
     document.body.dataset.privateTheme = theme;
   } catch {}
+}
+
+function getArchiveThemeLabel() {
+  const theme = String(state.archiveTheme || 'pink').trim();
+  if (theme === 'dark') return '다크';
+  if (theme === 'sky') return '하늘색';
+  if (theme === 'green') return '연두색';
+  if (theme === 'amber') return '노랑/주황';
+  return '핑크';
+}
+
+function updateSortControls() {
+  const field = $('sortFieldSelect');
+  const asc = $('sortAscBtn');
+  const desc = $('sortDescBtn');
+  if (field) field.value = String(state.sortField || 'createdAt');
+  if (asc) asc.classList.toggle('active', state.sortDir === 'asc');
+  if (desc) desc.classList.toggle('active', state.sortDir === 'desc');
+}
+
+function triggerListMotion() {
+  const wrap = $('songCardList');
+  if (!wrap) return;
+  wrap.classList.remove('list-enter');
+  void wrap.offsetWidth;
+  wrap.classList.add('list-enter');
+  clearTimeout(state._listAnimTimer);
+  state._listAnimTimer = setTimeout(() => wrap.classList.remove('list-enter'), 520);
+}
+
+function updateArchiveStatusCard() {
+  const card = $('archiveStatusCard');
+  if (!card) return;
+  if (!state.isArchiveMode) {
+    card.style.display = 'none';
+    return;
+  }
+  const totalAll = state.songCardsAll.length || state.songFilesAll.length || 0;
+  const currentCount = state.availabilityEditMode || state.proficiencyEditMode ? state.songFilesFiltered.length : state.songCardsFiltered.length;
+  const name = state.archiveDisplayName || state.archiveTargetUserId || '이 노래책';
+  const headline = $('archiveStatusHeadline');
+  const body = $('archiveStatusBody');
+  const count = $('archiveStatusCount');
+  const theme = $('archiveStatusTheme');
+  if (headline) headline.textContent = `${name}님의 오늘 플레이리스트를 고르는 중`;
+  if (body) {
+    body.textContent = state.proficiencyEditMode
+      ? '숙련도 기준으로 곡을 정리하는 중이에요. 자신 있는 곡부터 천천히 골라보세요.'
+      : state.availabilityEditMode
+        ? '가능곡을 체크하는 중이에요. 저장 전까지는 지금 화면에서 바로 정리할 수 있어요.'
+        : '검색과 필터, 정렬로 오늘 부르고 싶은 곡을 가볍게 고를 수 있어요.';
+  }
+  if (count) count.textContent = `전체 ${totalAll}곡 · 현재 ${currentCount}곡`;
+  if (theme) theme.textContent = `${getArchiveThemeLabel()} 테마`;
+  card.style.display = 'block';
 }
 
 // GitHub Pages/정적 호스팅 딥링크(404.html -> /public/musicbook/ 리다이렉트) 복구
@@ -174,6 +231,7 @@ function setArchiveShellUI() {
       img.src = u || '';
       img.style.display = u ? 'block' : 'none';
     }
+    updateArchiveStatusCard();
     document.title = `${state.archiveDisplayName || state.archiveTargetUserId}의 노래책`;
   } catch {}
 }
@@ -211,6 +269,7 @@ function getSortValue(item, field) {
     // 카드(createdAt=ms) / 파일(드라이브 수정시간=ms) 모두 지원
     return Number(item?.createdAtMs ?? item?.driveModifiedMs ?? item?.createdAt ?? 0) || 0;
   }
+  if (f === 'proficiency') return Number(item?.proficiencyLevel ?? item?.proficiency ?? 0) || 0;
   if (f === 'key') return String(item?.keyLabel ?? item?.key ?? '').trim();
   return String(item?.[f] ?? '').trim();
 }
@@ -556,6 +615,14 @@ function switchPage(page) {
     $('songsTitleRow').style.display = 'flex';
   } else {
     $('songsTitleRow').style.display = 'none';
+  }
+  const target = page === 'songs' ? $('songsPage') : $('mainPage');
+  if (target) {
+    target.classList.remove('page-enter');
+    void target.offsetWidth;
+    target.classList.add('page-enter');
+    clearTimeout(state._pageAnimTimer);
+    state._pageAnimTimer = setTimeout(() => target.classList.remove('page-enter'), 360);
   }
 }
 
@@ -1018,8 +1085,11 @@ function applySongFilters() {
     const f = state.sortField;
     const dir = state.sortDir === 'asc' ? 1 : -1;
     list.sort((a, b) => {
-      const av = getSortValue(a, f);
-      const bv = getSortValue(b, f);
+      const profMap = state.proficiencyDraftMap || state.myAvailabilityProficiencyMap || new Map();
+      const av =
+        f === 'proficiency' ? Number(profMap.get(String(a.googleFileId || '')) || a.proficiency || 0) || 0 : getSortValue(a, f);
+      const bv =
+        f === 'proficiency' ? Number(profMap.get(String(b.googleFileId || '')) || b.proficiency || 0) || 0 : getSortValue(b, f);
       if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
       if (av === bv) return 0;
       return av > bv ? dir : -dir;
@@ -1095,6 +1165,7 @@ function applySongFilters() {
   $('resultCount').textContent = `검색 결과: ${list.length}곡${totalCardsLabel}`;
   renderSongCards(hideTags);
   renderPager();
+  updateArchiveStatusCard();
 }
 
 function renderSongCards(hideTags) {
@@ -1110,6 +1181,7 @@ function renderSongCards(hideTags) {
     const el = document.createElement('div');
     const canOpen = state.role !== 'viewer';
     el.className = canOpen ? 'song-card clickable' : 'song-card';
+    el.style.setProperty('--stagger-index', String(items.indexOf(c) % 12));
     const title = c.title || '(제목없음)';
     const keyLabel = c.keyLabel || '-';
     const proficiencyLevel = Math.max(0, Math.min(3, Number(c.proficiencyLevel || 0) || 0));
@@ -1192,6 +1264,7 @@ function renderSongCards(hideTags) {
     }
     wrap.appendChild(el);
   });
+  triggerListMotion();
 }
 
 async function toggleAvailabilityForFile(userId, googleFileId, next) {
@@ -1251,6 +1324,7 @@ function renderAvailabilityEditCards(hideTags) {
   items.forEach((s) => {
     const el = document.createElement('div');
     el.className = 'song-card';
+    el.style.setProperty('--stagger-index', String(items.indexOf(s) % 12));
     const title = s.displayTitle || s.title || '(제목없음)';
     const checked = !!(set && set.has(s.googleFileId));
     el.innerHTML = `
@@ -1290,6 +1364,7 @@ function renderAvailabilityEditCards(hideTags) {
     };
     wrap.appendChild(el);
   });
+  triggerListMotion();
 }
 
 function setDraftProficiency(googleFileId, level) {
@@ -1310,6 +1385,7 @@ function renderProficiencyEditCards(hideTags) {
   items.forEach((s) => {
     const el = document.createElement('div');
     el.className = 'song-card';
+    el.style.setProperty('--stagger-index', String(items.indexOf(s) % 12));
     const title = s.displayTitle || s.title || '(제목없음)';
     const current = Math.max(0, Math.min(3, Number(profMap.get(String(s.googleFileId || '')) || 0) || 0));
     el.innerHTML = `
@@ -1354,6 +1430,7 @@ function renderProficiencyEditCards(hideTags) {
     });
     wrap.appendChild(el);
   });
+  triggerListMotion();
 }
 
 // ---- Song tag edit (admin only) ---------------------------------------------------
@@ -1542,6 +1619,8 @@ function renderPager() {
   $('pageInfo').textContent = `${state.page} / ${totalPages}`;
   $('prevPageBtn').disabled = state.page <= 1;
   $('nextPageBtn').disabled = state.page >= totalPages;
+  if ($('pageJumpInput')) $('pageJumpInput').value = String(state.page || 1);
+  updateArchiveStatusCard();
 }
 
 // (룰렛 애니메이션은 후속 단계에서 교체)
@@ -2377,7 +2456,7 @@ function wireEvents() {
       // 선택모드는 "최신곡" 정렬이 기본
       state.sortField = 'createdAt';
       state.sortDir = 'desc';
-      document.querySelectorAll('.sort-btn').forEach((b) => b.classList.toggle('active', b.dataset.sortField === state.sortField));
+      updateSortControls();
       if (btn) btn.style.display = 'none';
       $('availabilityEditBar').style.display = 'flex';
       $('availabilityEditTitle').textContent = state.isArchiveMode
@@ -2463,7 +2542,7 @@ function wireEvents() {
     state.proficiencyEditMode = true;
     state.sortField = 'createdAt';
     state.sortDir = 'desc';
-    document.querySelectorAll('.sort-btn').forEach((b) => b.classList.toggle('active', b.dataset.sortField === state.sortField));
+    updateSortControls();
     $('proficiencyEditBar').style.display = 'flex';
     updateProficiencyEditCount();
     state.page = 1;
@@ -2570,21 +2649,26 @@ function wireEvents() {
     if (e.key === 'Enter') goPage();
   });
 
-  document.querySelectorAll('.sort-btn').forEach((btn) => {
-    btn.onclick = () => {
-      const field = btn.dataset.sortField;
-      if (state.sortField === field) state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
-      else {
-        state.sortField = field;
-        state.sortDir = field === 'createdAt' ? 'desc' : 'asc';
-      }
-      document.querySelectorAll('.sort-btn').forEach((b) => b.classList.toggle('active', b.dataset.sortField === state.sortField));
-      state.page = 1;
-      applySongFilters();
-    };
-  });
-  // default active
-  document.querySelector('.sort-btn[data-sort-field="createdAt"]')?.classList.add('active');
+  $('sortFieldSelect').onchange = () => {
+    state.sortField = String($('sortFieldSelect').value || 'createdAt');
+    if (state.sortField === 'createdAt' && !state.sortDir) state.sortDir = 'desc';
+    state.page = 1;
+    updateSortControls();
+    applySongFilters();
+  };
+  $('sortAscBtn').onclick = () => {
+    state.sortDir = 'asc';
+    state.page = 1;
+    updateSortControls();
+    applySongFilters();
+  };
+  $('sortDescBtn').onclick = () => {
+    state.sortDir = 'desc';
+    state.page = 1;
+    updateSortControls();
+    applySongFilters();
+  };
+  updateSortControls();
 
   $('editBannerBtn').onclick = () => openEditModal('bannerImage', '배너 이미지 URL', state.main?.bannerImage);
   $('editNoticeBtn').onclick = () => openEditModal('notice', '공지사항 내용', state.main?.notice);

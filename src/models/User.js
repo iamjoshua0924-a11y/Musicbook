@@ -18,8 +18,6 @@ const UserSchema = new mongoose.Schema(
     // 개인 노래책 상태메세지 카드
     privateStatusTitle: { type: String, default: '' },
     privateStatusDesc: { type: String, default: '' },
-    // 개인 노래책 목록 보기 방식
-    privateViewMode: { type: String, enum: ['card', 'list'], default: 'card' },
 
     mustChangePassword: { type: Boolean, default: false },
     legacyPasswordHash: { type: String, default: '' }, // 기존 GAS 시트의 해시(참조용)

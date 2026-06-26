@@ -40,7 +40,7 @@ const state = {
   archiveTheme: 'pink',
   archiveStatusTitle: '',
   archiveStatusDesc: '',
-  archiveViewMode: 'card',
+  songsViewMode: 'card',
   archiveGuestbookLoaded: false,
   guestbookItems: [],
   profilePhoto: '',
@@ -110,15 +110,21 @@ function applyArchiveTheme() {
   } catch {}
 }
 
-function applyArchiveViewMode() {
+function applySongsViewMode() {
   try {
-    const mode = String(state.archiveViewMode || 'card').trim() || 'card';
-    document.body.dataset.viewMode = mode;
+    const mode = String(state.songsViewMode || 'card').trim() || 'card';
     const wrap = $('songCardList');
     // edit 모드에서는 항상 카드형(행 편집 UX 유지)
     const listMode = mode === 'list' && !state.availabilityEditMode && !state.proficiencyEditMode;
     if (wrap) wrap.classList.toggle('view-list', listMode);
   } catch {}
+}
+
+function updateViewModeControls() {
+  const c = $('viewCardBtn');
+  const l = $('viewListBtn');
+  if (c) c.classList.toggle('active', state.songsViewMode === 'card');
+  if (l) l.classList.toggle('active', state.songsViewMode === 'list');
 }
 
 function getArchiveThemeLabel() {
@@ -212,7 +218,7 @@ function detectArchiveTargetUserId() {
 function setArchiveShellUI() {
   document.body.classList.add('archive-mode');
   applyArchiveTheme();
-  applyArchiveViewMode();
+  applySongsViewMode();
   // 메인/패널 제거 + 곡 리스트만 노출
   try {
     document.querySelectorAll('.page').forEach((p) => p.classList.remove('active'));
@@ -1190,14 +1196,14 @@ function applySongFilters() {
 function renderSongCards(hideTags) {
   const wrap = $('songCardList');
   wrap.innerHTML = '';
-  applyArchiveViewMode();
+  applySongsViewMode();
 
   const totalPages = Math.max(1, Math.ceil(state.songCardsFiltered.length / state.pageSize));
   state.page = Math.min(state.page, totalPages);
   const start = (state.page - 1) * state.pageSize;
   const items = state.songCardsFiltered.slice(start, start + state.pageSize);
 
-  const listMode = state.isArchiveMode && String(state.archiveViewMode || 'card') === 'list';
+  const listMode = String(state.songsViewMode || 'card') === 'list';
 
   items.forEach((c) => {
     const el = document.createElement('div');
@@ -1352,7 +1358,7 @@ function updateProficiencyEditCount() {
 function renderAvailabilityEditCards(hideTags) {
   const wrap = $('songCardList');
   wrap.innerHTML = '';
-  applyArchiveViewMode();
+  applySongsViewMode();
 
   const totalPages = Math.max(1, Math.ceil(state.songFilesFiltered.length / state.pageSize));
   state.page = Math.min(state.page, totalPages);
@@ -1416,7 +1422,7 @@ function setDraftProficiency(googleFileId, level) {
 function renderProficiencyEditCards(hideTags) {
   const wrap = $('songCardList');
   wrap.innerHTML = '';
-  applyArchiveViewMode();
+  applySongsViewMode();
 
   const totalPages = Math.max(1, Math.ceil(state.songFilesFiltered.length / state.pageSize));
   state.page = Math.min(state.page, totalPages);
@@ -2106,7 +2112,6 @@ async function refreshSession() {
       if (state.isPrivate) state.archiveTitleImage = String(me.user.privateTitleImage || '').trim() || state.archiveTitleImage;
       if (state.isPrivate) state.archiveStatusTitle = String(me.user.privateStatusTitle || '').trim();
       if (state.isPrivate) state.archiveStatusDesc = String(me.user.privateStatusDesc || '').trim();
-      if (state.isPrivate) state.archiveViewMode = String(me.user.privateViewMode || 'card').trim() || 'card';
     }
     state.profilePhoto = me.user.profilePhoto || '';
     updateProfileImage('profilePhoto', state.profilePhoto);
@@ -2122,7 +2127,7 @@ async function refreshSession() {
     state.privateArchivePath = '';
     state.profilePhoto = '';
     state.archiveTheme = state.archiveTheme || 'pink';
-    state.archiveViewMode = state.archiveViewMode || 'card';
+    state.songsViewMode = state.songsViewMode || 'card';
     updateProfileImage('profilePhoto', '');
   }
   // Archive access check (best-effort)
@@ -2298,14 +2303,12 @@ async function saveBookSettings() {
   const theme = String($('bookThemeSelect')?.value || 'pink').trim() || 'pink';
   const statusTitle = String($('bookStatusTitleInput')?.value || '').trim();
   const statusDesc = String($('bookStatusDescInput')?.value || '').trim();
-  const viewMode = String($('bookViewModeSelect')?.value || 'card').trim() || 'card';
-  const res = await apiJson('/api/private-book', 'PATCH', { titleImage: v, theme, statusTitle, statusDesc, viewMode });
+  const res = await apiJson('/api/private-book', 'PATCH', { titleImage: v, theme, statusTitle, statusDesc });
   if (!res.ok) return toast(`저장 실패: ${res.error || ''}`);
   state.archiveTitleImage = String(res.titleImage || '').trim();
   state.archiveTheme = String(res.theme || 'pink').trim() || 'pink';
   state.archiveStatusTitle = String(res.statusTitle || '').trim();
   state.archiveStatusDesc = String(res.statusDesc || '').trim();
-  state.archiveViewMode = String(res.viewMode || 'card').trim() || 'card';
   // header + loading 갱신
   setArchiveShellUI();
   applySongFilters();
@@ -2362,7 +2365,6 @@ function wireEvents() {
       $('bookThemeSelect').value = state.archiveTheme || 'pink';
       $('bookStatusTitleInput').value = state.archiveStatusTitle || '';
       $('bookStatusDescInput').value = state.archiveStatusDesc || '';
-      $('bookViewModeSelect').value = state.archiveViewMode || 'card';
       const pv = $('bookTitleImagePreview');
       if (pv) {
         const u = normalizeProfilePhotoUrl(state.archiveTitleImage || '', 1200);
@@ -2725,6 +2727,24 @@ function wireEvents() {
       if (e.key === 'Escape') cleanup();
     });
     input.addEventListener('blur', () => commit());
+  };
+
+  // view mode (card/list) - local only (for viewers too)
+  $('viewCardBtn').onclick = () => {
+    state.songsViewMode = 'card';
+    try {
+      sessionStorage.setItem('mb_songs_view_mode_v1', 'card');
+    } catch {}
+    updateViewModeControls();
+    applySongFilters();
+  };
+  $('viewListBtn').onclick = () => {
+    state.songsViewMode = 'list';
+    try {
+      sessionStorage.setItem('mb_songs_view_mode_v1', 'list');
+    } catch {}
+    updateViewModeControls();
+    applySongFilters();
   };
 
   $('sortFieldSelect').onchange = () => {
@@ -3153,6 +3173,10 @@ async function loadAvailabilityUsersIfNeeded() {
 async function bootstrap() {
   showLoading(true);
   try {
+    try {
+      const saved = String(sessionStorage.getItem('mb_songs_view_mode_v1') || '').trim();
+      if (saved === 'card' || saved === 'list') state.songsViewMode = saved;
+    } catch {}
     // archive mode detection (path-based: /public/musicbook/u/<id>)
     state.archiveTargetUserId = detectArchiveTargetUserId();
     state.isArchiveMode = Boolean(state.archiveTargetUserId);
@@ -3163,6 +3187,7 @@ async function bootstrap() {
     }
 
     wireEvents();
+    updateViewModeControls();
     // archive public profile (for header/loading animation)
     if (state.isArchiveMode && state.archiveTargetUserId) {
       try {
@@ -3174,9 +3199,8 @@ async function bootstrap() {
           state.archiveTheme = String(r.user.theme || 'pink').trim() || 'pink';
           state.archiveStatusTitle = String(r.user.statusTitle || '').trim();
           state.archiveStatusDesc = String(r.user.statusDesc || '').trim();
-          state.archiveViewMode = String(r.user.viewMode || 'card').trim() || 'card';
           applyArchiveTheme();
-          applyArchiveViewMode();
+          applySongsViewMode();
           setLoadingContext({
             titleImage: state.archiveTitleImage,
             profilePhoto: state.archiveProfilePhoto,

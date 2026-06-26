@@ -712,6 +712,13 @@ textarea {
   background: #101010;
   color: #fff;
 }
+.view-mode-btn{
+  min-width: 76px;
+}
+.view-mode-btn.active{
+  background: #101010;
+  color: #fff;
+}
 
 .song-card-list{
   display:grid;

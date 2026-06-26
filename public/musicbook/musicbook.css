@@ -600,9 +600,23 @@ body.archive-mode[data-private-theme="dark"] .setlist-resize-handle{
   border-radius: 16px;
   background: var(--soft-surface);
   border: 1px solid rgba(0,0,0,0.06);
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
 }
 body.archive-mode[data-private-theme="dark"] .setlist-item{
   border-color: rgba(255,255,255,0.10);
+}
+.setlist-item:hover{
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--btn-fill) 55%, rgba(255,255,255,0.0));
+  box-shadow: 0 14px 30px rgba(0,0,0,0.14);
+  background: color-mix(in srgb, var(--soft-surface) 72%, var(--btn-fill) 28%);
+}
+body.archive-mode[data-private-theme="dark"] .setlist-item:hover{
+  box-shadow: 0 18px 36px rgba(0,0,0,0.30);
+  background: color-mix(in srgb, var(--soft-surface) 82%, var(--btn-fill) 18%);
 }
 .setlist-handle{
   width: 18px;
@@ -664,13 +678,47 @@ body.archive-mode[data-private-theme="dark"] .setlist-item{
 .setlist-mini-btn:hover{ opacity: 1; }
 
 .setlist-item.copied{
-  outline: 2px solid rgba(59,109,246,0.0);
-  animation: mbCopiedPulse 680ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  border-color: color-mix(in srgb, var(--btn-fill) 70%, rgba(255,255,255,0.0));
+  box-shadow: 0 18px 42px rgba(0,0,0,0.18);
 }
-@keyframes mbCopiedPulse{
-  0%{ background: rgba(255,255,255,0.95); }
-  40%{ background: rgba(255,255,255,0.78); }
-  100%{ background: var(--soft-surface); }
+.setlist-item.copied::before{
+  content:"";
+  position:absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(255,255,255,0.0) 0%, color-mix(in srgb, var(--btn-fill) 45%, rgba(255,255,255,0.0)) 45%, rgba(255,255,255,0.0) 100%);
+  transform: translateX(-120%);
+  animation: mbSetlistShimmer 760ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  pointer-events:none;
+}
+.setlist-copied-label{
+  position:absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(0.98);
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: var(--btn-fill);
+  color: var(--btn-fill-text);
+  font-weight: 1000;
+  font-size: 13px;
+  opacity: 0;
+  filter: blur(0.2px);
+  pointer-events:none;
+  white-space: nowrap;
+}
+.setlist-item.copied .setlist-copied-label{
+  animation: mbSetlistCopiedLabel 920ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes mbSetlistShimmer{
+  0%{ transform: translateX(-120%); opacity: 0.0; }
+  12%{ opacity: 1; }
+  100%{ transform: translateX(120%); opacity: 0.0; }
+}
+@keyframes mbSetlistCopiedLabel{
+  0%{ opacity: 0; transform: translate(-50%, -48%) scale(0.98); }
+  18%{ opacity: 1; transform: translate(-50%, -50%) scale(1.0); }
+  65%{ opacity: 1; transform: translate(-50%, -52%) scale(1.0); }
+  100%{ opacity: 0; transform: translate(-50%, -58%) scale(0.99); }
 }
 
 .review-composer{

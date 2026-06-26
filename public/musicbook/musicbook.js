@@ -316,6 +316,7 @@ function renderSetlistPanel() {
             : ''
         }
       </div>
+      <div class="setlist-copied-label" aria-hidden="true">링크 복사됨!</div>
     `;
 
     row.querySelector('[data-action="open"]')?.addEventListener('click', async (e) => {
@@ -325,11 +326,10 @@ function renderSetlistPanel() {
       if (!driveUrl) return toast('링크가 없습니다.');
       try {
         await navigator.clipboard.writeText(driveUrl);
-        toast('드라이브 링크 복사됨');
         row.classList.remove('copied');
         void row.offsetWidth;
         row.classList.add('copied');
-        setTimeout(() => row.classList.remove('copied'), 700);
+        setTimeout(() => row.classList.remove('copied'), 950);
       } catch {
         toast('복사 실패(브라우저 권한 확인)');
       }

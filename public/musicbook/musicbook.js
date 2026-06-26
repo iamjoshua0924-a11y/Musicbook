@@ -271,14 +271,14 @@ async function searchPrivateRequestSongs() {
     return;
   }
   out.innerHTML = `<div class="muted" style="padding:10px 2px; font-weight:900; opacity:0.7;">검색 중...</div>`;
-  const r = await apiGet(`/api/songs?q=${encodeURIComponent(q)}&limit=200`);
+  const r = await apiGet(`/api/songs?q=${encodeURIComponent(q)}&limit=500`);
   const items = r.ok && Array.isArray(r.items) ? r.items : [];
   if (!items.length) {
     out.innerHTML = `<div class="muted" style="padding:10px 2px; font-weight:900; opacity:0.75;">서버가 보유한 악보가 없습니다. 방명록으로 신청해보세요!</div>`;
     return;
   }
   out.innerHTML = '';
-  items.slice(0, 120).forEach((s) => {
+  items.slice(0, 300).forEach((s) => {
     const row = document.createElement('div');
     row.className = 'setlist-item';
     const title = String(s.displayTitle || s.title || '').trim();

@@ -22,17 +22,30 @@ function buildSearchClauses(rawQuery) {
     .slice(0, 6);
   if (!terms.length) return [];
   return terms.map((term) => {
-    const re = new RegExp(escRegex(term), 'i');
+    const variants = Array.from(
+      new Set(
+        [term, (() => {
+          try { return term.normalize('NFC'); } catch { return term; }
+        })(), (() => {
+          try { return term.normalize('NFD'); } catch { return term; }
+        })()]
+          .map((x) => String(x || '').trim())
+          .filter(Boolean)
+      )
+    );
+    const regexes = variants.map((v) => new RegExp(escRegex(v), 'i'));
     return {
       $or: [
-        { searchText: re },
-        { displayTitle: re },
-        { title: re },
-        { artist: re },
-        { key: re },
-        { genre: re },
-        { mood: re },
-        { vocal: re }
+        ...regexes.flatMap((re) => [
+          { searchText: re },
+          { displayTitle: re },
+          { title: re },
+          { artist: re },
+          { key: re },
+          { genre: re },
+          { mood: re },
+          { vocal: re }
+        ])
       ]
     };
   });

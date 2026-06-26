@@ -30,7 +30,8 @@ router.get('/private-book/:userId', async (req, res) => {
       titleImage: user.privateTitleImage || '',
       theme: PRIVATE_THEMES.has(String(user.privateTheme || '')) ? String(user.privateTheme) : 'pink',
       statusTitle: user.privateStatusTitle || '',
-      statusDesc: user.privateStatusDesc || ''
+      statusDesc: user.privateStatusDesc || '',
+      reviewEnabled: Boolean(user.privateReviewEnabled)
     }
   });
 });
@@ -41,10 +42,12 @@ router.patch('/private-book', requireLogin, async (req, res) => {
   const hasTheme = req.body?.theme !== undefined;
   const hasStatusTitle = req.body?.statusTitle !== undefined;
   const hasStatusDesc = req.body?.statusDesc !== undefined;
+  const hasReviewEnabled = req.body?.reviewEnabled !== undefined;
   const titleImage = String(req.body?.titleImage || '').trim();
   const theme = String(req.body?.theme || '').trim().toLowerCase();
   const statusTitle = clampText(req.body?.statusTitle, 80);
   const statusDesc = clampText(req.body?.statusDesc, 220);
+  const reviewEnabled = Boolean(req.body?.reviewEnabled);
   const user = await User.findById(req.session.user.id);
   if (!user) return res.status(401).json({ ok: false, error: 'UNAUTHORIZED' });
   if (!user.isPrivate) return res.status(403).json({ ok: false, error: 'FORBIDDEN' });
@@ -57,6 +60,7 @@ router.patch('/private-book', requireLogin, async (req, res) => {
   }
   if (hasStatusTitle) user.privateStatusTitle = statusTitle;
   if (hasStatusDesc) user.privateStatusDesc = statusDesc;
+  if (hasReviewEnabled) user.privateReviewEnabled = reviewEnabled;
   user.updatedAt = new Date();
   await user.save();
 
@@ -65,7 +69,8 @@ router.patch('/private-book', requireLogin, async (req, res) => {
     titleImage: user.privateTitleImage || '',
     theme: PRIVATE_THEMES.has(String(user.privateTheme || '')) ? String(user.privateTheme) : 'pink',
     statusTitle: user.privateStatusTitle || '',
-    statusDesc: user.privateStatusDesc || ''
+    statusDesc: user.privateStatusDesc || '',
+    reviewEnabled: Boolean(user.privateReviewEnabled)
   });
 });
 

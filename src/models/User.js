@@ -34,6 +34,29 @@ const UserSchema = new mongoose.Schema(
       default: []
     },
 
+    // 개인 노래책: 합주후기(코멘트) 기능
+    privateReviewEnabled: { type: Boolean, default: false },
+    privateReviewThreads: {
+      type: [
+        {
+          cardId: { type: String, default: '' },
+          title: { type: String, default: '' },
+          artist: { type: String, default: '' },
+          tagText: { type: String, default: '' },
+          comments: {
+            type: [
+              {
+                text: { type: String, default: '' }, // <= 30
+                createdAt: { type: Date, default: () => new Date() }
+              }
+            ],
+            default: []
+          }
+        }
+      ],
+      default: []
+    },
+
     mustChangePassword: { type: Boolean, default: false },
     legacyPasswordHash: { type: String, default: '' }, // 기존 GAS 시트의 해시(참조용)
     lastSeenAt: { type: Date, default: null },

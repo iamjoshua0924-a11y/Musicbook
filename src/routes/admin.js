@@ -40,6 +40,7 @@ router.get('/admin/me', requireLogin, async (req, res) => {
       privateTheme: String(user.privateTheme || 'pink'),
       privateStatusTitle: user.privateStatusTitle || '',
       privateStatusDesc: user.privateStatusDesc || '',
+      privateReviewEnabled: Boolean(user.privateReviewEnabled),
       privateArchivePath
     }
   });

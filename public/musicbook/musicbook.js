@@ -48,6 +48,11 @@ const state = {
   setlistOriginalItems: null,
   setlistSelectedCardIds: new Set(),
   setlistPanelSize: { w: 420, h: 520 },
+  // reviews (archive)
+  reviewEnabled: false,
+  reviewThreads: [],
+  reviewThreadMap: new Map(), // cardId -> { ...thread }
+  _reviewComposer: null, // { cardId, title, artist, tagText }
   archiveGuestbookLoaded: false,
   guestbookItems: [],
   profilePhoto: '',
@@ -153,6 +158,99 @@ function getSetlistTagTextForCard(card) {
   return `${keyLabel}${showProf ? ` · ${getProficiencyLabel(prof)}` : ''}`.trim();
 }
 
+function buildReviewThreadMap(threads) {
+  const map = new Map();
+  (Array.isArray(threads) ? threads : []).forEach((t) => {
+    const id = String(t?.cardId || '').trim();
+    if (!id) return;
+    map.set(id, t);
+  });
+  return map;
+}
+
+async function loadReviews() {
+  if (!state.isArchiveMode || !state.archiveTargetUserId) return;
+  const r = await apiGet(`/api/reviews/${encodeURIComponent(state.archiveTargetUserId)}`);
+  if (!r.ok) {
+    state.reviewEnabled = false;
+    state.reviewThreads = [];
+    state.reviewThreadMap = new Map();
+    return;
+  }
+  state.reviewEnabled = Boolean(r.enabled);
+  state.reviewThreads = Array.isArray(r.threads) ? r.threads : [];
+  state.reviewThreadMap = buildReviewThreadMap(state.reviewThreads);
+}
+
+function openReviewComposer({ cardId, title, artist, tagText }) {
+  const box = $('reviewComposer');
+  const input = $('reviewComposerInput');
+  if (!box || !input) return;
+  state._reviewComposer = { cardId, title, artist, tagText };
+  input.value = '';
+  box.style.display = 'block';
+  input.focus();
+}
+
+function closeReviewComposer() {
+  const box = $('reviewComposer');
+  if (box) box.style.display = 'none';
+  state._reviewComposer = null;
+}
+
+function renderReviewListForCard(cardId) {
+  const panel = $('reviewListPanel');
+  const body = $('reviewListBody');
+  if (!panel || !body) return;
+  const th = state.reviewThreadMap.get(String(cardId || '').trim());
+  const items = Array.isArray(th?.comments) ? th.comments : [];
+  body.innerHTML = '';
+  if (!items.length) {
+    body.innerHTML = `<div class="muted" style="padding:10px 2px; font-weight:900; opacity:0.7;">아직 코멘트가 없습니다.</div>`;
+  } else {
+    items
+      .slice()
+      .reverse()
+      .forEach((c) => {
+        const row = document.createElement('div');
+        row.className = 'guestbook-item';
+        row.innerHTML = `<div class="guestbook-item-content">${esc(String(c?.text || ''))}</div>`;
+        body.appendChild(row);
+      });
+  }
+  panel.style.display = 'flex';
+}
+
+async function submitReviewComment() {
+  if (!state.isArchiveMode || !state.reviewEnabled) return;
+  const ctx = state._reviewComposer;
+  if (!ctx?.cardId) return;
+  const input = $('reviewComposerInput');
+  const text = String(input?.value || '').trim();
+  if (!text) return toast('코멘트를 입력하세요.');
+  const res = await apiJson(`/api/reviews/${encodeURIComponent(state.archiveTargetUserId)}`, 'POST', {
+    cardId: ctx.cardId,
+    title: ctx.title,
+    artist: ctx.artist,
+    tagText: ctx.tagText,
+    text
+  });
+  if (!res.ok) return toast('저장 실패');
+  toast('남겼어요');
+  closeReviewComposer();
+  // 즉시 반영을 위해 reload
+  await loadReviews();
+  applySongFilters();
+  // 코멘트 버튼 하이라이트
+  try {
+    const btn = document.querySelector(`.review-bubble-btn[data-card-id="${cssEsc(ctx.cardId)}"]`);
+    if (btn) {
+      btn.classList.add('active');
+      setTimeout(() => btn.classList.remove('active'), 700);
+    }
+  } catch {}
+}
+
 function applySetlistPanelSize() {
   const panel = $('setlistPanel');
   if (!panel) return;
@@ -228,6 +326,10 @@ function renderSetlistPanel() {
       try {
         await navigator.clipboard.writeText(driveUrl);
         toast('드라이브 링크 복사됨');
+        row.classList.remove('copied');
+        void row.offsetWidth;
+        row.classList.add('copied');
+        setTimeout(() => row.classList.remove('copied'), 700);
       } catch {
         toast('복사 실패(브라우저 권한 확인)');
       }
@@ -491,6 +593,12 @@ function getSortValue(item, field) {
 const $ = (id) => document.getElementById(id);
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const cssEsc = (s) => {
+  try {
+    if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(String(s ?? ''));
+  } catch {}
+  return String(s ?? '').replace(/[^a-zA-Z0-9_-]/g, '_');
+};
 
 function extractDriveFileIdFromAny(input) {
   const s = String(input || '').trim();
@@ -736,6 +844,14 @@ function renderGuestbook() {
   const visible = state.isArchiveMode;
   panel.style.display = visible ? 'flex' : 'none';
   showBtn.style.display = 'none';
+  // compose는 기본 숨김, "방명록 쓰기" 버튼으로 토글
+  try {
+    const compose = $('guestbookCompose');
+    const writeBtn = $('guestbookWriteBtn');
+    const open = compose?.dataset?.open === '1';
+    if (compose) compose.style.display = open ? 'flex' : 'none';
+    if (writeBtn) writeBtn.textContent = open ? '남기기' : '방명록 쓰기';
+  } catch {}
   const nickInput = $('guestbookNicknameInput');
   if (nickInput && !nickInput.value.trim()) nickInput.value = getGuestbookNicknameSeed();
   if (!visible) return;
@@ -1397,10 +1513,13 @@ function renderSongCards(hideTags) {
 
   items.forEach((c) => {
     const el = document.createElement('div');
-    const canOpen = state.role !== 'viewer' && !setlistEdit;
+    const viewerCanComment = state.isArchiveMode && state.role === 'viewer' && state.reviewEnabled && !setlistEdit;
+    const canOpen = !setlistEdit && (state.role !== 'viewer' || viewerCanComment);
     el.className = canOpen ? 'song-card clickable' : 'song-card';
     el.style.setProperty('--stagger-index', String(items.indexOf(c) % 12));
     const title = c.title || '(제목없음)';
+    const cardId = String(c.cardId || `${title}::${c.artist || ''}`);
+    const commentCount = Number((state.reviewThreadMap.get(cardId)?.comments || []).length || 0) || 0;
     const keyLabel = c.keyLabel || '-';
     const proficiencyLevel = Math.max(0, Math.min(3, Number(c.proficiencyLevel || 0) || 0));
     const showProficiency = state.isArchiveMode && proficiencyLevel > 0;
@@ -1437,6 +1556,13 @@ function renderSongCards(hideTags) {
           <div class="song-list-tags">
             <span class="chip">${esc(tagText)}</span>
             ${
+              commentCount
+                ? `<button class="review-bubble-btn" type="button" data-action="reviewList" data-card-id="${esc(cardId)}" title="코멘트 보기">
+                    <span aria-hidden="true">💬</span><span class="review-bubble-count">${commentCount}</span>
+                  </button>`
+                : ''
+            }
+            ${
               setlistEdit
                 ? `<label class="setlist-check"><input type="checkbox" data-action="setlistCheck" /> 추가</label>`
                 : ''
@@ -1463,6 +1589,13 @@ function renderSongCards(hideTags) {
                   : isAdmin
                     ? `<span class="chip edit-chip" data-action="editSong">편집</span>`
                     : ''
+              }
+              ${
+                commentCount
+                  ? `<button class="review-bubble-btn" type="button" data-action="reviewList" data-card-id="${esc(cardId)}" title="코멘트 보기">
+                      <span aria-hidden="true">💬</span><span class="review-bubble-count">${commentCount}</span>
+                    </button>`
+                  : ''
               }
             </div>
           </div>
@@ -1517,8 +1650,20 @@ function renderSongCards(hideTags) {
       el.style.setProperty('--hover-x', `${x}%`);
       el.style.setProperty('--hover-y', `${y}%`);
     });
+
+    // 코멘트 리스트 버튼
+    el.querySelector('[data-action="reviewList"]')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      renderReviewListForCard(cardId);
+    });
+
     if (canOpen) {
       el.onclick = async (e) => {
+        if (viewerCanComment) {
+          openReviewComposer({ cardId, title: c.title || '', artist: c.artist || '', tagText: getSetlistTagTextForCard(c) });
+          return;
+        }
         await runCardParticleBurst(e);
         openCardFlow(c).catch(() => {});
       };
@@ -2328,6 +2473,7 @@ async function refreshSession() {
       if (state.isPrivate) state.archiveTitleImage = String(me.user.privateTitleImage || '').trim() || state.archiveTitleImage;
       if (state.isPrivate) state.archiveStatusTitle = String(me.user.privateStatusTitle || '').trim();
       if (state.isPrivate) state.archiveStatusDesc = String(me.user.privateStatusDesc || '').trim();
+      if (state.isPrivate) state.reviewEnabled = Boolean(me.user.privateReviewEnabled);
     }
     state.profilePhoto = me.user.profilePhoto || '';
     updateProfileImage('profilePhoto', state.profilePhoto);
@@ -2519,12 +2665,18 @@ async function saveBookSettings() {
   const theme = String($('bookThemeSelect')?.value || 'pink').trim() || 'pink';
   const statusTitle = String($('bookStatusTitleInput')?.value || '').trim();
   const statusDesc = String($('bookStatusDescInput')?.value || '').trim();
-  const res = await apiJson('/api/private-book', 'PATCH', { titleImage: v, theme, statusTitle, statusDesc });
+  const reviewEnabled = Boolean($('bookReviewEnabledToggle')?.checked);
+  const res = await apiJson('/api/private-book', 'PATCH', { titleImage: v, theme, statusTitle, statusDesc, reviewEnabled });
   if (!res.ok) return toast(`저장 실패: ${res.error || ''}`);
   state.archiveTitleImage = String(res.titleImage || '').trim();
   state.archiveTheme = String(res.theme || 'pink').trim() || 'pink';
   state.archiveStatusTitle = String(res.statusTitle || '').trim();
   state.archiveStatusDesc = String(res.statusDesc || '').trim();
+  state.reviewEnabled = Boolean(res.reviewEnabled);
+  if (!state.reviewEnabled) {
+    state.reviewThreads = [];
+    state.reviewThreadMap = new Map();
+  }
   // header + loading 갱신
   setArchiveShellUI();
   applySongFilters();
@@ -2581,6 +2733,9 @@ function wireEvents() {
       $('bookThemeSelect').value = state.archiveTheme || 'pink';
       $('bookStatusTitleInput').value = state.archiveStatusTitle || '';
       $('bookStatusDescInput').value = state.archiveStatusDesc || '';
+      try {
+        $('bookReviewEnabledToggle').checked = Boolean(state.reviewEnabled);
+      } catch {}
       const pv = $('bookTitleImagePreview');
       if (pv) {
         const u = normalizeProfilePhotoUrl(state.archiveTitleImage || '', 1200);
@@ -2963,6 +3118,14 @@ function wireEvents() {
     applySongFilters();
   };
 
+  // review (viewer comment)
+  $('reviewComposerCancelBtn').onclick = () => closeReviewComposer();
+  $('reviewComposerSaveBtn').onclick = () => submitReviewComment().catch(() => {});
+  $('reviewListCloseBtn').onclick = () => {
+    const p = $('reviewListPanel');
+    if (p) p.style.display = 'none';
+  };
+
   // setlist (archive / owner only edit)
   $('setlistFab').onclick = () => {
     if (!isArchiveOwner()) return;
@@ -3127,8 +3290,23 @@ function wireEvents() {
     ensureGuestbookPosition();
     renderGuestbook();
   };
-  $('guestbookSubmitBtn').onclick = async () => {
+  $('guestbookWriteBtn').onclick = async () => {
     if (!state.isArchiveMode || !state.archiveTargetUserId) return;
+    const compose = $('guestbookCompose');
+    const btn = $('guestbookWriteBtn');
+    if (!compose || !btn) return;
+    const open = compose.dataset.open === '1';
+    if (!open) {
+      compose.style.display = 'flex';
+      compose.dataset.open = '1';
+      btn.textContent = '남기기';
+      try {
+        const nick = $('guestbookNicknameInput');
+        if (nick && !nick.value) nick.value = String(localStorage.getItem('mb_guestbook_nick') || '').trim();
+        (nick || $('guestbookContentInput'))?.focus?.();
+      } catch {}
+      return;
+    }
     const nickname = String($('guestbookNicknameInput')?.value || '').trim();
     const content = String($('guestbookContentInput')?.value || '').trim();
     if (!nickname || !content) return toast('닉네임과 내용을 입력해 주세요.');
@@ -3138,6 +3316,9 @@ function wireEvents() {
       localStorage.setItem('mb_guestbook_nick', nickname);
     } catch {}
     $('guestbookContentInput').value = '';
+    compose.style.display = 'none';
+    compose.dataset.open = '0';
+    btn.textContent = '방명록 쓰기';
     await loadGuestbook(true);
     toast('방명록을 남겼습니다.');
   };
@@ -3497,6 +3678,7 @@ async function bootstrap() {
           state.archiveTheme = String(r.user.theme || 'pink').trim() || 'pink';
           state.archiveStatusTitle = String(r.user.statusTitle || '').trim();
           state.archiveStatusDesc = String(r.user.statusDesc || '').trim();
+          state.reviewEnabled = Boolean(r.user.reviewEnabled);
           applyArchiveTheme();
           applySongsViewMode();
           setLoadingContext({
@@ -3532,6 +3714,7 @@ async function bootstrap() {
       initGuestbookDrag();
       await loadGuestbook(true);
     }
+    if (state.isArchiveMode) await loadReviews();
     if (state.isArchiveMode) await loadSetlist();
     applySongFilters();
     if (!state.isArchiveMode) await loadRequests(true);

@@ -31,6 +31,9 @@
   --proficiency-red: #ff5b64;
   --proficiency-yellow: #f7c84a;
   --proficiency-green: #45c978;
+  --btn-fill: #101010;
+  --btn-fill-hover: #000000;
+  --btn-fill-text: #ffffff;
 }
 
 body {
@@ -57,6 +60,8 @@ body.archive-mode[data-private-theme="dark"]{
   --modal-surface: rgba(26, 32, 44, 0.96);
   --muted-surface: rgba(255,255,255,0.06);
   --overlay-bg: rgba(0,0,0,0.55);
+  --btn-fill: var(--card-hover-border);
+  --btn-fill-hover: var(--card-border);
 }
 body.archive-mode[data-private-theme="sky"]{
   --page-bg: linear-gradient(180deg, #eef8ff 0%, #f4fbff 35%, #edf6ff 100%);
@@ -67,6 +72,8 @@ body.archive-mode[data-private-theme="sky"]{
   --shadow: 0 12px 34px rgba(55, 125, 200, 0.12);
   --card-border: rgba(88, 172, 255, 0.45);
   --card-hover-border: rgba(88, 172, 255, 0.90);
+  --btn-fill: var(--card-hover-border);
+  --btn-fill-hover: var(--card-border);
 }
 body.archive-mode[data-private-theme="green"]{
   --page-bg: linear-gradient(180deg, #f5fff1 0%, #f6fff8 38%, #efffed 100%);
@@ -77,6 +84,8 @@ body.archive-mode[data-private-theme="green"]{
   --shadow: 0 12px 34px rgba(77, 151, 68, 0.14);
   --card-border: rgba(109, 189, 98, 0.45);
   --card-hover-border: rgba(109, 189, 98, 0.90);
+  --btn-fill: var(--card-hover-border);
+  --btn-fill-hover: var(--card-border);
 }
 body.archive-mode[data-private-theme="amber"]{
   --page-bg: linear-gradient(180deg, #fff8eb 0%, #fffdf3 35%, #fff6df 100%);
@@ -87,6 +96,14 @@ body.archive-mode[data-private-theme="amber"]{
   --shadow: 0 12px 34px rgba(186, 127, 43, 0.15);
   --card-border: rgba(238, 162, 74, 0.48);
   --card-hover-border: rgba(238, 162, 74, 0.92);
+  --btn-fill: var(--card-hover-border);
+  --btn-fill-hover: var(--card-border);
+}
+
+/* 기본(핑크)도 테마톤으로 채우기 */
+body.archive-mode{
+  --btn-fill: var(--card-hover-border);
+  --btn-fill-hover: var(--card-border);
 }
 
 .layout {
@@ -174,9 +191,12 @@ body.archive-mode[data-private-theme="amber"]{
 }
 
 .floating-btn.black-btn {
-  background: #101010;
-  color: #fff;
-  border-color: rgba(0, 0, 0, 0.4);
+  background: var(--btn-fill);
+  color: var(--btn-fill-text);
+  border-color: rgba(0, 0, 0, 0.12);
+}
+body.archive-mode .floating-btn.black-btn:hover{
+  background: var(--btn-fill-hover);
 }
 
 .floating-btn.compact-btn {
@@ -211,8 +231,8 @@ body.archive-mode[data-private-theme="amber"]{
 @keyframes mbspin { to { transform: rotate(360deg); } }
 
 .nav-btn.active {
-  background: #101010;
-  color: #fff;
+  background: var(--btn-fill);
+  color: var(--btn-fill-text);
 }
 
 .glass-card {
@@ -643,6 +663,99 @@ body.archive-mode[data-private-theme="dark"] .setlist-item{
 }
 .setlist-mini-btn:hover{ opacity: 1; }
 
+.setlist-item.copied{
+  outline: 2px solid rgba(59,109,246,0.0);
+  animation: mbCopiedPulse 680ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes mbCopiedPulse{
+  0%{ background: rgba(255,255,255,0.95); }
+  40%{ background: rgba(255,255,255,0.78); }
+  100%{ background: var(--soft-surface); }
+}
+
+.review-composer{
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 2600;
+  width: min(360px, calc(100vw - 44px));
+  padding: 14px;
+  border-radius: 22px;
+  background: var(--surface-strong);
+  border: 1px solid var(--border);
+  box-shadow: 0 22px 70px rgba(0,0,0,0.20);
+  backdrop-filter: blur(16px);
+}
+.review-composer-title{
+  font-weight: 1000;
+  margin-bottom: 10px;
+}
+.review-composer-actions{
+  margin-top: 10px;
+  display:flex;
+  gap: 10px;
+  justify-content:flex-end;
+}
+.review-list-panel{
+  position: fixed;
+  right: 22px;
+  bottom: 86px;
+  z-index: 2600;
+  width: min(420px, calc(100vw - 44px));
+  max-height: min(56vh, 520px);
+  border-radius: 22px;
+  background: var(--surface-strong);
+  border: 1px solid var(--border);
+  box-shadow: 0 22px 70px rgba(0,0,0,0.20);
+  backdrop-filter: blur(16px);
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+}
+.review-list-header{
+  padding: 12px 12px 10px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap: 10px;
+}
+.review-list-title{
+  font-weight: 1000;
+}
+.review-list-body{
+  padding: 0 12px 12px;
+  overflow:auto;
+  display:flex;
+  flex-direction:column;
+  gap: 8px;
+}
+.review-bubble-btn{
+  border: 0;
+  background: transparent;
+  cursor:pointer;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width: 34px;
+  height: 34px;
+  border-radius: 14px;
+  border: 1px solid rgba(0,0,0,0.08);
+  background: var(--soft-surface);
+}
+body.archive-mode[data-private-theme="dark"] .review-bubble-btn{
+  border-color: rgba(255,255,255,0.12);
+}
+.review-bubble-btn:hover{ transform: translateY(-1px); }
+.review-bubble-btn.active{
+  outline: 2px solid rgba(255,255,255,0.45);
+  box-shadow: 0 10px 22px rgba(0,0,0,0.18);
+}
+.review-bubble-count{
+  font-size: 12px;
+  font-weight: 1000;
+  opacity: 0.75;
+}
+
 /* 카드 체크박스(셋리스트 편집 모드) */
 .setlist-check{
   display:inline-flex;
@@ -919,15 +1032,15 @@ textarea {
   min-width: 92px;
 }
 .sort-dir-btn.active{
-  background: #101010;
-  color: #fff;
+  background: var(--btn-fill);
+  color: var(--btn-fill-text);
 }
 .view-mode-btn{
   min-width: 76px;
 }
 .view-mode-btn.active{
-  background: #101010;
-  color: #fff;
+  background: var(--btn-fill);
+  color: var(--btn-fill-text);
 }
 
 .song-card-list{

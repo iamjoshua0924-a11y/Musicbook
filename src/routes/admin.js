@@ -38,6 +38,9 @@ router.get('/admin/me', requireLogin, async (req, res) => {
       isPrivate: Boolean(user.isPrivate),
       privateTitleImage: user.privateTitleImage || '',
       privateTheme: String(user.privateTheme || 'pink'),
+      privateStatusTitle: user.privateStatusTitle || '',
+      privateStatusDesc: user.privateStatusDesc || '',
+      privateViewMode: String(user.privateViewMode || 'card'),
       privateArchivePath
     }
   });

@@ -15,6 +15,11 @@ const UserSchema = new mongoose.Schema(
     privateTitleImage: { type: String, default: '' },
     // 개인 노래책 전용 테마
     privateTheme: { type: String, enum: ['pink', 'dark', 'sky', 'green', 'amber'], default: 'pink' },
+    // 개인 노래책 상태메세지 카드
+    privateStatusTitle: { type: String, default: '' },
+    privateStatusDesc: { type: String, default: '' },
+    // 개인 노래책 목록 보기 방식
+    privateViewMode: { type: String, enum: ['card', 'list'], default: 'card' },
 
     mustChangePassword: { type: Boolean, default: false },
     legacyPasswordHash: { type: String, default: '' }, // 기존 GAS 시트의 해시(참조용)

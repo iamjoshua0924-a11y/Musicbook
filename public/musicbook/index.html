@@ -5,7 +5,7 @@
     <title>밍긴어게인 노래책</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="https://www.gstatic.com/images/branding/product/1x/drive_2020q4_32dp.png" />
-    <link rel="stylesheet" href="musicbook.css?v=20260625_9" />
+    <link rel="stylesheet" href="musicbook.css?v=20260625_10" />
   </head>
 
   <body class="preload">
@@ -127,13 +127,8 @@
               <div class="songs-title-side">
                 <div id="archiveTitleText" class="songs-title-text" style="display:none;"></div>
                 <div id="archiveStatusCard" class="archive-status-card" style="display:none;">
-                  <div class="archive-status-chip">STATUS</div>
                   <div id="archiveStatusHeadline" class="archive-status-headline"></div>
                   <div id="archiveStatusBody" class="archive-status-body"></div>
-                  <div class="archive-status-meta">
-                    <span id="archiveStatusCount"></span>
-                    <span id="archiveStatusTheme"></span>
-                  </div>
                 </div>
               </div>
             </div>
@@ -529,6 +524,15 @@
           <option value="green">연두색</option>
           <option value="amber">노랑/주황</option>
         </select>
+        <div class="muted" style="font-weight:900; margin-top:12px;">상태메세지</div>
+        <input id="bookStatusTitleInput" class="input" placeholder="예) 오늘은 신나는 곡 위주로!" />
+        <div class="muted" style="font-weight:900; margin-top:12px;">설명</div>
+        <textarea id="bookStatusDescInput" class="input" placeholder="예) 검색/필터로 골라서 링크 눌러서 보면 돼요"></textarea>
+        <div class="muted" style="font-weight:900; margin-top:12px;">목록 보기</div>
+        <select id="bookViewModeSelect" class="select">
+          <option value="card">카드형</option>
+          <option value="list">목록형</option>
+        </select>
         <div class="glass-card" style="padding:12px; margin: 10px 0 0;">
           <img id="bookTitleImagePreview" class="banner-image" alt="" style="max-height:220px;" />
         </div>
@@ -651,6 +655,6 @@
     <script src="../config.js"></script>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
     <script src="../common/avatar.js?v=20260529_1"></script>
-    <script src="musicbook.js?v=20260625_8"></script>
+    <script src="musicbook.js?v=20260625_9"></script>
   </body>
 </html>

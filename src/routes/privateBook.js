@@ -5,6 +5,14 @@ const { driveToThumb } = require('../services/legacyCsvImport');
 
 const router = express.Router();
 const PRIVATE_THEMES = new Set(['pink', 'dark', 'sky', 'green', 'amber']);
+const VIEW_MODES = new Set(['card', 'list']);
+
+function clampText(v, max) {
+  return String(v || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max);
+}
 
 // Public: 개인 노래책 공개 프로필(stealth 계정만)
 router.get('/private-book/:userId', async (req, res) => {
@@ -21,7 +29,10 @@ router.get('/private-book/:userId', async (req, res) => {
       displayName: user.displayName || user.userId,
       profilePhoto: user.profilePhoto || '',
       titleImage: user.privateTitleImage || '',
-      theme: PRIVATE_THEMES.has(String(user.privateTheme || '')) ? String(user.privateTheme) : 'pink'
+      theme: PRIVATE_THEMES.has(String(user.privateTheme || '')) ? String(user.privateTheme) : 'pink',
+      statusTitle: user.privateStatusTitle || '',
+      statusDesc: user.privateStatusDesc || '',
+      viewMode: VIEW_MODES.has(String(user.privateViewMode || '')) ? String(user.privateViewMode) : 'card'
     }
   });
 });
@@ -30,8 +41,14 @@ router.get('/private-book/:userId', async (req, res) => {
 router.patch('/private-book', requireLogin, async (req, res) => {
   const hasTitleImage = req.body?.titleImage !== undefined;
   const hasTheme = req.body?.theme !== undefined;
+  const hasStatusTitle = req.body?.statusTitle !== undefined;
+  const hasStatusDesc = req.body?.statusDesc !== undefined;
+  const hasViewMode = req.body?.viewMode !== undefined;
   const titleImage = String(req.body?.titleImage || '').trim();
   const theme = String(req.body?.theme || '').trim().toLowerCase();
+  const statusTitle = clampText(req.body?.statusTitle, 80);
+  const statusDesc = clampText(req.body?.statusDesc, 220);
+  const viewMode = String(req.body?.viewMode || '').trim().toLowerCase();
   const user = await User.findById(req.session.user.id);
   if (!user) return res.status(401).json({ ok: false, error: 'UNAUTHORIZED' });
   if (!user.isPrivate) return res.status(403).json({ ok: false, error: 'FORBIDDEN' });
@@ -42,13 +59,22 @@ router.patch('/private-book', requireLogin, async (req, res) => {
     if (!PRIVATE_THEMES.has(theme)) return res.status(400).json({ ok: false, error: 'BAD_THEME' });
     user.privateTheme = theme;
   }
+  if (hasStatusTitle) user.privateStatusTitle = statusTitle;
+  if (hasStatusDesc) user.privateStatusDesc = statusDesc;
+  if (hasViewMode) {
+    if (!VIEW_MODES.has(viewMode)) return res.status(400).json({ ok: false, error: 'BAD_VIEW_MODE' });
+    user.privateViewMode = viewMode;
+  }
   user.updatedAt = new Date();
   await user.save();
 
   res.json({
     ok: true,
     titleImage: user.privateTitleImage || '',
-    theme: PRIVATE_THEMES.has(String(user.privateTheme || '')) ? String(user.privateTheme) : 'pink'
+    theme: PRIVATE_THEMES.has(String(user.privateTheme || '')) ? String(user.privateTheme) : 'pink',
+    statusTitle: user.privateStatusTitle || '',
+    statusDesc: user.privateStatusDesc || '',
+    viewMode: VIEW_MODES.has(String(user.privateViewMode || '')) ? String(user.privateViewMode) : 'card'
   });
 });
 

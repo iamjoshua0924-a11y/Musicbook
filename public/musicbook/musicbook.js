@@ -38,6 +38,9 @@ const state = {
   archiveProfilePhoto: '',
   archiveTitleImage: '',
   archiveTheme: 'pink',
+  archiveStatusTitle: '',
+  archiveStatusDesc: '',
+  archiveViewMode: 'card',
   archiveGuestbookLoaded: false,
   guestbookItems: [],
   profilePhoto: '',
@@ -107,6 +110,17 @@ function applyArchiveTheme() {
   } catch {}
 }
 
+function applyArchiveViewMode() {
+  try {
+    const mode = String(state.archiveViewMode || 'card').trim() || 'card';
+    document.body.dataset.viewMode = mode;
+    const wrap = $('songCardList');
+    // edit 모드에서는 항상 카드형(행 편집 UX 유지)
+    const listMode = mode === 'list' && !state.availabilityEditMode && !state.proficiencyEditMode;
+    if (wrap) wrap.classList.toggle('view-list', listMode);
+  } catch {}
+}
+
 function getArchiveThemeLabel() {
   const theme = String(state.archiveTheme || 'pink').trim();
   if (theme === 'dark') return '다크';
@@ -142,23 +156,27 @@ function updateArchiveStatusCard() {
     card.style.display = 'none';
     return;
   }
-  const totalAll = state.songCardsAll.length || state.songFilesAll.length || 0;
-  const currentCount = state.availabilityEditMode || state.proficiencyEditMode ? state.songFilesFiltered.length : state.songCardsFiltered.length;
   const name = state.archiveDisplayName || state.archiveTargetUserId || '이 노래책';
   const headline = $('archiveStatusHeadline');
   const body = $('archiveStatusBody');
-  const count = $('archiveStatusCount');
-  const theme = $('archiveStatusTheme');
-  if (headline) headline.textContent = `${name}님의 오늘 플레이리스트를 고르는 중`;
-  if (body) {
-    body.textContent = state.proficiencyEditMode
-      ? '숙련도 기준으로 곡을 정리하는 중이에요. 자신 있는 곡부터 천천히 골라보세요.'
+  const title = String(state.archiveStatusTitle || '').trim();
+  const desc = String(state.archiveStatusDesc || '').trim();
+  const fallbackTitle = `${name}님의 노래책`;
+  const fallbackDesc =
+    state.proficiencyEditMode
+      ? '숙련도 기준으로 곡을 정리할 수 있어요.'
       : state.availabilityEditMode
-        ? '가능곡을 체크하는 중이에요. 저장 전까지는 지금 화면에서 바로 정리할 수 있어요.'
-        : '검색과 필터, 정렬로 오늘 부르고 싶은 곡을 가볍게 고를 수 있어요.';
+        ? '가능곡을 체크하는 중이에요. 저장 전까지는 화면에서 바로 수정돼요.'
+        : '검색/필터/정렬로 오늘 부르고 싶은 곡을 골라보세요.';
+  const finalTitle = title || fallbackTitle;
+  const finalDesc = desc || '';
+  if (headline) headline.textContent = finalTitle;
+  if (body) body.textContent = finalDesc || fallbackDesc;
+  // 둘 다 비어있으면(=기본값도 숨기고 싶을 때) 카드 숨김
+  if (!title && !desc) {
+    card.style.display = 'none';
+    return;
   }
-  if (count) count.textContent = `전체 ${totalAll}곡 · 현재 ${currentCount}곡`;
-  if (theme) theme.textContent = `${getArchiveThemeLabel()} 테마`;
   card.style.display = 'block';
 }
 
@@ -194,6 +212,7 @@ function detectArchiveTargetUserId() {
 function setArchiveShellUI() {
   document.body.classList.add('archive-mode');
   applyArchiveTheme();
+  applyArchiveViewMode();
   // 메인/패널 제거 + 곡 리스트만 노출
   try {
     document.querySelectorAll('.page').forEach((p) => p.classList.remove('active'));
@@ -1171,11 +1190,14 @@ function applySongFilters() {
 function renderSongCards(hideTags) {
   const wrap = $('songCardList');
   wrap.innerHTML = '';
+  applyArchiveViewMode();
 
   const totalPages = Math.max(1, Math.ceil(state.songCardsFiltered.length / state.pageSize));
   state.page = Math.min(state.page, totalPages);
   const start = (state.page - 1) * state.pageSize;
   const items = state.songCardsFiltered.slice(start, start + state.pageSize);
+
+  const listMode = state.isArchiveMode && String(state.archiveViewMode || 'card') === 'list';
 
   items.forEach((c) => {
     const el = document.createElement('div');
@@ -1207,43 +1229,61 @@ function renderSongCards(hideTags) {
         ${more ? `<span class="mini-avatar more" title="+${more}명">+${more}</span>` : ''}
       </div>
     `;
-    // 카드 레이아웃(3행):
-    // 1행 제목(+new) + 우측 편집
-    // 2행 가수
-    // 3행 가능보컬 프로필(최대 8명 +N)
-    el.innerHTML = `
-      <div class="song-card-header">
-        <div class="song-card-top">
-          <div class="song-card-title">
-            <span>${highlightHtml(title, state._lastSearchRaw)}</span>
-            ${c.isLatest ? `<span class="new-badge">new!</span>` : ''}
+    if (listMode) {
+      el.innerHTML = `
+        <div class="song-card-header">
+          <div>
+            <div class="song-card-title">
+              <span>${highlightHtml(title, state._lastSearchRaw)}</span>
+              ${c.isLatest ? `<span class="new-badge">new!</span>` : ''}
+            </div>
+            <div class="song-card-artist">${highlightHtml(c.artist || '', state._lastSearchRaw)}</div>
           </div>
           <div class="song-card-actions">
-            ${isAdmin ? `<span class="chip edit-chip" data-action="editSong">편집</span>` : ''}
+            <span class="chip">${esc(keyLabel)}</span>
+            ${showProficiency ? `<span class="chip">${esc(getProficiencyLabel(proficiencyLevel))}</span>` : ''}
           </div>
         </div>
-        <div class="song-card-artist">${highlightHtml(c.artist || '', state._lastSearchRaw)}</div>
-        ${users.length ? `<div class="song-card-avatars">${avatarHtml}</div>` : ''}
-      </div>
-      ${hideTags ? '' : `
-        <div class="song-chips">
-          <span class="chip">${esc(keyLabel)}</span>
-          <span class="chip">${esc(c.genre || '-')}</span>
-          <span class="chip">${esc(c.mood || '-')}</span>
-          <span class="chip">${esc(c.vocal || '-')}</span>
-        </div>
-      `}
-      ${showProficiency ? `
-        <div class="song-card-footer">
-          <div class="song-proficiency">
-            <div class="song-proficiency-label">${esc(getProficiencyLabel(proficiencyLevel))}</div>
-            <div class="song-proficiency-track">
-              <div class="song-proficiency-fill level-${proficiencyLevel}"></div>
+      `;
+    } else {
+      // 카드 레이아웃(3행):
+      // 1행 제목(+new) + 우측 편집
+      // 2행 가수
+      // 3행 가능보컬 프로필(최대 8명 +N)
+      el.innerHTML = `
+        <div class="song-card-header">
+          <div class="song-card-top">
+            <div class="song-card-title">
+              <span>${highlightHtml(title, state._lastSearchRaw)}</span>
+              ${c.isLatest ? `<span class="new-badge">new!</span>` : ''}
+            </div>
+            <div class="song-card-actions">
+              ${isAdmin ? `<span class="chip edit-chip" data-action="editSong">편집</span>` : ''}
             </div>
           </div>
+          <div class="song-card-artist">${highlightHtml(c.artist || '', state._lastSearchRaw)}</div>
+          ${users.length ? `<div class="song-card-avatars">${avatarHtml}</div>` : ''}
         </div>
-      ` : ''}
-    `;
+        ${hideTags ? '' : `
+          <div class="song-chips">
+            <span class="chip">${esc(keyLabel)}</span>
+            <span class="chip">${esc(c.genre || '-')}</span>
+            <span class="chip">${esc(c.mood || '-')}</span>
+            <span class="chip">${esc(c.vocal || '-')}</span>
+          </div>
+        `}
+        ${showProficiency ? `
+          <div class="song-card-footer">
+            <div class="song-proficiency">
+              <div class="song-proficiency-label">${esc(getProficiencyLabel(proficiencyLevel))}</div>
+              <div class="song-proficiency-track">
+                <div class="song-proficiency-fill level-${proficiencyLevel}"></div>
+              </div>
+            </div>
+          </div>
+        ` : ''}
+      `;
+    }
     el.querySelector('[data-action="editSong"]')?.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -1312,6 +1352,7 @@ function updateProficiencyEditCount() {
 function renderAvailabilityEditCards(hideTags) {
   const wrap = $('songCardList');
   wrap.innerHTML = '';
+  applyArchiveViewMode();
 
   const totalPages = Math.max(1, Math.ceil(state.songFilesFiltered.length / state.pageSize));
   state.page = Math.min(state.page, totalPages);
@@ -1375,6 +1416,7 @@ function setDraftProficiency(googleFileId, level) {
 function renderProficiencyEditCards(hideTags) {
   const wrap = $('songCardList');
   wrap.innerHTML = '';
+  applyArchiveViewMode();
 
   const totalPages = Math.max(1, Math.ceil(state.songFilesFiltered.length / state.pageSize));
   state.page = Math.min(state.page, totalPages);
@@ -2062,6 +2104,9 @@ async function refreshSession() {
       state.archiveTheme = String(me.user.privateTheme || 'pink').trim() || state.archiveTheme || 'pink';
       // 본인(private)일 때만 설정값이 의미 있음
       if (state.isPrivate) state.archiveTitleImage = String(me.user.privateTitleImage || '').trim() || state.archiveTitleImage;
+      if (state.isPrivate) state.archiveStatusTitle = String(me.user.privateStatusTitle || '').trim();
+      if (state.isPrivate) state.archiveStatusDesc = String(me.user.privateStatusDesc || '').trim();
+      if (state.isPrivate) state.archiveViewMode = String(me.user.privateViewMode || 'card').trim() || 'card';
     }
     state.profilePhoto = me.user.profilePhoto || '';
     updateProfileImage('profilePhoto', state.profilePhoto);
@@ -2077,6 +2122,7 @@ async function refreshSession() {
     state.privateArchivePath = '';
     state.profilePhoto = '';
     state.archiveTheme = state.archiveTheme || 'pink';
+    state.archiveViewMode = state.archiveViewMode || 'card';
     updateProfileImage('profilePhoto', '');
   }
   // Archive access check (best-effort)
@@ -2250,12 +2296,19 @@ async function submitProfilePhoto() {
 async function saveBookSettings() {
   const v = String($('bookTitleImageInput')?.value || '').trim();
   const theme = String($('bookThemeSelect')?.value || 'pink').trim() || 'pink';
-  const res = await apiJson('/api/private-book', 'PATCH', { titleImage: v, theme });
+  const statusTitle = String($('bookStatusTitleInput')?.value || '').trim();
+  const statusDesc = String($('bookStatusDescInput')?.value || '').trim();
+  const viewMode = String($('bookViewModeSelect')?.value || 'card').trim() || 'card';
+  const res = await apiJson('/api/private-book', 'PATCH', { titleImage: v, theme, statusTitle, statusDesc, viewMode });
   if (!res.ok) return toast(`저장 실패: ${res.error || ''}`);
   state.archiveTitleImage = String(res.titleImage || '').trim();
   state.archiveTheme = String(res.theme || 'pink').trim() || 'pink';
+  state.archiveStatusTitle = String(res.statusTitle || '').trim();
+  state.archiveStatusDesc = String(res.statusDesc || '').trim();
+  state.archiveViewMode = String(res.viewMode || 'card').trim() || 'card';
   // header + loading 갱신
   setArchiveShellUI();
+  applySongFilters();
   setLoadingContext({ titleImage: state.archiveTitleImage, profilePhoto: state.archiveProfilePhoto, displayName: state.archiveDisplayName });
   toast('저장 완료');
   closeModal('bookSettingsModal');
@@ -2307,6 +2360,9 @@ function wireEvents() {
     try {
       $('bookTitleImageInput').value = state.archiveTitleImage || '';
       $('bookThemeSelect').value = state.archiveTheme || 'pink';
+      $('bookStatusTitleInput').value = state.archiveStatusTitle || '';
+      $('bookStatusDescInput').value = state.archiveStatusDesc || '';
+      $('bookViewModeSelect').value = state.archiveViewMode || 'card';
       const pv = $('bookTitleImagePreview');
       if (pv) {
         const u = normalizeProfilePhotoUrl(state.archiveTitleImage || '', 1200);
@@ -3116,7 +3172,11 @@ async function bootstrap() {
           state.archiveProfilePhoto = String(r.user.profilePhoto || '');
           state.archiveTitleImage = String(r.user.titleImage || '');
           state.archiveTheme = String(r.user.theme || 'pink').trim() || 'pink';
+          state.archiveStatusTitle = String(r.user.statusTitle || '').trim();
+          state.archiveStatusDesc = String(r.user.statusDesc || '').trim();
+          state.archiveViewMode = String(r.user.viewMode || 'card').trim() || 'card';
           applyArchiveTheme();
+          applyArchiveViewMode();
           setLoadingContext({
             titleImage: state.archiveTitleImage,
             profilePhoto: state.archiveProfilePhoto,

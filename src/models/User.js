@@ -19,6 +19,21 @@ const UserSchema = new mongoose.Schema(
     privateStatusTitle: { type: String, default: '' },
     privateStatusDesc: { type: String, default: '' },
 
+    // 개인 노래책 "오늘의 셋리스트" (뷰어도 조회 가능 / 편집은 본인만)
+    privateSetlistItems: {
+      type: [
+        {
+          googleFileId: { type: String, default: '' },
+          driveUrl: { type: String, default: '' },
+          title: { type: String, default: '' },
+          artist: { type: String, default: '' },
+          tagText: { type: String, default: '' }, // 예: "C · 보통"
+          done: { type: Boolean, default: false }
+        }
+      ],
+      default: []
+    },
+
     mustChangePassword: { type: Boolean, default: false },
     legacyPasswordHash: { type: String, default: '' }, // 기존 GAS 시트의 해시(참조용)
     lastSeenAt: { type: Date, default: null },

@@ -41,6 +41,13 @@ const state = {
   archiveStatusTitle: '',
   archiveStatusDesc: '',
   songsViewMode: 'card',
+  // set list (archive)
+  setlistItems: [],
+  setlistLoaded: false,
+  setlistEditMode: false,
+  setlistOriginalItems: null,
+  setlistSelectedCardIds: new Set(),
+  setlistPanelSize: { w: 420, h: 520 },
   archiveGuestbookLoaded: false,
   guestbookItems: [],
   profilePhoto: '',
@@ -125,6 +132,187 @@ function updateViewModeControls() {
   const l = $('viewListBtn');
   if (c) c.classList.toggle('active', state.songsViewMode === 'card');
   if (l) l.classList.toggle('active', state.songsViewMode === 'list');
+}
+
+function isArchiveOwner() {
+  return (
+    state.isArchiveMode &&
+    String(state.userId || '') &&
+    String(state.archiveTargetUserId || '') &&
+    String(state.userId || '') === String(state.archiveTargetUserId || '') &&
+    Boolean(state.isPrivate) &&
+    state.archiveAuthorized &&
+    !state.archiveViewOnly
+  );
+}
+
+function getSetlistTagTextForCard(card) {
+  const keyLabel = String(card?.keyLabel || '-').trim() || '-';
+  const prof = Math.max(0, Math.min(3, Number(card?.proficiencyLevel || 0) || 0));
+  const showProf = state.isArchiveMode && prof > 0;
+  return `${keyLabel}${showProf ? ` · ${getProficiencyLabel(prof)}` : ''}`.trim();
+}
+
+function applySetlistPanelSize() {
+  const panel = $('setlistPanel');
+  if (!panel) return;
+  const w = Math.max(260, Math.min(640, Number(state.setlistPanelSize?.w || 420) || 420));
+  const h = Math.max(220, Math.min(780, Number(state.setlistPanelSize?.h || 520) || 520));
+  panel.style.width = `min(${w}px, calc(100vw - 44px))`;
+  panel.style.height = `min(${h}px, calc(100vh - 140px))`;
+}
+
+function renderSetlistPanel() {
+  const panel = $('setlistPanel');
+  const list = $('setlistList');
+  const fab = $('setlistFab');
+  const headerActions = $('setlistHeaderActions');
+  const help = $('setlistHelp');
+  if (!panel || !list || !fab || !headerActions || !help) return;
+
+  const hasItems = Array.isArray(state.setlistItems) && state.setlistItems.length > 0;
+  const owner = isArchiveOwner();
+
+  // 버튼(오너만)
+  fab.style.display = owner ? 'inline-flex' : 'none';
+  fab.textContent = hasItems ? '셋리스트 편집하기' : '셋리스트 만들기';
+
+  // 뷰어: 아이템이 없으면 패널 자체를 숨김
+  if (!owner && !hasItems) {
+    panel.style.display = 'none';
+    return;
+  }
+  // 오너: 편집 모드거나 아이템이 있으면 패널 표시(없어도 편집 진입 중이면 표시)
+  if (owner && (state.setlistEditMode || hasItems)) panel.style.display = 'flex';
+  else if (hasItems) panel.style.display = 'flex';
+  else panel.style.display = 'none';
+
+  applySetlistPanelSize();
+
+  headerActions.style.display = owner && state.setlistEditMode ? 'flex' : 'none';
+  help.style.display = owner && state.setlistEditMode && !hasItems ? 'block' : 'none';
+
+  list.innerHTML = '';
+  (state.setlistItems || []).forEach((it, idx) => {
+    const row = document.createElement('div');
+    row.className = `setlist-item ${it.done ? 'done' : ''}`;
+    row.dataset.idx = String(idx);
+
+    const handle = `<div class="setlist-handle" ${owner && state.setlistEditMode ? "draggable='true'" : ''} data-action="drag">≡</div>`;
+    const tag = String(it.tagText || '').trim();
+    const driveUrl = String(it.driveUrl || '').trim();
+    row.innerHTML = `
+      ${handle}
+      <div class="setlist-row" data-action="open">
+        <div class="setlist-title-cell">${esc(it.title || '')}</div>
+        <div class="setlist-artist-cell">${esc(it.artist || '')}</div>
+        <div class="setlist-tag-cell">${tag ? `<span class="chip">${esc(tag)}</span>` : ''}</div>
+      </div>
+      <div class="setlist-actions">
+        ${
+          owner && state.setlistEditMode
+            ? `
+              <button class="setlist-mini-btn" type="button" data-action="toggleDone">${it.done ? '미완료' : '완료'}</button>
+              <button class="setlist-mini-btn" type="button" data-action="remove">삭제</button>
+            `
+            : ''
+        }
+      </div>
+    `;
+
+    row.querySelector('[data-action="open"]')?.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (owner && state.setlistEditMode) return;
+      if (!driveUrl) return toast('링크가 없습니다.');
+      try {
+        await navigator.clipboard.writeText(driveUrl);
+        toast('드라이브 링크 복사됨');
+      } catch {
+        toast('복사 실패(브라우저 권한 확인)');
+      }
+    });
+    row.querySelector('[data-action="toggleDone"]')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!owner || !state.setlistEditMode) return;
+      state.setlistItems[idx].done = !state.setlistItems[idx].done;
+      renderSetlistPanel();
+    });
+    row.querySelector('[data-action="remove"]')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!owner || !state.setlistEditMode) return;
+      state.setlistItems.splice(idx, 1);
+      renderSetlistPanel();
+    });
+
+    // drag reorder (edit only)
+    if (owner && state.setlistEditMode) {
+      const h = row.querySelector('[data-action="drag"]');
+      if (h) {
+        h.addEventListener('dragstart', (e) => {
+          e.dataTransfer?.setData('text/plain', String(idx));
+        });
+      }
+      row.addEventListener('dragover', (e) => {
+        e.preventDefault();
+      });
+      row.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const from = Number(e.dataTransfer?.getData('text/plain') || -1);
+        const to = idx;
+        if (from < 0 || from === to) return;
+        const moved = state.setlistItems.splice(from, 1)[0];
+        state.setlistItems.splice(to, 0, moved);
+        renderSetlistPanel();
+      });
+    }
+
+    list.appendChild(row);
+  });
+}
+
+async function loadSetlist() {
+  if (!state.isArchiveMode || !state.archiveTargetUserId) return;
+  const r = await apiGet(`/api/setlist/${encodeURIComponent(state.archiveTargetUserId)}`);
+  if (!r.ok) {
+    state.setlistItems = [];
+    state.setlistLoaded = true;
+    renderSetlistPanel();
+    return;
+  }
+  state.setlistItems = Array.isArray(r.items) ? r.items : [];
+  state.setlistLoaded = true;
+  renderSetlistPanel();
+}
+
+async function saveSetlistToServer() {
+  if (!isArchiveOwner()) return toast('권한 없음');
+  const res = await apiJson('/api/setlist', 'PATCH', { items: state.setlistItems || [] });
+  if (!res.ok) return toast('저장 실패');
+  state.setlistItems = Array.isArray(res.items) ? res.items : [];
+  toast('저장 완료');
+}
+
+function enterSetlistEditMode() {
+  if (!isArchiveOwner()) return;
+  state.setlistEditMode = true;
+  state.setlistOriginalItems = JSON.parse(JSON.stringify(state.setlistItems || []));
+  state.setlistSelectedCardIds = new Set();
+  renderSetlistPanel();
+  applySongFilters();
+}
+
+function exitSetlistEditMode(revert) {
+  if (revert && state.setlistOriginalItems) {
+    state.setlistItems = JSON.parse(JSON.stringify(state.setlistOriginalItems));
+  }
+  state.setlistEditMode = false;
+  state.setlistOriginalItems = null;
+  state.setlistSelectedCardIds = new Set();
+  renderSetlistPanel();
+  applySongFilters();
 }
 
 function getArchiveThemeLabel() {
@@ -1204,10 +1392,12 @@ function renderSongCards(hideTags) {
   const items = state.songCardsFiltered.slice(start, start + state.pageSize);
 
   const listMode = String(state.songsViewMode || 'card') === 'list';
+  const owner = isArchiveOwner();
+  const setlistEdit = owner && state.setlistEditMode;
 
   items.forEach((c) => {
     const el = document.createElement('div');
-    const canOpen = state.role !== 'viewer';
+    const canOpen = state.role !== 'viewer' && !setlistEdit;
     el.className = canOpen ? 'song-card clickable' : 'song-card';
     el.style.setProperty('--stagger-index', String(items.indexOf(c) % 12));
     const title = c.title || '(제목없음)';
@@ -1246,6 +1436,11 @@ function renderSongCards(hideTags) {
           <div class="song-list-artist">${highlightHtml(c.artist || '', state._lastSearchRaw)}</div>
           <div class="song-list-tags">
             <span class="chip">${esc(tagText)}</span>
+            ${
+              setlistEdit
+                ? `<label class="setlist-check"><input type="checkbox" data-action="setlistCheck" /> 추가</label>`
+                : ''
+            }
           </div>
         </div>
       `;
@@ -1262,7 +1457,13 @@ function renderSongCards(hideTags) {
               ${c.isLatest ? `<span class="new-badge">new!</span>` : ''}
             </div>
             <div class="song-card-actions">
-              ${isAdmin ? `<span class="chip edit-chip" data-action="editSong">편집</span>` : ''}
+              ${
+                setlistEdit
+                  ? `<label class="setlist-check"><input type="checkbox" data-action="setlistCheck" /> 추가</label>`
+                  : isAdmin
+                    ? `<span class="chip edit-chip" data-action="editSong">편집</span>`
+                    : ''
+              }
             </div>
           </div>
           <div class="song-card-artist">${highlightHtml(c.artist || '', state._lastSearchRaw)}</div>
@@ -1293,6 +1494,22 @@ function renderSongCards(hideTags) {
       e.stopPropagation();
       openSongTagModal(c);
     });
+
+    el.querySelector('[data-action="setlistCheck"]')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
+    el.querySelector('[data-action="setlistCheck"]')?.addEventListener('change', (e) => {
+      if (!setlistEdit) return;
+      const cardId = String(c.cardId || `${c.title || ''}::${c.artist || ''}`);
+      if (e.target.checked) state.setlistSelectedCardIds.add(cardId);
+      else state.setlistSelectedCardIds.delete(cardId);
+    });
+    // 체크 상태 복구
+    if (setlistEdit) {
+      const cardId = String(c.cardId || `${c.title || ''}::${c.artist || ''}`);
+      const chk = el.querySelector('[data-action="setlistCheck"]');
+      if (chk) chk.checked = state.setlistSelectedCardIds.has(cardId);
+    }
     el.addEventListener('pointermove', (e) => {
       const rect = el.getBoundingClientRect();
       const x = ((e.clientX - rect.left) / Math.max(1, rect.width)) * 100;
@@ -2055,6 +2272,7 @@ function applyRoleUI() {
     const btn = $('bookSettingsBtn');
     if (btn) btn.style.display = canSettings ? 'inline-flex' : 'none';
   } catch {}
+  renderSetlistPanel();
   $('requestManageToggleBtn').style.display = isAdmin ? 'inline-flex' : 'none';
   const canEditArchiveAvailability =
     state.isArchiveMode && !state.archiveViewOnly && Boolean(state.isPrivate) && String(state.userId || '') === String(state.archiveTargetUserId || '');
@@ -2745,6 +2963,84 @@ function wireEvents() {
     applySongFilters();
   };
 
+  // setlist (archive / owner only edit)
+  $('setlistFab').onclick = () => {
+    if (!isArchiveOwner()) return;
+    if (state.setlistEditMode) return exitSetlistEditMode(true);
+    enterSetlistEditMode();
+  };
+  $('setlistCancelBtn').onclick = () => exitSetlistEditMode(true);
+  $('setlistClearBtn').onclick = () => {
+    if (!isArchiveOwner() || !state.setlistEditMode) return;
+    if (!confirm('셋리스트를 초기화할까요?')) return;
+    state.setlistItems = [];
+    renderSetlistPanel();
+  };
+  $('setlistSaveBtn').onclick = async () => {
+    if (!isArchiveOwner() || !state.setlistEditMode) return;
+    // 선택된 카드 → 셋리스트에 추가(중복 방지)
+    const selected = Array.from(state.setlistSelectedCardIds || new Set());
+    if (selected.length) {
+      const existingKeys = new Set(
+        (state.setlistItems || [])
+          .map((x) => String(x.googleFileId || x.driveUrl || '').trim())
+          .filter(Boolean)
+      );
+      selected.forEach((cid) => {
+        const card = (state.songCardsAll || []).find((c) => String(c.cardId || '') === String(cid));
+        if (!card) return;
+        const v = Array.isArray(card.variants) ? card.variants[0] : null;
+        const googleFileId = String(v?.googleFileId || '').trim();
+        const driveUrl = String(v?.driveUrl || '').trim();
+        const key = googleFileId || driveUrl;
+        if (!key || existingKeys.has(key)) return;
+        existingKeys.add(key);
+        state.setlistItems.push({
+          googleFileId,
+          driveUrl,
+          title: String(card.title || '').trim(),
+          artist: String(card.artist || '').trim(),
+          tagText: getSetlistTagTextForCard(card),
+          done: false
+        });
+      });
+    }
+    await saveSetlistToServer();
+    exitSetlistEditMode(false);
+  };
+
+  // resize (panel)
+  (() => {
+    const handle = $('setlistResizeHandle');
+    const panel = $('setlistPanel');
+    if (!handle || !panel) return;
+    let start = null;
+    const onMove = (e) => {
+      if (!start) return;
+      const dx = start.x - e.clientX; // left drag increases width
+      const dy = start.y - e.clientY; // up drag increases height
+      state.setlistPanelSize = { w: start.w + dx, h: start.h + dy };
+      applySetlistPanelSize();
+    };
+    const onUp = () => {
+      if (!start) return;
+      start = null;
+      try {
+        localStorage.setItem('mb_setlist_panel_size_v1', JSON.stringify(state.setlistPanelSize || {}));
+      } catch {}
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    handle.addEventListener('pointerdown', (e) => {
+      try {
+        handle.setPointerCapture(e.pointerId);
+      } catch {}
+      start = { x: e.clientX, y: e.clientY, w: panel.getBoundingClientRect().width, h: panel.getBoundingClientRect().height };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    });
+  })();
+
   $('sortFieldSelect').onchange = () => {
     state.sortField = String($('sortFieldSelect').value || 'createdAt');
     if (state.sortField === 'createdAt' && !state.sortDir) state.sortDir = 'desc';
@@ -3172,6 +3468,10 @@ async function bootstrap() {
   showLoading(true);
   try {
     try {
+      const saved = JSON.parse(localStorage.getItem('mb_setlist_panel_size_v1') || 'null');
+      if (saved && typeof saved === 'object') state.setlistPanelSize = { w: saved.w, h: saved.h };
+    } catch {}
+    try {
       const saved = String(sessionStorage.getItem('mb_songs_view_mode_v1') || '').trim();
       if (saved === 'card' || saved === 'list') state.songsViewMode = saved;
     } catch {}
@@ -3232,6 +3532,7 @@ async function bootstrap() {
       initGuestbookDrag();
       await loadGuestbook(true);
     }
+    if (state.isArchiveMode) await loadSetlist();
     applySongFilters();
     if (!state.isArchiveMode) await loadRequests(true);
 

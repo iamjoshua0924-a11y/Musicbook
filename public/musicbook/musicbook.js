@@ -198,12 +198,36 @@ function closeReviewComposer() {
   state._reviewComposer = null;
 }
 
-function renderReviewListForCard(cardId) {
+function renderReviewListForCard(cardId, anchorEl) {
   const panel = $('reviewListPanel');
   const body = $('reviewListBody');
+  const titleEl = $('reviewListTitle');
   if (!panel || !body) return;
   const th = state.reviewThreadMap.get(String(cardId || '').trim());
   const items = Array.isArray(th?.comments) ? th.comments : [];
+  const title = String(th?.title || '').trim();
+  if (titleEl) titleEl.textContent = `${title || '이 곡'} 합주 코멘트`;
+
+  // 카드 옆에 패널 띄우기(뷰포트 클램프)
+  try {
+    if (anchorEl && typeof anchorEl.getBoundingClientRect === 'function') {
+      const r = anchorEl.getBoundingClientRect();
+      panel.style.right = 'auto';
+      panel.style.bottom = 'auto';
+      // 일단 표시해서 실제 width/height 측정
+      panel.style.display = 'flex';
+      const pr = panel.getBoundingClientRect();
+      const vw = window.innerWidth || 1200;
+      const vh = window.innerHeight || 800;
+      const gap = 12;
+      const preferRight = r.right + gap + pr.width <= vw - 8;
+      const x = preferRight ? r.right + gap : Math.max(8, r.left - gap - pr.width);
+      const y = Math.min(Math.max(8, r.top - 6), Math.max(8, vh - pr.height - 8));
+      panel.style.left = `${Math.round(x)}px`;
+      panel.style.top = `${Math.round(y)}px`;
+    }
+  } catch {}
+
   body.innerHTML = '';
   if (!items.length) {
     body.innerHTML = `<div class="muted" style="padding:10px 2px; font-weight:900; opacity:0.7;">아직 코멘트가 없습니다.</div>`;
@@ -214,7 +238,33 @@ function renderReviewListForCard(cardId) {
       .forEach((c) => {
         const row = document.createElement('div');
         row.className = 'guestbook-item';
-        row.innerHTML = `<div class="guestbook-item-content">${esc(String(c?.text || ''))}</div>`;
+        const cid = String(c?._id || '').trim();
+        row.innerHTML = `
+          <div class="review-comment-row">
+            <div class="review-comment-text">${esc(String(c?.text || ''))}</div>
+            ${
+              isArchiveOwner() && cid
+                ? `<button class="review-comment-del" type="button" data-action="del" data-cid="${esc(cid)}">삭제</button>`
+                : ''
+            }
+          </div>
+        `;
+        row.querySelector('[data-action="del"]')?.addEventListener('click', async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!isArchiveOwner()) return;
+          const commentId = String(e.currentTarget?.dataset?.cid || '').trim();
+          if (!commentId) return;
+          const r = await apiJson(
+            `/api/reviews/${encodeURIComponent(state.archiveTargetUserId)}/${encodeURIComponent(String(cardId || '').trim())}/${encodeURIComponent(commentId)}`,
+            'DELETE',
+            {}
+          );
+          if (!r.ok) return toast('삭제 실패');
+          await loadReviews();
+          applySongFilters();
+          renderReviewListForCard(cardId, anchorEl);
+        });
         body.appendChild(row);
       });
   }
@@ -1655,7 +1705,7 @@ function renderSongCards(hideTags) {
     el.querySelector('[data-action="reviewList"]')?.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      renderReviewListForCard(cardId);
+      renderReviewListForCard(cardId, el);
     });
 
     if (canOpen) {

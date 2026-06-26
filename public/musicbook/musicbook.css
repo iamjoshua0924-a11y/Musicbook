@@ -746,8 +746,8 @@ body.archive-mode[data-private-theme="dark"] .setlist-item:hover{
 }
 .review-list-panel{
   position: fixed;
-  right: 22px;
-  bottom: 86px;
+  left: 22px;
+  top: 22px;
   z-index: 2600;
   width: min(420px, calc(100vw - 44px));
   max-height: min(56vh, 520px);
@@ -777,6 +777,27 @@ body.archive-mode[data-private-theme="dark"] .setlist-item:hover{
   flex-direction:column;
   gap: 8px;
 }
+.review-comment-row{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap: 10px;
+}
+.review-comment-text{
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.review-comment-del{
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-weight: 1000;
+  opacity: 0.7;
+}
+.review-comment-del:hover{ opacity: 1; }
 .review-bubble-btn{
   border: 0;
   background: transparent;

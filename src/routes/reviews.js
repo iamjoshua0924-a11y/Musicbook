@@ -1,5 +1,6 @@
 const express = require('express');
 const User = require('../models/User');
+const { requireLogin } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -66,5 +67,38 @@ router.post('/reviews/:userId', async (req, res) => {
   res.json({ ok: true });
 });
 
-module.exports = router;
+// Private: 오너(또는 admin)만 코멘트 삭제
+router.delete('/reviews/:userId/:cardId/:commentId', requireLogin, async (req, res) => {
+  const userId = String(req.params?.userId || '').trim();
+  const cardId = normalizeCardId(req.params?.cardId);
+  const commentId = String(req.params?.commentId || '').trim();
+  if (!userId || !cardId || !commentId) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
 
+  const user = await User.findOne({ userId, active: { $ne: false }, isPrivate: true });
+  if (!user) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
+
+  const sessionUserId = String(req.session?.user?.userId || '');
+  const role = String(req.session?.user?.role || '');
+  const isOwner = sessionUserId && sessionUserId === String(user.userId || '');
+  const canDelete = isOwner || role === 'admin';
+  if (!canDelete) return res.status(403).json({ ok: false, error: 'FORBIDDEN' });
+
+  const threads = Array.isArray(user.privateReviewThreads) ? user.privateReviewThreads : [];
+  const thread = threads.find((t) => String(t.cardId || '') === cardId);
+  if (!thread || !Array.isArray(thread.comments)) return res.json({ ok: true });
+
+  // mongoose subdoc id() 지원 + fallback filter
+  try {
+    const sub = typeof thread.comments.id === 'function' ? thread.comments.id(commentId) : null;
+    if (sub && typeof sub.deleteOne === 'function') sub.deleteOne();
+    else thread.comments = thread.comments.filter((c) => String(c?._id || '') !== commentId);
+  } catch {
+    thread.comments = (thread.comments || []).filter((c) => String(c?._id || '') !== commentId);
+  }
+
+  user.updatedAt = new Date();
+  await user.save();
+  res.json({ ok: true });
+});
+
+module.exports = router;

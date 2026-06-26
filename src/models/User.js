@@ -57,6 +57,23 @@ const UserSchema = new mongoose.Schema(
       default: []
     },
 
+    // 개인 노래책: 신청곡(악보 기반)
+    privateSongRequests: {
+      type: [
+        {
+          googleFileId: { type: String, default: '' },
+          driveUrl: { type: String, default: '' },
+          title: { type: String, default: '' },
+          artist: { type: String, default: '' },
+          key: { type: String, default: '' },
+          memo: { type: String, default: '' }, // 신청 코멘트
+          status: { type: String, enum: ['pending', 'practicing'], default: 'pending' },
+          createdAt: { type: Date, default: () => new Date() }
+        }
+      ],
+      default: []
+    },
+
     mustChangePassword: { type: Boolean, default: false },
     legacyPasswordHash: { type: String, default: '' }, // 기존 GAS 시트의 해시(참조용)
     lastSeenAt: { type: Date, default: null },

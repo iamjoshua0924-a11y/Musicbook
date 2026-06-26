@@ -1120,6 +1120,38 @@ textarea {
   justify-content:center;
   margin-bottom:16px;
 }
+
+.song-card.request-entry-card{
+  cursor:pointer;
+  border: 2px dashed color-mix(in srgb, var(--btn-fill) 55%, rgba(255,255,255,0.0));
+  background: color-mix(in srgb, var(--soft-surface) 75%, var(--btn-fill) 25%);
+}
+.song-card.request-entry-card:hover{
+  transform: translateY(-1px);
+  box-shadow: 0 18px 42px rgba(0,0,0,0.16);
+}
+.request-entry-center{
+  height: 100%;
+  min-height: 132px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+  font-weight: 1000;
+  font-size: 16px;
+  color: var(--black);
+}
+.request-badge{
+  display:inline-flex;
+  align-items:center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-weight: 1000;
+  font-size: 12px;
+  background: color-mix(in srgb, var(--btn-fill) 18%, rgba(255,255,255,0.0));
+  border: 1px solid color-mix(in srgb, var(--btn-fill) 36%, rgba(255,255,255,0.0));
+}
 .song-card-list.list-enter .song-card{
   animation: mbCardListEnter 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
   animation-delay: calc(var(--stagger-index, 0) * 18ms);

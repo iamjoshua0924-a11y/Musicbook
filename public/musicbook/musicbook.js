@@ -53,6 +53,10 @@ const state = {
   reviewThreads: [],
   reviewThreadMap: new Map(), // cardId -> { ...thread }
   _reviewComposer: null, // { cardId, title, artist, tagText }
+  // private requests (archive)
+  privateRequests: [],
+  privateRequestsLoaded: false,
+  _requestDraft: null, // { googleFileId, driveUrl, title, artist, key }
   archiveGuestbookLoaded: false,
   guestbookItems: [],
   profilePhoto: '',
@@ -182,6 +186,44 @@ async function loadReviews() {
   state.reviewThreadMap = buildReviewThreadMap(state.reviewThreads);
 }
 
+async function loadPrivateRequests(force = false) {
+  if (!state.isArchiveMode || !state.archiveTargetUserId) return;
+  if (!force && state.privateRequestsLoaded) return;
+  const r = await apiGet(`/api/private-requests/${encodeURIComponent(state.archiveTargetUserId)}`);
+  state.privateRequests = r.ok && Array.isArray(r.items) ? r.items : [];
+  state.privateRequestsLoaded = true;
+}
+
+function mergePrivateRequestsIntoCards() {
+  if (!state.isArchiveMode) return;
+  const base = Array.isArray(state.songCardsAll) ? state.songCardsAll.filter((c) => !c._privateRequest) : [];
+  const availIds = new Set(base.map((c) => String(c.cardId || '')));
+  const merged = base.slice();
+  (state.privateRequests || []).forEach((r) => {
+    const title = String(r.title || '').trim();
+    const artist = String(r.artist || '').trim();
+    const cardId = `__req__${String(r.googleFileId || '').trim()}`;
+    // 이미 가능곡으로 있으면(승격됐을 확률) 요청카드는 숨김
+    if (availIds.has(`${title.toLowerCase()}||${artist.toLowerCase()}`)) return;
+    merged.unshift({
+      _privateRequest: true,
+      _requestStatus: String(r.status || 'pending'),
+      _requestMemo: String(r.memo || ''),
+      title,
+      artist,
+      cardId,
+      keyLabel: String(r.key || '-'),
+      variants: [{ key: String(r.key || ''), googleFileId: String(r.googleFileId || ''), driveUrl: String(r.driveUrl || '') }],
+      isLatest: false,
+      genre: '',
+      mood: '',
+      vocal: '',
+      searchText: `${title} ${artist}`.toLowerCase()
+    });
+  });
+  state.songCardsAll = merged;
+}
+
 function openReviewComposer({ cardId, title, artist, tagText }) {
   const box = $('reviewComposer');
   const input = $('reviewComposerInput');
@@ -196,6 +238,120 @@ function closeReviewComposer() {
   const box = $('reviewComposer');
   if (box) box.style.display = 'none';
   state._reviewComposer = null;
+}
+
+function openPrivateRequestPanel() {
+  if (!state.isArchiveMode || !state.archiveTargetUserId) return;
+  const panel = $('privateRequestPanel');
+  const res = $('privateRequestSearchResult');
+  const sel = $('privateRequestSelected');
+  const memo = $('privateRequestMemo');
+  if (!panel || !res || !sel || !memo) return;
+  state._requestDraft = null;
+  $('privateRequestSearchInput').value = '';
+  memo.value = '';
+  sel.style.display = 'none';
+  res.innerHTML = `<div class="muted" style="padding:10px 2px; font-weight:900; opacity:0.7;">검색어를 입력해 주세요.</div>`;
+  panel.style.display = 'flex';
+}
+
+function closePrivateRequestPanel() {
+  const panel = $('privateRequestPanel');
+  if (panel) panel.style.display = 'none';
+  state._requestDraft = null;
+}
+
+async function searchPrivateRequestSongs() {
+  if (!state.isArchiveMode) return;
+  const q = String($('privateRequestSearchInput')?.value || '').trim();
+  const out = $('privateRequestSearchResult');
+  if (!out) return;
+  if (!q) {
+    out.innerHTML = `<div class="muted" style="padding:10px 2px; font-weight:900; opacity:0.7;">검색어를 입력해 주세요.</div>`;
+    return;
+  }
+  out.innerHTML = `<div class="muted" style="padding:10px 2px; font-weight:900; opacity:0.7;">검색 중...</div>`;
+  const r = await apiGet(`/api/songs?q=${encodeURIComponent(q)}&limit=200`);
+  const items = r.ok && Array.isArray(r.items) ? r.items : [];
+  if (!items.length) {
+    out.innerHTML = `<div class="muted" style="padding:10px 2px; font-weight:900; opacity:0.75;">서버가 보유한 악보가 없습니다. 방명록으로 신청해보세요!</div>`;
+    return;
+  }
+  out.innerHTML = '';
+  items.slice(0, 120).forEach((s) => {
+    const row = document.createElement('div');
+    row.className = 'setlist-item';
+    const title = String(s.displayTitle || s.title || '').trim();
+    const artist = String(s.artist || '').trim();
+    const key = String(s.key || '').trim();
+    row.innerHTML = `
+      <div class="setlist-handle" aria-hidden="true">♪</div>
+      <div class="setlist-row">
+        <div class="setlist-title-cell">${esc(title)}</div>
+        <div class="setlist-artist-cell">${esc(artist)}</div>
+        <div class="setlist-tag-cell">${key ? `<span class="chip">${esc(key)}</span>` : ''}</div>
+      </div>
+      <div class="setlist-actions"></div>
+    `;
+    row.onclick = () => {
+      state._requestDraft = {
+        googleFileId: String(s.googleFileId || '').trim(),
+        driveUrl: String(s.driveUrl || '').trim(),
+        title,
+        artist,
+        key
+      };
+      const sel = $('privateRequestSelected');
+      if (sel) {
+        sel.textContent = `신청할 노래: ${title}${artist ? ` - ${artist}` : ''}${key ? ` (${key})` : ''}`;
+        sel.style.display = 'block';
+      }
+      // 선택 시 가볍게 강조
+      row.classList.add('copied');
+      setTimeout(() => row.classList.remove('copied'), 500);
+    };
+    out.appendChild(row);
+  });
+}
+
+async function submitPrivateRequest() {
+  if (!state.isArchiveMode || !state.archiveTargetUserId) return;
+  if (!state._requestDraft?.googleFileId) return toast('신청할 노래를 선택해 주세요.');
+  const memo = String($('privateRequestMemo')?.value || '').trim();
+  const payload = { ...state._requestDraft, memo };
+  const r = await apiJson(`/api/private-requests/${encodeURIComponent(state.archiveTargetUserId)}`, 'POST', payload);
+  if (!r.ok) return toast('신청 실패');
+  toast('신청 완료');
+  closePrivateRequestPanel();
+  await loadSongs(true);
+  applySongFilters();
+}
+
+function openPrivateRequestManage(card) {
+  const modal = $('privateRequestManageModal');
+  if (!modal) return;
+  const title = $('privateRequestManageTitle');
+  const desc = $('privateRequestManageDesc');
+  const primary = $('privateRequestManagePrimaryBtn');
+  const del = $('privateRequestManageDeleteBtn');
+  if (!primary || !del) return;
+
+  const v = Array.isArray(card.variants) ? card.variants[0] : null;
+  const googleFileId = String(v?.googleFileId || '').trim();
+  const status = String(card._requestStatus || 'pending');
+  modal.dataset.fid = googleFileId;
+  modal.dataset.status = status;
+  if (title) title.textContent = `${String(card.title || '').trim()} 신청곡 관리`;
+  if (desc) desc.textContent = status === 'practicing' ? '상태: 신청곡 연습중' : '상태: 신청곡 대기중';
+
+  if (status === 'practicing') {
+    primary.textContent = '가능곡으로 설정';
+    del.textContent = '삭제';
+  } else {
+    primary.textContent = '수락';
+    del.textContent = '거절(삭제)';
+  }
+  modal.style.display = 'flex';
 }
 
 function renderReviewListForCard(cardId, anchorEl) {
@@ -1178,6 +1334,18 @@ async function loadSongs(force = false) {
       _titleNorm: normSearch(c.title || ''),
       _artistNorm: normSearch(c.artist || '')
     }));
+    // archive: 신청곡 카드도 같이 섞어서 보이게
+    if (state.isArchiveMode) {
+      await loadPrivateRequests(true);
+      mergePrivateRequestsIntoCards();
+      // norms re-attach (for merged cards)
+      state.songCardsAll = (state.songCardsAll || []).map((c) => ({
+        ...c,
+        _searchNorm: c._searchNorm || normSearch(c.searchText || ''),
+        _titleNorm: c._titleNorm || normSearch(c.title || ''),
+        _artistNorm: c._artistNorm || normSearch(c.artist || '')
+      }));
+    }
     if (!state.songCardsAll.length) {
       $('resultCount').textContent = '곡 데이터가 없습니다. /admin에서 Drive 동기화를 실행해 주세요.';
     }
@@ -1561,7 +1729,43 @@ function renderSongCards(hideTags) {
   const owner = isArchiveOwner();
   const setlistEdit = owner && state.setlistEditMode;
 
+  // archive: "곡 신청하기" 엔트리 카드(첫 페이지, 편집모드 아닐 때)
+  if (state.isArchiveMode && state.page === 1 && !setlistEdit && !state.availabilityEditMode && !state.proficiencyEditMode) {
+    const entry = document.createElement('div');
+    entry.className = 'song-card request-entry-card';
+    entry.innerHTML = `<div class="request-entry-center">곡 신청하기</div>`;
+    entry.onclick = () => openPrivateRequestPanel();
+    wrap.appendChild(entry);
+  }
+
   items.forEach((c) => {
+    // 개인 신청곡 카드(가짜 카드)
+    if (c._privateRequest) {
+      const el = document.createElement('div');
+      el.className = 'song-card clickable';
+      const status = String(c._requestStatus || 'pending');
+      const badge = status === 'practicing' ? '신청곡 연습중' : '신청곡 대기중';
+      el.innerHTML = `
+        <div class="song-card-header">
+          <div class="song-card-top">
+            <div class="song-card-title">
+              <span>${highlightHtml(c.title || '', state._lastSearchRaw)}</span>
+              <span class="request-badge">${esc(badge)}</span>
+            </div>
+          </div>
+          <div class="song-card-artist">${highlightHtml(c.artist || '', state._lastSearchRaw)}</div>
+          ${c._requestMemo ? `<div class="song-card-artist" style="opacity:0.85; font-weight:900;">${esc(c._requestMemo)}</div>` : ''}
+        </div>
+      `;
+      el.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (owner) openPrivateRequestManage(c);
+      };
+      wrap.appendChild(el);
+      return;
+    }
+
     const el = document.createElement('div');
     const viewerCanComment = state.isArchiveMode && state.role === 'viewer' && state.reviewEnabled && !setlistEdit;
     const canOpen = !setlistEdit && (state.role !== 'viewer' || viewerCanComment);
@@ -3174,6 +3378,50 @@ function wireEvents() {
   $('reviewListCloseBtn').onclick = () => {
     const p = $('reviewListPanel');
     if (p) p.style.display = 'none';
+  };
+
+  // private requests (archive)
+  $('privateRequestCloseBtn').onclick = () => closePrivateRequestPanel();
+  $('privateRequestCancelBtn').onclick = () => closePrivateRequestPanel();
+  $('privateRequestSearchBtn').onclick = () => searchPrivateRequestSongs().catch(() => {});
+  $('privateRequestSearchInput')?.addEventListener?.('keydown', (e) => {
+    if (e.key === 'Enter') searchPrivateRequestSongs().catch(() => {});
+  });
+  $('privateRequestSubmitBtn').onclick = () => submitPrivateRequest().catch(() => {});
+  $('privateRequestManageCancelBtn').onclick = () => {
+    const m = $('privateRequestManageModal');
+    if (m) m.style.display = 'none';
+  };
+  $('privateRequestManageDeleteBtn').onclick = async () => {
+    const m = $('privateRequestManageModal');
+    if (!m) return;
+    const fid = String(m.dataset.fid || '').trim();
+    if (!fid) return;
+    const r = await apiJson(`/api/private-requests/${encodeURIComponent(state.archiveTargetUserId)}/${encodeURIComponent(fid)}`, 'PATCH', {
+      action: 'delete'
+    });
+    if (!r.ok) return toast('삭제 실패');
+    m.style.display = 'none';
+    state.privateRequestsLoaded = false;
+    await loadSongs(true);
+    applySongFilters();
+  };
+  $('privateRequestManagePrimaryBtn').onclick = async () => {
+    const m = $('privateRequestManageModal');
+    if (!m) return;
+    const fid = String(m.dataset.fid || '').trim();
+    const status = String(m.dataset.status || 'pending');
+    if (!fid) return;
+    const action = status === 'practicing' ? 'promote' : 'accept';
+    const r = await apiJson(`/api/private-requests/${encodeURIComponent(state.archiveTargetUserId)}/${encodeURIComponent(fid)}`, 'PATCH', {
+      action
+    });
+    if (!r.ok) return toast('처리 실패');
+    m.style.display = 'none';
+    state.privateRequestsLoaded = false;
+    await loadSongs(true);
+    applySongFilters();
+    toast(action === 'promote' ? '가능곡으로 설정됨' : '수락됨');
   };
 
   // setlist (archive / owner only edit)

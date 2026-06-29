@@ -28,14 +28,9 @@
 - 코드 상 고정 로직:
   - `JSON.parse(Buffer.from(process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64, 'base64').toString('utf8'))`
 
-## 5) 자동 Drive Sync 주의(프로덕션 기본 ON)
-`NODE_ENV=production`일 때는 기본적으로 `AUTO_DRIVE_SYNC=1`로 간주되어 부팅 후 Drive Sync가 주기적으로 돌 수 있습니다.
-처음 올릴 때는 아래를 **명시적으로** 끄는 걸 권장합니다:
-- `AUTO_DRIVE_SYNC=0`
-
-필요 시:
-- `AUTO_DRIVE_SYNC=1`
-- `AUTO_DRIVE_SYNC_INTERVAL_MIN=10` (기본 10분)
+## 5) Drive Sync 실행 방식
+Drive Sync는 이제 **자동 실행되지 않습니다.**
+서버 부팅 후 주기 실행/백그라운드 실행 없이, 관리자 화면에서 버튼을 눌렀을 때만 수동으로 돌아갑니다.
 
 ## 6) Puppeteer(Chrome for Testing) 설치 관련
 `postinstall` 스크립트에서 다음을 실행합니다:
@@ -43,4 +38,3 @@
 
 Render에서 디스크/캐시 이슈가 생기면 아래 환경변수로 캐시 경로를 고정하는 방식이 도움이 될 수 있습니다:
 - `PUPPETEER_CACHE_DIR=/opt/render/project/src/.cache/puppeteer`
-

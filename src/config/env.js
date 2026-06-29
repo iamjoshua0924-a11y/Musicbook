@@ -38,10 +38,6 @@ module.exports = {
   // Optional one-time bootstrap for first admin user (recommended for fresh DB).
   adminBootstrapToken: optional('ADMIN_BOOTSTRAP_TOKEN', ''),
 
-  // Auto drive sync (production default: on, dev default: off)
-  autoDriveSync: optional('AUTO_DRIVE_SYNC', optional('NODE_ENV', 'development') === 'production' ? '1' : '0') === '1',
-  autoDriveSyncIntervalMin: Number(optional('AUTO_DRIVE_SYNC_INTERVAL_MIN', '10')),
-
   // CHZZK (chat ingestor PoC)
   chzzkChannelId: optional('CHZZK_CHANNEL_ID', ''),
   chzzkNidAut: optional('CHZZK_NID_AUT', ''),

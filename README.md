@@ -18,10 +18,11 @@ Node에서 사용 로직은 다음으로 **고정**되어 있습니다:
 JSON.parse(Buffer.from(process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64, 'base64').toString('utf8'))
 ```
 
-## 3) Drive PDF 스트리밍 API (메모리 적재 금지)
-- `GET /api/drive/pdf/:fileId`
-  - Range 헤더 pass-through
-  - 실패 시 `{ fallback: { mode: 'iframe', previewUrl } }` 반환
+## 3) Drive 헬퍼 API
+악보(PDF) 데이터는 서버가 중계하지 않고, 브라우저가 Google Drive 공개 URL에서 직접 로드합니다.
+- `GET /api/drive/preview/:fileId` (preview/view URL 반환)
+- `GET /api/drive/view/:fileId` (Drive view로 리다이렉트)
+- `GET /api/drive/meta/:fileId` (관리자/세션용 메타 조회)
 
 ## 4) Socket.io (세션 룸 + 페이지 터너)
 세션 룸: `room:session:<ROOM_CODE>`
@@ -37,4 +38,3 @@ JSON.parse(Buffer.from(process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64, 'base64')
 ## 5) GitHub Push
 현재 실행 환경에는 `git`이 설치되어 있지 않아 제가 직접 push를 수행할 수 없습니다.  
 대신 이 폴더를 그대로 로컬에서 git init 후 push 해주세요.
-

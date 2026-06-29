@@ -2191,7 +2191,7 @@ function openFileInRoom(fileId, originalLink = '') {
   const roomCode = state.roomCode;
   if (state.isInSession && state.isPageTurner && roomCode) {
     // 페이지터너는 브로드캐스트만 하고, 실제 이동은 follow:file 이벤트로 통일(중복 네비게이션/루프 방지)
-    socket.emit('session:follow:file', { roomCode, fileId, originalLink: String(originalLink || '').trim() }, (ack) => {
+    socket.emit('session:follow:file', { roomCode, fileId, originalLink: '' }, (ack) => {
       if (!ack?.ok) alert('세션 곡 전환 브로드캐스트 실패(권한 확인)');
     });
   } else {
@@ -4010,37 +4010,12 @@ function openByInput(input) {
 
   const roomCode = state.roomCode;
   if (state.isInSession && state.isPageTurner && roomCode) {
-    const originalLink = String(input || '').trim();
-    const isUrl = /^https?:\/\//i.test(trimmed);
-
     const broadcast = (nextFileId) => {
-      socket.emit('session:follow:file', { roomCode, fileId: nextFileId, originalLink }, (ack) => {
+      // 세션 동기화 키는 fileId만 사용
+      socket.emit('session:follow:file', { roomCode, fileId: nextFileId, originalLink: '' }, (ack) => {
         if (!ack?.ok) alert('세션 곡 전환 브로드캐스트 실패(권한 확인)');
       });
     };
-
-    // 외부 Drive URL이면 먼저 서버로 가져오기(import) 시도 -> 가져온 fileId를 공유
-    if (isUrl) {
-      setHidden('pageHud', false);
-      setText('pageHud', '외부 악보 가져오는 중...');
-      fetch(apiUrl('/api/drive/import'), {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourceUrl: originalLink })
-      })
-        .then((r) => r.json())
-        .then((r) => {
-          if (!r?.ok || !r?.imported?.googleFileId) throw new Error(r?.error || 'IMPORT_FAILED');
-          const nextId = String(r.imported.googleFileId);
-          broadcast(nextId);
-        })
-        .catch(() => {
-          // import 실패 시 기존 fileId로 fallback
-          broadcast(fileId);
-        });
-      return;
-    }
 
     broadcast(fileId);
     // 실제 전환은 follow:file 이벤트로 통일(턴너/팔로워 모두 동일 흐름)
@@ -4508,8 +4483,9 @@ function renderPreviewSpread(leftPageNo) {
   computePreviewPageBox();
   const step = getPreviewStep();
   const s = PREVIEW_SCALE;
-  const roomParam = state.isInSession && state.roomCode ? `?room=${encodeURIComponent(state.roomCode)}` : '';
-  const src = String(state.previewEmbedSrc || '').trim() || apiUrl(`/api/drive/embed/${encodeURIComponent(state.fileId)}${roomParam}`);
+  // NOTE: 서버 중계(/api/drive/embed)를 제거했으므로 Drive preview로만 fallback 한다.
+  const src =
+    String(state.previewEmbedSrc || '').trim() || `https://drive.google.com/file/d/${encodeURIComponent(state.fileId)}/preview`;
 
   clearPreviewViews();
   const gap = 12;
@@ -5212,15 +5188,9 @@ async function loadPdf(fileId) {
     } catch {}
   }
 
-  async function tryLoadPdfFromBlob({ label, url, credentials = 'omit' }) {
+  async function tryLoadPdfFromBlob({ label, blob, sourceLabel = '' }) {
     try {
       setNetBadge(label);
-      const res = await fetch(url, { credentials });
-      if (!res.ok) throw new Error(`HTTP_${res.status}`);
-      const clen = Number(res.headers.get('content-length') || 0);
-      // 너무 큰 파일은 메모리 부담이라 기존 스트리밍으로 fallback(기본 30MB)
-      if (clen && clen > 30 * 1024 * 1024) throw new Error('TOO_LARGE_FOR_BLOB');
-      const blob = await res.blob();
       const blobUrl = URL.createObjectURL(blob);
       state._pdfBlobUrl = blobUrl;
       const pdf = await pdfjsLib.getDocument({
@@ -5240,7 +5210,7 @@ async function loadPdf(fileId) {
       if (state.isInSession && state.roomCode) socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId });
       setNetBadge(`${label.replace(':...', '')} ${Date.now() - t0}ms`);
       // cache store (best-effort; does nothing if disabled/too large)
-      pdfCachePut(fileId, blob, { source: label }).catch(() => {});
+      pdfCachePut(fileId, blob, { source: sourceLabel || label }).catch(() => {});
       return true;
     } catch {
       // blob URL cleanup on failure
@@ -5254,98 +5224,60 @@ async function loadPdf(fileId) {
     }
   }
 
-  // 1) 서버에서 Drive 직접 URL 요청(대역폭 절감). 실패 시 기존 스트리밍으로 fallback.
-  /** @type {string|null} */
-  let directUrl = null;
-  let directUrlIsPublic = false;
-  /** @type {string|null} */
-  let drivePreviewUrl = null;
-  /** @type {string|null} */
-  let driveViewUrl = null;
-  try {
-    const urlRes = await fetch(apiUrl(`/api/drive/pdf-url/${encodeURIComponent(fileId)}${roomParam}`), {
-      credentials: 'include'
-    }).then((r) => r.json());
-    if (urlRes?.ok && urlRes?.url) directUrl = String(urlRes.url);
-    directUrlIsPublic = Boolean(urlRes?.isPublic);
-    if (urlRes?.fallback?.previewUrl && !state.previewEmbedSrc) state.previewEmbedSrc = String(urlRes.fallback.previewUrl);
-  } catch {}
-  // drive preview/view url (새 탭 fallback/preview virtual용)
-  try {
-    const pr = await fetch(apiUrl(`/api/drive/preview/${encodeURIComponent(fileId)}`)).then((r) => r.json());
-    if (pr?.ok && pr.previewUrl) drivePreviewUrl = String(pr.previewUrl);
-    if (pr?.ok && pr.viewUrl) driveViewUrl = String(pr.viewUrl);
-  } catch {}
-
-  // 2) Drive 직접 URL(pdf-url) 우선 시도
-  // - 단, public(uc?export=download) URL은 HTML confirm이 나올 수 있어 pdf.js에서 실패 확률이 높으므로 제외한다.
-  const canTryDirect = Boolean(directUrl) && !directUrlIsPublic && /googleapis\.com\/drive\/v3\/files\//.test(String(directUrl));
-  if (canTryDirect) {
+  // 1) Drive 공개 다운로드를 브라우저가 직접 로드한다(서버 중계 제거).
+  // - Google Drive 공개 파일도 "confirm" HTML이 나올 수 있어 2-step 다운로드를 지원한다.
+  // - 너무 큰 파일은 메모리 부담이 커서 Drive에서 열도록 안내한다.
+  /** @returns {Promise<Blob|null>} */
+  async function fetchPublicPdfBlob(fid) {
+    const firstUrl = `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fid)}`;
+    const doFetch = async (url) => {
+      // NOTE: public file fetch; credentials not needed
+      const res = await fetch(url, { redirect: 'follow' });
+      if (!res.ok) throw new Error(`HTTP_${res.status}`);
+      const ct = String(res.headers.get('content-type') || '');
+      // confirm HTML이 오면 text/html
+      if (ct.includes('text/html')) {
+        const html = await res.text().catch(() => '');
+        // Google Drive confirm token patterns vary; support both "&amp;" and "&"
+        const m =
+          html.match(/confirm=([0-9A-Za-z_]+).*?(?:id=)([^&\"']+)/i) ||
+          html.match(/confirm=([0-9A-Za-z_]+)&(?:amp;)?id=([^&]+)/i);
+        if (!m) throw new Error('CONFIRM_REQUIRED');
+        const confirm = m[1];
+        const id = m[2] || fid;
+        const url2 = `https://drive.google.com/uc?export=download&confirm=${encodeURIComponent(confirm)}&id=${encodeURIComponent(id)}`;
+        return doFetch(url2);
+      }
+      const clen = Number(res.headers.get('content-length') || 0);
+      if (clen && clen > 30 * 1024 * 1024) throw new Error('TOO_LARGE_FOR_BLOB');
+      const blob0 = await res.blob();
+      // 보안/정확성: pdf만 허용
+      const bct = String(blob0.type || ct || '');
+      if (bct && !bct.includes('pdf') && !bct.includes('octet-stream')) throw new Error('NOT_PDF');
+      return blob0;
+    };
     try {
-      setNetBadge('PDF:direct-url');
-      const loadingTask = pdfjsLib.getDocument({
-        url: directUrl,
-        // access_token이 URL에 포함되므로 credential은 불필요
-        withCredentials: false,
-        // googleapis CORS에서 Range 헤더/노출 헤더가 막히는 케이스가 있어
-        // direct는 일단 "전체 다운로드"로 안정성 우선
-        disableRange: true,
-        disableStream: true,
-        disableAutoFetch: true
-      });
-      const pdf = await loadingTask.promise;
-      if (!stillLatest()) return;
-      state.previewMode = false;
-      state.previewVirtualMode = false;
-      state.pdfDoc = pdf;
-      state.totalPages = pdf.numPages;
-      state.isPdfReady = true;
-      state.renderedFileId = String(fileId);
-      updatePageLabels();
-      await renderSpread(state.pageNo);
-      if (!stillLatest()) return;
-      if (state.isInSession && state.roomCode) socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId });
-      setNetBadge(`PDF:direct ${Date.now() - t0}ms`);
-      return;
+      return await doFetch(firstUrl);
     } catch {
-      // direct 실패 시 스트리밍으로 폴백(이전 구현은 여기서 preview로 바로 떨어져서 "열리던 것도 안 열림" 문제가 있었다)
-      setNetBadge('PDF:direct→stream', { ok: false });
+      return null;
     }
   }
 
-  // 3) 세션 파일이면: 캐시 가능한 signed public URL로 "쿠키 없이" blob 로드(=CDN 캐시 가능)
-  if (state.isInSession && state.roomCode) {
-    try {
-      const cu = await fetch(apiUrl(`/api/drive/cache-url/${encodeURIComponent(fileId)}?room=${encodeURIComponent(state.roomCode)}`), {
-        credentials: 'include'
-      }).then((r) => r.json());
-      if (!stillLatest()) return;
-      if (cu?.ok && cu?.url) {
-        const ok = await tryLoadPdfFromBlob({ label: 'PDF:cache-blob', url: apiUrl(String(cu.url)), credentials: 'omit' });
-        if (!stillLatest()) return;
-        if (ok) return;
-        setNetBadge('PDF:cache→stream', { ok: false });
-      }
-    } catch {}
-  }
-
-  // 4) 기존 Render 스트리밍을 "blob 1회 다운로드"로 고정(=Range 난사 방지)
   {
-    const ok = await tryLoadPdfFromBlob({
-      label: 'PDF:stream-blob',
-      url: apiUrl(`/api/drive/pdf/${fileId}${roomParam}`),
-      credentials: 'include'
-    });
+    const blob = await fetchPublicPdfBlob(fileId);
     if (!stillLatest()) return;
-    if (ok) return;
+    if (blob) {
+      const ok = await tryLoadPdfFromBlob({ label: 'PDF:drive-public', blob, sourceLabel: 'PDF:drive-public' });
+      if (!stillLatest()) return;
+      if (ok) return;
+    }
   }
 
   // 5) Preview slice mode
   // GitHub Pages 등 일반 도메인에서는 Drive /preview iframe이 서드파티 쿠키 차단으로 "빈 화면"이 되는 케이스가 많다.
   // => iframe slicing을 강행하지 않고, Drive에서 직접 열도록 유도(새 탭)한다.
   try {
-    const viewUrl =
-      (driveViewUrl && String(driveViewUrl).trim()) || `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/view`;
+    const viewUrl = `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/view`;
     state.previewMode = false;
     state.previewVirtualMode = false;
     state.previewEmbedSrc = '';

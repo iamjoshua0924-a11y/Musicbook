@@ -537,6 +537,16 @@ async function apiGet(url) {
   return res.json();
 }
 
+async function apiPost(url, body) {
+  const res = await fetch(apiUrl(url), {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {})
+  });
+  return res.json();
+}
+
 // ---- PDF offline cache (IndexedDB) ------------------------------------------------
 // 목적: 같은 fileId PDF를 다시 열 때 네트워크 없이 즉시 로드 (LRU: 30개/300MB)
 const PDF_CACHE_DB = 'mb_pdf_cache_v1';
@@ -1413,6 +1423,10 @@ const state = {
   _pendingViewerSettingsByFileId: {}, // fileId -> {settings, reason, at}
   // loadPdf 진행 중인 fileId (session:state 재호출/레이스 방지)
   _loadingFileId: '',
+  // Drive API 임시 토큰(메모리 전용)
+  _driveApiAccessToken: '',
+  _driveApiAccessTokenExp: 0,
+  _driveApiAccessTokenFileId: '',
   chordPendingAuthUrl: '',
   pageNo: 1,
   totalPages: 1,
@@ -5224,53 +5238,70 @@ async function loadPdf(fileId) {
     }
   }
 
-  // 1) Drive 공개 다운로드를 브라우저가 직접 로드한다(서버 중계 제거).
-  // - Google Drive 공개 파일도 "confirm" HTML이 나올 수 있어 2-step 다운로드를 지원한다.
-  /** @returns {Promise<Blob|null>} */
-  async function fetchPublicPdfBlob(fid) {
-    const doFetch = async (url) => {
-      // NOTE: public file fetch; credentials not needed
-      const res = await fetch(url, { redirect: 'follow', mode: 'cors' });
-      if (!res.ok) throw new Error(`HTTP_${res.status}`);
-      const ct = String(res.headers.get('content-type') || '');
-      // confirm HTML이 오면 text/html
-      if (ct.includes('text/html')) {
-        const html = await res.text().catch(() => '');
-        // Google Drive confirm token patterns vary; support both "&amp;" and "&"
-        const m =
-          html.match(/confirm=([0-9A-Za-z_]+).*?(?:id=)([^&\"']+)/i) ||
-          html.match(/confirm=([0-9A-Za-z_]+)&(?:amp;)?id=([^&]+)/i);
-        if (!m) throw new Error('CONFIRM_REQUIRED');
-        const confirm = m[1];
-        const id = m[2] || fid;
-        const url2 = `https://drive.google.com/uc?export=download&confirm=${encodeURIComponent(confirm)}&id=${encodeURIComponent(id)}`;
-        return doFetch(url2);
-      }
-      const blob0 = await res.blob();
-      // 보안/정확성: pdf만 허용
-      const bct = String(blob0.type || ct || '');
-      if (bct && !bct.includes('pdf') && !bct.includes('octet-stream')) throw new Error('NOT_PDF');
-      return blob0;
-    };
-    const candidates = [
-      `https://drive.usercontent.google.com/u/0/uc?id=${encodeURIComponent(fid)}&export=download&confirm=t`,
-      `https://drive.usercontent.google.com/download?id=${encodeURIComponent(fid)}&export=download&confirm=t`,
-      `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fid)}`
-    ];
-    for (const url of candidates) {
-      try {
-        const blob = await doFetch(url);
-        if (blob) return blob;
-      } catch {}
+  // 1) 내부 short grant -> Google Drive read-only access token 교환 -> Drive API alt=media 로드
+  /** @returns {Promise<{accessToken:string, expiresAt:number, previewUrl:string, viewUrl:string}|null>} */
+  async function getDriveAccessToken(fid, forceRefresh = false) {
+    const cachedToken = String(state._driveApiAccessToken || '').trim();
+    const cachedFileId = String(state._driveApiAccessTokenFileId || '').trim();
+    const cachedExp = Number(state._driveApiAccessTokenExp || 0) || 0;
+    if (!forceRefresh && cachedToken && cachedFileId === String(fid) && cachedExp > Date.now() + 20_000) {
+      return {
+        accessToken: cachedToken,
+        expiresAt: cachedExp,
+        previewUrl: '',
+        viewUrl: `https://drive.google.com/file/d/${encodeURIComponent(fid)}/view`
+      };
     }
-    return null;
+    const grant = await apiPost('/api/drive/token-grants', { fileId: fid });
+    if (!grant?.ok || !grant?.grantToken) return null;
+    const exchanged = await apiPost('/api/drive/access-token', { grantToken: grant.grantToken });
+    if (!exchanged?.ok || !exchanged?.accessToken) return null;
+    state._driveApiAccessToken = String(exchanged.accessToken || '');
+    state._driveApiAccessTokenExp = Number(exchanged.expiresAt || 0) || 0;
+    state._driveApiAccessTokenFileId = String(fid);
+    return {
+      accessToken: String(exchanged.accessToken || ''),
+      expiresAt: Number(exchanged.expiresAt || 0) || 0,
+      previewUrl: String(exchanged.previewUrl || grant.previewUrl || ''),
+      viewUrl: String(exchanged.viewUrl || grant.viewUrl || `https://drive.google.com/file/d/${encodeURIComponent(fid)}/view`)
+    };
   }
 
+  /** @returns {Promise<{blob:Blob, previewUrl:string, viewUrl:string}|null>} */
+  async function fetchDriveApiPdfBlob(fid) {
+    const doFetch = async (forceRefresh = false) => {
+      const tokenInfo = await getDriveAccessToken(fid, forceRefresh);
+      if (!tokenInfo?.accessToken) return null;
+      const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fid)}?alt=media&supportsAllDrives=true`;
+      const res = await fetch(url, {
+        method: 'GET',
+        mode: 'cors',
+        headers: { Authorization: `Bearer ${tokenInfo.accessToken}` }
+      });
+      if ((res.status === 401 || res.status === 403) && !forceRefresh) return doFetch(true);
+      if (!res.ok) throw new Error(`HTTP_${res.status}`);
+      const ct = String(res.headers.get('content-type') || '');
+      const blob = await res.blob();
+      const bct = String(blob.type || ct || '');
+      if (bct && !bct.includes('pdf') && !bct.includes('octet-stream')) throw new Error('NOT_PDF');
+      return { blob, previewUrl: tokenInfo.previewUrl, viewUrl: tokenInfo.viewUrl };
+    };
+    try {
+      return await doFetch(false);
+    } catch {
+      return null;
+    }
+  }
+
+  let fallbackPreviewUrl = '';
+  let fallbackViewUrl = `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/view`;
   {
-    const blob = await fetchPublicPdfBlob(fileId);
+    const loaded = await fetchDriveApiPdfBlob(fileId);
     if (!stillLatest()) return;
-    if (blob) {
-      const ok = await tryLoadPdfFromBlob({ label: 'PDF:drive-public', blob, sourceLabel: 'PDF:drive-public' });
+    if (loaded?.previewUrl) fallbackPreviewUrl = String(loaded.previewUrl || '');
+    if (loaded?.viewUrl) fallbackViewUrl = String(loaded.viewUrl || fallbackViewUrl);
+    if (loaded?.blob) {
+      const ok = await tryLoadPdfFromBlob({ label: 'PDF:drive-api', blob: loaded.blob, sourceLabel: 'PDF:drive-api' });
       if (!stillLatest()) return;
       if (ok) return;
     }
@@ -5280,10 +5311,19 @@ async function loadPdf(fileId) {
   // GitHub Pages 등 일반 도메인에서는 Drive /preview iframe이 서드파티 쿠키 차단으로 "빈 화면"이 되는 케이스가 많다.
   // => iframe slicing을 강행하지 않고, Drive에서 직접 열도록 유도(새 탭)한다.
   try {
-    const viewUrl = `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/view`;
+    let viewUrl = String(fallbackViewUrl || '').trim();
+    let previewUrl = String(fallbackPreviewUrl || '').trim();
+    if (!previewUrl || !viewUrl) {
+      try {
+        const pr = await apiGet(`/api/drive/preview/${encodeURIComponent(fileId)}`);
+        if (pr?.ok && pr.previewUrl) previewUrl = String(pr.previewUrl || '');
+        if (pr?.ok && pr.viewUrl) viewUrl = String(pr.viewUrl || '');
+      } catch {}
+    }
+    viewUrl = viewUrl || `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/view`;
     state.previewMode = false;
     state.previewVirtualMode = false;
-    state.previewEmbedSrc = '';
+    state.previewEmbedSrc = previewUrl || '';
     state.previewViewUrl = viewUrl;
     // 화면 정리: 캔버스/프리뷰 숨김
     try {
@@ -5294,8 +5334,15 @@ async function loadPdf(fileId) {
     setHidden('pageHud', false);
     setHtml(
       'pageHud',
-      `이 파일은 다운로드/스트리밍이 제한되어 Drive에서 열어야 합니다 <button class="hudBtn" id="openDriveBtn" type="button">Drive에서 열기</button>`
+      `이 파일은 앱 내부에서 직접 열지 못했습니다 ${
+        previewUrl ? '<button class="hudBtn" id="openDrivePreviewBtn" type="button">미리보기</button> ' : ''
+      }<button class="hudBtn" id="openDriveBtn" type="button">Drive에서 열기</button>`
     );
+    document.getElementById('openDrivePreviewBtn')?.addEventListener('click', () => {
+      try {
+        window.open(previewUrl || viewUrl, '_blank');
+      } catch {}
+    });
     document.getElementById('openDriveBtn')?.addEventListener('click', () => {
       try {
         window.open(viewUrl, '_blank');

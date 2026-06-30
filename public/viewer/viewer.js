@@ -5226,13 +5226,11 @@ async function loadPdf(fileId) {
 
   // 1) Drive 공개 다운로드를 브라우저가 직접 로드한다(서버 중계 제거).
   // - Google Drive 공개 파일도 "confirm" HTML이 나올 수 있어 2-step 다운로드를 지원한다.
-  // - 너무 큰 파일은 메모리 부담이 커서 Drive에서 열도록 안내한다.
   /** @returns {Promise<Blob|null>} */
   async function fetchPublicPdfBlob(fid) {
-    const firstUrl = `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fid)}`;
     const doFetch = async (url) => {
       // NOTE: public file fetch; credentials not needed
-      const res = await fetch(url, { redirect: 'follow' });
+      const res = await fetch(url, { redirect: 'follow', mode: 'cors' });
       if (!res.ok) throw new Error(`HTTP_${res.status}`);
       const ct = String(res.headers.get('content-type') || '');
       // confirm HTML이 오면 text/html
@@ -5248,19 +5246,24 @@ async function loadPdf(fileId) {
         const url2 = `https://drive.google.com/uc?export=download&confirm=${encodeURIComponent(confirm)}&id=${encodeURIComponent(id)}`;
         return doFetch(url2);
       }
-      const clen = Number(res.headers.get('content-length') || 0);
-      if (clen && clen > 30 * 1024 * 1024) throw new Error('TOO_LARGE_FOR_BLOB');
       const blob0 = await res.blob();
       // 보안/정확성: pdf만 허용
       const bct = String(blob0.type || ct || '');
       if (bct && !bct.includes('pdf') && !bct.includes('octet-stream')) throw new Error('NOT_PDF');
       return blob0;
     };
-    try {
-      return await doFetch(firstUrl);
-    } catch {
-      return null;
+    const candidates = [
+      `https://drive.usercontent.google.com/u/0/uc?id=${encodeURIComponent(fid)}&export=download&confirm=t`,
+      `https://drive.usercontent.google.com/download?id=${encodeURIComponent(fid)}&export=download&confirm=t`,
+      `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fid)}`
+    ];
+    for (const url of candidates) {
+      try {
+        const blob = await doFetch(url);
+        if (blob) return blob;
+      } catch {}
     }
+    return null;
   }
 
   {

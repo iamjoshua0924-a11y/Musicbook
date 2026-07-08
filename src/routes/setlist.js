@@ -1,6 +1,7 @@
 const express = require('express');
 const User = require('../models/User');
 const { requireLogin } = require('../middleware/auth');
+const { hasPublicBook, buildPublicBookUserQuery } = require('../services/bookAccess');
 
 const router = express.Router();
 
@@ -37,20 +38,20 @@ function normalizeItems(raw) {
   return out;
 }
 
-// Public: 개인 노래책 셋리스트 조회(스텔스/private만)
+// Public: 개인 노래책 셋리스트 조회(private 또는 공개 노래책 활성 유저)
 router.get('/setlist/:userId', async (req, res) => {
   const userId = String(req.params?.userId || '').trim();
   if (!userId) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
-  const user = await User.findOne({ userId, active: { $ne: false }, isPrivate: true }).lean();
+  const user = await User.findOne(buildPublicBookUserQuery(userId)).lean();
   if (!user) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
   res.json({ ok: true, items: Array.isArray(user.privateSetlistItems) ? user.privateSetlistItems : [] });
 });
 
-// Private: 셋리스트 저장(본인 private만)
+// Private: 셋리스트 저장(본인 private 또는 공개 노래책 활성 유저)
 router.patch('/setlist', requireLogin, async (req, res) => {
   const user = await User.findById(req.session.user.id);
   if (!user) return res.status(401).json({ ok: false, error: 'UNAUTHORIZED' });
-  if (!user.isPrivate) return res.status(403).json({ ok: false, error: 'FORBIDDEN' });
+  if (!hasPublicBook(user)) return res.status(403).json({ ok: false, error: 'FORBIDDEN' });
   // 셋리스트는 본인만 편집
   if (String(req.session.user.userId || '') !== String(user.userId || '')) return res.status(403).json({ ok: false, error: 'FORBIDDEN' });
 
@@ -63,4 +64,3 @@ router.patch('/setlist', requireLogin, async (req, res) => {
 });
 
 module.exports = router;
-

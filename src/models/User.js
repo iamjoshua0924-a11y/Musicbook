@@ -11,6 +11,8 @@ const UserSchema = new mongoose.Schema(
 
     // "스텔스/Private" 계정: 메인 접속자 목록/가능보컬 필터 목록에서 숨김 + 개인 아카이브 제공
     isPrivate: { type: Boolean, default: false, index: true },
+    // 일반 유저도 개별 공개 노래책 페이지를 가질 수 있음(dev에서 토글)
+    publicBookEnabled: { type: Boolean, default: false, index: true },
     // 개인 노래책 타이틀 배너(이미지)
     privateTitleImage: { type: String, default: '' },
     // 개인 노래책 전용 테마

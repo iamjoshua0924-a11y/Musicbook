@@ -1,6 +1,7 @@
 const express = require('express');
 const GuestbookEntry = require('../models/GuestbookEntry');
 const User = require('../models/User');
+const { buildPublicBookUserQuery } = require('../services/bookAccess');
 
 const router = express.Router();
 
@@ -14,7 +15,7 @@ function clampText(v, max) {
 async function resolvePrivateBook(bookUserId) {
   const uid = String(bookUserId || '').trim();
   if (!uid) return null;
-  return User.findOne({ userId: uid, isPrivate: true, active: { $ne: false } }).lean();
+  return User.findOne(buildPublicBookUserQuery(uid)).lean();
 }
 
 router.get('/guestbook/:bookUserId', async (req, res) => {

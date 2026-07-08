@@ -376,7 +376,8 @@ async function loadUsers() {
       <div style="display:grid; gap:6px; text-align:right; align-content:start;">
         <div class="muted" title="${esc(seen.title)}">lastSeen: <b>${esc(seen.label)}</b></div>
         <div class="muted" title="${esc(created.title)}">created: ${esc(created.label)}</div>
-        ${u.isPrivate && u.archivePath ? `<button class="light" type="button" data-archive="1">개인 노래책 열기</button>` : ''}
+        ${u.archivePath ? `<button class="light" type="button" data-archive="1">개인 노래책 열기</button>` : ''}
+        ${!u.isPrivate && u.role !== 'admin' ? `<button class="light" type="button" data-toggle-book="1">${u.publicBookEnabled ? '노래책 삭제' : '노래책 만들기'}</button>` : ''}
         ${u.isPrivate ? `<button class="light" type="button" data-del-private="1">삭제</button>` : u.role !== 'admin' ? `<button class="light" type="button" data-del="1">삭제</button>` : ''}
       </div>
     `;
@@ -385,6 +386,9 @@ async function loadUsers() {
       if (!url) return;
       window.open(url, '_blank', 'noopener');
     });
+    el.querySelector('[data-toggle-book="1"]')?.addEventListener?.('click', () =>
+      toggleUserBook(u.userId, !Boolean(u.publicBookEnabled)).catch(() => {})
+    );
     el.querySelector('[data-del-private="1"]')?.addEventListener?.('click', () => deletePrivateUser(u.userId).catch(() => {}));
     el.querySelector('[data-del="1"]')?.addEventListener?.('click', () => deleteUser(u.userId).catch(() => {}));
     wrap.appendChild(el);
@@ -428,6 +432,18 @@ async function deleteUser(userId) {
   if (!confirm(`유저를 삭제할까요?\n- ${uid}\n(가능곡 데이터도 함께 삭제됩니다)`)) return;
   const r = await apiJson(`/api/dev/users/${encodeURIComponent(uid)}`, 'DELETE', {});
   if (!r.ok) return alert(`삭제 실패: ${r.error || ''}`);
+  await loadUsers();
+}
+
+async function toggleUserBook(userId, enabled) {
+  const uid = String(userId || '').trim();
+  if (!uid) return;
+  const msg = enabled
+    ? `일반 유저의 개인 노래책 페이지를 생성할까요?\n- ${uid}\n(기존 가능곡 정보를 그대로 사용합니다)`
+    : `이 유저의 개인 노래책 페이지를 제거할까요?\n- ${uid}`;
+  if (!confirm(msg)) return;
+  const r = await apiJson(`/api/dev/users/${encodeURIComponent(uid)}/book`, 'PATCH', { enabled });
+  if (!r.ok) return alert(`처리 실패: ${r.error || ''}`);
   await loadUsers();
 }
 

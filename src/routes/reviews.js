@@ -1,6 +1,7 @@
 const express = require('express');
 const User = require('../models/User');
 const { requireLogin } = require('../middleware/auth');
+const { buildPublicBookUserQuery } = require('../services/bookAccess');
 
 const router = express.Router();
 
@@ -15,11 +16,11 @@ function normalizeCardId(v) {
   return String(v || '').trim().slice(0, 120);
 }
 
-// Public: 합주후기 설정/목록 조회 (private 유저만)
+// Public: 합주후기 설정/목록 조회 (private 또는 공개 노래책 활성 유저)
 router.get('/reviews/:userId', async (req, res) => {
   const userId = String(req.params?.userId || '').trim();
   if (!userId) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
-  const user = await User.findOne({ userId, active: { $ne: false }, isPrivate: true }).lean();
+  const user = await User.findOne(buildPublicBookUserQuery(userId)).lean();
   if (!user) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
   res.json({
     ok: true,
@@ -28,11 +29,11 @@ router.get('/reviews/:userId', async (req, res) => {
   });
 });
 
-// Public: 합주후기 코멘트 작성 (private 유저 + enabled=true 인 경우만)
+// Public: 합주후기 코멘트 작성 (private 또는 공개 노래책 활성 유저 + enabled=true 인 경우만)
 router.post('/reviews/:userId', async (req, res) => {
   const userId = String(req.params?.userId || '').trim();
   if (!userId) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
-  const user = await User.findOne({ userId, active: { $ne: false }, isPrivate: true });
+  const user = await User.findOne(buildPublicBookUserQuery(userId));
   if (!user) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
   if (!user.privateReviewEnabled) return res.status(403).json({ ok: false, error: 'DISABLED' });
 
@@ -74,7 +75,7 @@ router.delete('/reviews/:userId/:cardId/:commentId', requireLogin, async (req, r
   const commentId = String(req.params?.commentId || '').trim();
   if (!userId || !cardId || !commentId) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
 
-  const user = await User.findOne({ userId, active: { $ne: false }, isPrivate: true });
+  const user = await User.findOne(buildPublicBookUserQuery(userId));
   if (!user) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
 
   const sessionUserId = String(req.session?.user?.userId || '');

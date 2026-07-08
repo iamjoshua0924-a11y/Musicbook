@@ -12,6 +12,7 @@ const User = require('../models/User');
 const bcrypt = require('bcrypt');
 const Availability = require('../models/Availability');
 const { buildPrivateArchivePath, getPrivateArchivePrefix } = require('../services/privateArchive');
+const { hasPublicBook } = require('../services/bookAccess');
 const { getDriveRootFolderId, restartDriveSync, stopDriveSync } = require('../services/driveSyncRunner');
 const { getFileMetadata, renameFile } = require('../services/drive');
 const { getNowCount, getSeries } = require('../services/connectionHistory');
@@ -275,9 +276,11 @@ router.get(
         displayName: u.displayName || u.userId,
         active: u.active !== false,
         isPrivate: Boolean(u.isPrivate),
+        publicBookEnabled: Boolean(u.publicBookEnabled),
+        hasPublicBook: hasPublicBook(u),
         lastSeenAt: u.lastSeenAt || null,
         createdAt: u.createdAt || null,
-        archivePath: u.isPrivate ? await buildPrivateArchivePath(u.userId) : ''
+        archivePath: hasPublicBook(u) ? await buildPrivateArchivePath(u.userId) : ''
       }))
     );
     res.json({ ok: true, items: withArchive });
@@ -317,9 +320,38 @@ router.post(
         displayName: doc.displayName || doc.userId,
         active: doc.active !== false,
         isPrivate: Boolean(doc.isPrivate),
+        publicBookEnabled: Boolean(doc.publicBookEnabled),
         archivePath
       },
       password: '1234'
+    });
+  })
+);
+
+// Toggle public songbook for normal users (dev only)
+router.patch(
+  '/users/:userId/book',
+  requireDev,
+  asyncHandler(async (req, res) => {
+    const userId = String(req.params?.userId || '').trim();
+    if (!userId) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+    const enabled = Boolean(req.body?.enabled);
+    const user = await User.findOne({ userId });
+    if (!user) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
+    if (user.isPrivate) return res.status(400).json({ ok: false, error: 'ALREADY_PRIVATE' });
+    if (String(user.role || '') === 'admin') return res.status(400).json({ ok: false, error: 'NOT_ALLOWED_ADMIN' });
+    user.publicBookEnabled = enabled;
+    user.updatedAt = new Date();
+    await user.save();
+    const archivePath = hasPublicBook(user) ? await buildPrivateArchivePath(user.userId) : '';
+    res.json({
+      ok: true,
+      item: {
+        userId: user.userId,
+        publicBookEnabled: Boolean(user.publicBookEnabled),
+        hasPublicBook: hasPublicBook(user),
+        archivePath
+      }
     });
   })
 );

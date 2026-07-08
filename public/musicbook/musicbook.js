@@ -27,6 +27,7 @@ const state = {
   displayName: '방문자',
   userId: '',
   isPrivate: false,
+  hasPublicBook: false,
   privateArchivePath: '',
   // 개인 아카이브 모드(/public/musicbook/:userId, /musicbook/:userId 등)
   isArchiveMode: false,
@@ -149,7 +150,7 @@ function isArchiveOwner() {
     String(state.userId || '') &&
     String(state.archiveTargetUserId || '') &&
     String(state.userId || '') === String(state.archiveTargetUserId || '') &&
-    Boolean(state.isPrivate) &&
+    Boolean(state.hasPublicBook) &&
     state.archiveAuthorized &&
     !state.archiveViewOnly
   );
@@ -1037,7 +1038,7 @@ function runCardParticleBurst(event) {
 function canManageGuestbook() {
   if (!state.isArchiveMode) return false;
   if (state.role === 'admin') return true;
-  return Boolean(state.isPrivate) && String(state.userId || '') === String(state.archiveTargetUserId || '');
+  return Boolean(state.hasPublicBook) && String(state.userId || '') === String(state.archiveTargetUserId || '');
 }
 
 function getGuestbookNicknameSeed() {
@@ -2683,14 +2684,14 @@ function applyRoleUI() {
   // archive-only: 노래책 설정(본인 private만)
   try {
     const isOwner = state.isArchiveMode && String(state.userId || '') === String(state.archiveTargetUserId || '');
-    const canSettings = state.isArchiveMode && state.archiveAuthorized && !state.archiveViewOnly && Boolean(state.isPrivate) && isOwner;
+    const canSettings = state.isArchiveMode && state.archiveAuthorized && !state.archiveViewOnly && Boolean(state.hasPublicBook) && isOwner;
     const btn = $('bookSettingsBtn');
     if (btn) btn.style.display = canSettings ? 'inline-flex' : 'none';
   } catch {}
   renderSetlistPanel();
   $('requestManageToggleBtn').style.display = isAdmin ? 'inline-flex' : 'none';
   const canEditArchiveAvailability =
-    state.isArchiveMode && !state.archiveViewOnly && Boolean(state.isPrivate) && String(state.userId || '') === String(state.archiveTargetUserId || '');
+    state.isArchiveMode && !state.archiveViewOnly && Boolean(state.hasPublicBook) && String(state.userId || '') === String(state.archiveTargetUserId || '');
   $('availabilityEditToggleBtn').style.display = state.isArchiveMode ? (canEditArchiveAvailability ? 'inline-flex' : 'none') : isPriv ? 'inline-flex' : 'none';
   const profBtn = $('proficiencyEditToggleBtn');
   if (profBtn) profBtn.style.display = canEditArchiveAvailability ? 'inline-flex' : 'none';
@@ -2736,14 +2737,15 @@ async function refreshSession() {
     state.displayName = me.user.displayName || me.user.userId;
     state.userId = me.user.userId || '';
     state.isPrivate = Boolean(me.user.isPrivate);
+    state.hasPublicBook = Boolean(me.user.hasPublicBook || me.user.publicBookEnabled || me.user.isPrivate);
     state.privateArchivePath = String(me.user.privateArchivePath || '').trim();
     if (!state.isArchiveMode || isOwnerArchive) {
       state.archiveTheme = String(me.user.privateTheme || 'pink').trim() || state.archiveTheme || 'pink';
-      // 본인(private)일 때만 설정값이 의미 있음
-      if (state.isPrivate) state.archiveTitleImage = String(me.user.privateTitleImage || '').trim() || state.archiveTitleImage;
-      if (state.isPrivate) state.archiveStatusTitle = String(me.user.privateStatusTitle || '').trim();
-      if (state.isPrivate) state.archiveStatusDesc = String(me.user.privateStatusDesc || '').trim();
-      if (state.isPrivate) state.reviewEnabled = Boolean(me.user.privateReviewEnabled);
+      // 공개 노래책 사용자면 개인 노래책 설정값을 함께 사용한다.
+      if (state.hasPublicBook) state.archiveTitleImage = String(me.user.privateTitleImage || '').trim() || state.archiveTitleImage;
+      if (state.hasPublicBook) state.archiveStatusTitle = String(me.user.privateStatusTitle || '').trim();
+      if (state.hasPublicBook) state.archiveStatusDesc = String(me.user.privateStatusDesc || '').trim();
+      if (state.hasPublicBook) state.reviewEnabled = Boolean(me.user.privateReviewEnabled);
     }
     state.profilePhoto = me.user.profilePhoto || '';
     updateProfileImage('profilePhoto', state.profilePhoto);
@@ -2756,6 +2758,7 @@ async function refreshSession() {
     state.displayName = '방문자';
     state.userId = '';
     state.isPrivate = false;
+    state.hasPublicBook = false;
     state.privateArchivePath = '';
     state.profilePhoto = '';
     state.archiveTheme = state.archiveTheme || 'pink';
@@ -2768,8 +2771,8 @@ async function refreshSession() {
     const isOwner = String(state.userId || '') === String(state.archiveTargetUserId || '');
     state.archiveAuthorized = true;
     state.archiveViewOnly = true;
-    // 개인 노래책은 방문자/타 사용자도 읽기 가능, 본인(private)만 편집 가능
-    if (isOwner && state.isPrivate) state.archiveViewOnly = false;
+    // 개인 노래책은 방문자/타 사용자도 읽기 가능, 본인(공개 노래책 보유자)만 편집 가능
+    if (isOwner && state.hasPublicBook) state.archiveViewOnly = false;
     if (isAdmin) state.archiveViewOnly = true;
     setArchiveShellUI();
   }
@@ -2880,7 +2883,7 @@ function openProfileModal() {
   try {
     const btn = $('privateArchiveOpenBtn');
     // 개인 노래책 페이지 안에서는 "노래책 보기" 버튼을 숨긴다(자기 자신을 다시 여는 버튼 불필요)
-    if (btn) btn.style.display = !state.isArchiveMode && state.isPrivate && state.privateArchivePath ? 'inline-flex' : 'none';
+    if (btn) btn.style.display = !state.isArchiveMode && state.hasPublicBook && state.privateArchivePath ? 'inline-flex' : 'none';
   } catch {}
   openModal('profileModal');
 }
@@ -3128,7 +3131,7 @@ function wireEvents() {
     if (!userId) return toast('로그인이 필요합니다.');
     if (state.isArchiveMode) {
       // 개인 아카이브에서는 "본인(private)"만 편집 가능
-      if (state.archiveViewOnly || !state.isPrivate || String(state.userId || '') !== String(state.archiveTargetUserId || '')) return;
+      if (state.archiveViewOnly || !state.hasPublicBook || String(state.userId || '') !== String(state.archiveTargetUserId || '')) return;
     }
     const btn = $('availabilityEditToggleBtn');
     const sp = $('availabilityEditSpinner');
@@ -3226,7 +3229,7 @@ function wireEvents() {
   $('proficiencyEditToggleBtn').onclick = async () => {
     const userId = state.isArchiveMode && state.archiveTargetUserId ? state.archiveTargetUserId : state.userId || '';
     if (!userId) return toast('로그인이 필요합니다.');
-    if (state.archiveViewOnly || !state.isPrivate || String(state.userId || '') !== String(state.archiveTargetUserId || '')) return;
+    if (state.archiveViewOnly || !state.hasPublicBook || String(state.userId || '') !== String(state.archiveTargetUserId || '')) return;
     try {
       state.availabilityEditMode = false;
       state.availabilityOriginalSet = null;

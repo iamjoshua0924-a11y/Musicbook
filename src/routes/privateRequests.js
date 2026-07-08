@@ -2,6 +2,7 @@ const express = require('express');
 const User = require('../models/User');
 const Availability = require('../models/Availability');
 const { requireLogin } = require('../middleware/auth');
+const { buildPublicBookUserQuery } = require('../services/bookAccess');
 
 const router = express.Router();
 
@@ -35,7 +36,7 @@ function isOwnerOrAdmin(req, user) {
 router.get('/private-requests/:userId', async (req, res) => {
   const userId = String(req.params?.userId || '').trim();
   if (!userId) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
-  const user = await User.findOne({ userId, active: { $ne: false }, isPrivate: true }).lean();
+  const user = await User.findOne(buildPublicBookUserQuery(userId)).lean();
   if (!user) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
   res.json({ ok: true, items: Array.isArray(user.privateSongRequests) ? user.privateSongRequests : [] });
 });
@@ -44,7 +45,7 @@ router.get('/private-requests/:userId', async (req, res) => {
 router.post('/private-requests/:userId', async (req, res) => {
   const userId = String(req.params?.userId || '').trim();
   if (!userId) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
-  const user = await User.findOne({ userId, active: { $ne: false }, isPrivate: true });
+  const user = await User.findOne(buildPublicBookUserQuery(userId));
   if (!user) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
 
   const r = normalizeRequest(req.body || {});
@@ -68,7 +69,7 @@ router.patch('/private-requests/:userId/:googleFileId', requireLogin, async (req
   const userId = String(req.params?.userId || '').trim();
   const googleFileId = String(req.params?.googleFileId || '').trim();
   if (!userId || !googleFileId) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
-  const user = await User.findOne({ userId, active: { $ne: false }, isPrivate: true });
+  const user = await User.findOne(buildPublicBookUserQuery(userId));
   if (!user) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
   if (!isOwnerOrAdmin(req, user)) return res.status(403).json({ ok: false, error: 'FORBIDDEN' });
 
@@ -97,4 +98,3 @@ router.patch('/private-requests/:userId/:googleFileId', requireLogin, async (req
 });
 
 module.exports = router;
-

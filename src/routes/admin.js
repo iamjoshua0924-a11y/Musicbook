@@ -15,6 +15,7 @@ const { getTrafficMetrics, resetTrafficMetrics } = require('../services/trafficM
 
 const { driveToThumb } = require('../services/legacyCsvImport');
 const { buildPrivateArchivePath } = require('../services/privateArchive');
+const { hasPublicBook } = require('../services/bookAccess');
 
 const router = express.Router();
 
@@ -24,8 +25,9 @@ router.get('/admin/me', requireLogin, async (req, res) => {
   // keep session user in sync (private flag might be added later)
   try {
     req.session.user.isPrivate = Boolean(user.isPrivate);
+    req.session.user.publicBookEnabled = Boolean(user.publicBookEnabled);
   } catch {}
-  const privateArchivePath = user.isPrivate ? await buildPrivateArchivePath(user.userId) : '';
+  const privateArchivePath = hasPublicBook(user) ? await buildPrivateArchivePath(user.userId) : '';
   res.json({
     ok: true,
     user: {
@@ -36,6 +38,8 @@ router.get('/admin/me', requireLogin, async (req, res) => {
       profilePhoto: user.profilePhoto || '',
       mustChangePassword: Boolean(user.mustChangePassword),
       isPrivate: Boolean(user.isPrivate),
+      publicBookEnabled: Boolean(user.publicBookEnabled),
+      hasPublicBook: hasPublicBook(user),
       privateTitleImage: user.privateTitleImage || '',
       privateTheme: String(user.privateTheme || 'pink'),
       privateStatusTitle: user.privateStatusTitle || '',
@@ -88,14 +92,15 @@ router.post('/admin/login', async (req, res) => {
     displayName: user.displayName || user.userId,
     profilePhoto: user.profilePhoto || '',
     mustChangePassword: Boolean(user.mustChangePassword),
-    isPrivate: Boolean(user.isPrivate)
+    isPrivate: Boolean(user.isPrivate),
+    publicBookEnabled: Boolean(user.publicBookEnabled)
   };
   // T-18: last seen 기록 (로그인 성공 시)
   try {
     await User.updateOne({ _id: user._id }, { $set: { lastSeenAt: new Date() } });
   } catch {}
-  const privateArchivePath = user.isPrivate ? await buildPrivateArchivePath(user.userId) : '';
-  res.json({ ok: true, user: { ...req.session.user, privateArchivePath } });
+  const privateArchivePath = hasPublicBook(user) ? await buildPrivateArchivePath(user.userId) : '';
+  res.json({ ok: true, user: { ...req.session.user, privateArchivePath, hasPublicBook: hasPublicBook(user) } });
 });
 
 router.patch('/admin/profile', requireLogin, async (req, res) => {
@@ -168,7 +173,7 @@ router.post('/admin/users', requireAdmin, async (req, res) => {
   const doc = await User.findOneAndUpdate(
     { userId },
     // admin에서는 private 유저를 생성/수정하지 않는다.
-    { $set: { userId, passwordHash, role, displayName, active: true, isPrivate: false } },
+    { $set: { userId, passwordHash, role, displayName, active: true, isPrivate: false, publicBookEnabled: false } },
     { upsert: true, new: true }
   );
   res.json({ ok: true, item: doc.toObject(), password });

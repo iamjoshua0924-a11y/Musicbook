@@ -2144,23 +2144,86 @@ function openSongTagModal(card) {
   openModal('songTagModal');
 }
 
+function applySongCardTagPatchLocally(card, payload) {
+  if (!card) return;
+  const nextGenre = String(payload?.genre || '').trim();
+  const nextMood = String(payload?.mood || '').trim();
+  const nextVocal = String(payload?.vocal || '').trim();
+  const cardId = String(card.cardId || '').trim();
+  const title = String(card.title || '').trim();
+  const artist = String(card.artist || '').trim();
+
+  state.songCardsAll = (state.songCardsAll || []).map((c) => {
+    const sameCard =
+      (cardId && String(c.cardId || '').trim() === cardId) ||
+      (String(c.title || '').trim() === title && String(c.artist || '').trim() === artist);
+    if (!sameCard) return c;
+    const next = {
+      ...c,
+      genre: nextGenre,
+      mood: nextMood,
+      vocal: nextVocal
+    };
+    next.searchText = `${next.title || ''} ${next.artist || ''} ${next.genre || ''} ${next.mood || ''} ${next.vocal || ''} ${
+      (next.keys || []).join(' ') || ''
+    }`
+      .toLowerCase()
+      .trim();
+    next._searchNorm = normSearch(next.searchText || '');
+    return next;
+  });
+
+  state.songFilesAll = (state.songFilesAll || []).map((s) => {
+    const sameSong = String(s.title || '').trim() === title && String(s.artist || '').trim() === artist;
+    if (!sameSong) return s;
+    const next = {
+      ...s,
+      genre: nextGenre,
+      mood: nextMood,
+      vocal: nextVocal
+    };
+    next.searchText = `${next.title || ''} ${next.artist || ''} ${next.genre || ''} ${next.mood || ''} ${next.vocal || ''} ${next.key || ''}`
+      .toLowerCase()
+      .trim();
+    next._searchNorm = normSearch(next.searchText || '');
+    return next;
+  });
+
+  if (_editCard) {
+    _editCard.genre = nextGenre;
+    _editCard.mood = nextMood;
+    _editCard.vocal = nextVocal;
+  }
+}
+
 async function saveSongTagModal() {
   if (!_editCard) return;
+  const saveBtn = $('songTagSaveBtn');
+  if (saveBtn?.disabled) return;
   const payload = {
     genre: $('songGenreSelect').value || '',
     mood: $('songMoodSelect').value || '',
     vocal: $('songVocalSelect').value || ''
   };
-  const res = await apiJson(`/api/songs/card-tags`, 'PATCH', { title: _editCard.title, artist: _editCard.artist, ...payload });
-  if (!res.ok) return toast(`저장 실패: ${res.error || ''}`);
-  // 갱신은 서버 재조회로 일관성 확보
-  await loadSongs(true);
-  await loadSongFiles(true);
-  closeModal('songTagModal');
-  _editCard = null;
-  $('songKeySelect').disabled = false;
-  applySongFilters();
-  toast('저장 완료');
+  try {
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.textContent = '저장 중...';
+    }
+    const res = await apiJson(`/api/songs/card-tags`, 'PATCH', { title: _editCard.title, artist: _editCard.artist, ...payload });
+    if (!res.ok) return toast(`저장 실패: ${res.error || ''}`);
+    applySongCardTagPatchLocally(_editCard, payload);
+    closeModal('songTagModal');
+    _editCard = null;
+    $('songKeySelect').disabled = false;
+    applySongFilters();
+    toast('저장 완료');
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = '저장';
+    }
+  }
 }
 
 // ---- Card flow (키 선택 -> 액션 선택) ---------------------------------------------

@@ -5,7 +5,7 @@
     <title>밍긴어게인 노래책</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='bg' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23ff9ecf'/%3E%3Cstop offset='55%25' stop-color='%23b28cff'/%3E%3Cstop offset='100%25' stop-color='%236fa8ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='4' y='4' width='56' height='56' rx='16' fill='url(%23bg)'/%3E%3Cpath d='M40 17v23.5c-1.7-1.1-4.3-1.6-6.8-1.1-4 .8-6.8 3.6-6.2 6.3.6 2.7 4.2 4.1 8.2 3.3 3.6-.7 6.1-3 6.2-5.5V26.5l9-2.2v12.2c-1.7-1.1-4.3-1.6-6.8-1.1-4 .8-6.8 3.6-6.2 6.3.6 2.7 4.2 4.1 8.2 3.3 3.8-.7 6.3-3.2 6.2-5.8V17.8c0-1.1-1-1.9-2-1.7L40 17z' fill='white'/%3E%3C/svg%3E" />
-    <link rel="stylesheet" href="musicbook.css?v=20260709_2" />
+    <link rel="stylesheet" href="musicbook.css?v=20260709_3" />
   </head>
 
   <body class="preload">
@@ -601,8 +601,41 @@
           <option value="mint">포레스트 민트</option>
           <option value="coral">선셋 코랄</option>
           <option value="mocha">모카 크림</option>
+          <option value="custom">커스텀(3색)</option>
         </select>
-        <div id="bookThemePalette" class="book-theme-grid" role="listbox" aria-label="노래책 테마 선택">
+        <div class="book-theme-row">
+          <button class="floating-btn" id="bookThemeOpenBtn" type="button" style="justify-content:center;">테마 선택</button>
+          <div class="book-theme-current">
+            <div class="book-theme-current-label" id="bookThemeCurrentLabel">핑크</div>
+            <div class="book-theme-current-swatches" id="bookThemeCurrentSwatches">
+              <span></span><span></span><span></span>
+            </div>
+          </div>
+        </div>
+        <div class="muted" style="font-weight:900; margin-top:12px;">상태메세지</div>
+        <input id="bookStatusTitleInput" class="input" placeholder="예) 오늘은 신나는 곡 위주로!" />
+        <div class="muted" style="font-weight:900; margin-top:12px;">설명</div>
+        <textarea id="bookStatusDescInput" class="input" placeholder="예) 검색/필터로 골라서 링크 눌러서 보면 돼요"></textarea>
+        <label class="muted" style="font-weight:900; margin-top:12px; display:flex; align-items:center; gap:10px;">
+          <input id="bookReviewEnabledToggle" type="checkbox" />
+          합주후기 남기기 활성화
+        </label>
+        <div class="glass-card" style="padding:12px; margin: 10px 0 0;">
+          <img id="bookTitleImagePreview" class="banner-image" alt="" style="max-height:220px;" />
+        </div>
+        <div class="modal-actions">
+          <button class="floating-btn" id="bookSettingsCancelBtn" type="button">취소</button>
+          <button class="floating-btn black-btn" id="bookSettingsSaveBtn" type="button">저장</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Theme picker modal (book settings) -->
+    <div class="modal-overlay" id="themePickerModal">
+      <div class="modal">
+        <div class="modal-title">테마 선택</div>
+        <div class="muted" style="font-weight:900;">테마</div>
+        <div id="themePickerPalette" class="book-theme-grid" role="listbox" aria-label="노래책 테마 선택">
           <button class="book-theme-card" type="button" data-theme-value="pink" style="--theme-a:#ffd3e5; --theme-b:#fff4f9; --theme-c:#ff8fbe;">
             <span class="book-theme-name">핑크(기본)</span>
             <span class="book-theme-swatches"><span></span><span></span><span></span></span>
@@ -647,21 +680,32 @@
             <span class="book-theme-name">모카 크림</span>
             <span class="book-theme-swatches"><span></span><span></span><span></span></span>
           </button>
+          <button class="book-theme-card" id="customThemeCard" type="button" data-theme-value="custom" style="--theme-a:#f2f3ff; --theme-b:#ffffff; --theme-c:#6b5bff;">
+            <span class="book-theme-name">커스텀(3색)</span>
+            <span class="book-theme-swatches"><span></span><span></span><span></span></span>
+          </button>
         </div>
-        <div class="muted" style="font-weight:900; margin-top:12px;">상태메세지</div>
-        <input id="bookStatusTitleInput" class="input" placeholder="예) 오늘은 신나는 곡 위주로!" />
-        <div class="muted" style="font-weight:900; margin-top:12px;">설명</div>
-        <textarea id="bookStatusDescInput" class="input" placeholder="예) 검색/필터로 골라서 링크 눌러서 보면 돼요"></textarea>
-        <label class="muted" style="font-weight:900; margin-top:12px; display:flex; align-items:center; gap:10px;">
-          <input id="bookReviewEnabledToggle" type="checkbox" />
-          합주후기 남기기 활성화
-        </label>
-        <div class="glass-card" style="padding:12px; margin: 10px 0 0;">
-          <img id="bookTitleImagePreview" class="banner-image" alt="" style="max-height:220px;" />
+        <div id="customThemeBox" class="custom-theme-box" style="display:none;">
+          <div class="muted" style="font-weight:900; margin-top:12px;">커스텀 색상(3개)</div>
+          <div class="custom-theme-row">
+            <label class="custom-color">
+              <span class="muted">배경</span>
+              <input id="customThemeA" type="color" value="#f2f3ff" />
+            </label>
+            <label class="custom-color">
+              <span class="muted">카드</span>
+              <input id="customThemeB" type="color" value="#ffffff" />
+            </label>
+            <label class="custom-color">
+              <span class="muted">포인트</span>
+              <input id="customThemeC" type="color" value="#6b5bff" />
+            </label>
+          </div>
+          <div class="muted" style="margin-top:8px;">팁: 배경/카드는 밝게, 포인트는 진하게 잡으면 가독성이 좋아요.</div>
         </div>
         <div class="modal-actions">
-          <button class="floating-btn" id="bookSettingsCancelBtn" type="button">취소</button>
-          <button class="floating-btn black-btn" id="bookSettingsSaveBtn" type="button">저장</button>
+          <button class="floating-btn" id="themePickerCancelBtn" type="button">취소</button>
+          <button class="floating-btn black-btn" id="themePickerApplyBtn" type="button">적용</button>
         </div>
       </div>
     </div>
@@ -778,6 +822,6 @@
     <script src="../config.js"></script>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
     <script src="../common/avatar.js?v=20260529_1"></script>
-    <script src="musicbook.js?v=20260709_3"></script>
+    <script src="musicbook.js?v=20260709_4"></script>
   </body>
 </html>

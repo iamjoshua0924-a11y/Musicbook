@@ -18,9 +18,13 @@ const UserSchema = new mongoose.Schema(
     // 개인 노래책 전용 테마
     privateTheme: {
       type: String,
-      enum: ['pink', 'dark', 'sky', 'green', 'amber', 'lavender', 'midnight', 'rosebeige', 'mint', 'coral', 'mocha'],
+      enum: ['pink', 'dark', 'sky', 'green', 'amber', 'lavender', 'midnight', 'rosebeige', 'mint', 'coral', 'mocha', 'custom'],
       default: 'pink'
     },
+    // custom(3-color) theme
+    privateThemeCustomA: { type: String, default: '#f2f3ff' },
+    privateThemeCustomB: { type: String, default: '#ffffff' },
+    privateThemeCustomC: { type: String, default: '#6b5bff' },
     // 개인 노래책 상태메세지 카드
     privateStatusTitle: { type: String, default: '' },
     privateStatusDesc: { type: String, default: '' },

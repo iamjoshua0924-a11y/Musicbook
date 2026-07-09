@@ -104,6 +104,11 @@ const state = {
   // card click selection
   _pendingCard: null,
   _pendingVariant: null,
+  // custom theme (3 colors)
+  archiveThemeCustomA: '#f2f3ff',
+  archiveThemeCustomB: '#ffffff',
+  archiveThemeCustomC: '#6b5bff',
+  _themePickerPrev: null,
   _rouletteCandidates: [],
   _lastSearchRaw: '',
   _lastSearchIsCho: false,
@@ -124,6 +129,15 @@ function applyArchiveTheme() {
   try {
     const theme = String(state.archiveTheme || 'pink').trim() || 'pink';
     document.body.dataset.privateTheme = theme;
+    if (theme === 'custom') {
+      document.body.style.setProperty('--custom-a', String(state.archiveThemeCustomA || '#f2f3ff'));
+      document.body.style.setProperty('--custom-b', String(state.archiveThemeCustomB || '#ffffff'));
+      document.body.style.setProperty('--custom-c', String(state.archiveThemeCustomC || '#6b5bff'));
+    } else {
+      document.body.style.removeProperty('--custom-a');
+      document.body.style.removeProperty('--custom-b');
+      document.body.style.removeProperty('--custom-c');
+    }
   } catch {}
 }
 
@@ -629,8 +643,8 @@ function exitSetlistEditMode(revert) {
   applySongFilters();
 }
 
-function getArchiveThemeLabel() {
-  const theme = String(state.archiveTheme || 'pink').trim();
+function getArchiveThemeLabel(themeInput) {
+  const theme = String(themeInput !== undefined ? themeInput : state.archiveTheme || 'pink').trim();
   if (theme === 'dark') return '다크';
   if (theme === 'sky') return '하늘색';
   if (theme === 'green') return '연두색';
@@ -641,6 +655,7 @@ function getArchiveThemeLabel() {
   if (theme === 'mint') return '포레스트 민트';
   if (theme === 'coral') return '선셋 코랄';
   if (theme === 'mocha') return '모카 크림';
+  if (theme === 'custom') return '커스텀(3색)';
   return '핑크';
 }
 
@@ -648,11 +663,43 @@ function setBookThemeSelection(theme) {
   const next = String(theme || 'pink').trim() || 'pink';
   const sel = $('bookThemeSelect');
   if (sel) sel.value = next;
-  document.querySelectorAll('#bookThemePalette .book-theme-card').forEach((btn) => {
+  document.querySelectorAll('#themePickerPalette .book-theme-card').forEach((btn) => {
     const active = String(btn.dataset.themeValue || '').trim() === next;
     btn.classList.toggle('active', active);
     btn.setAttribute('aria-selected', active ? 'true' : 'false');
   });
+  // custom 입력 UI
+  const customBox = $('customThemeBox');
+  if (customBox) customBox.style.display = next === 'custom' ? 'block' : 'none';
+
+  // settings modal mini preview
+  try {
+    const label = $('bookThemeCurrentLabel');
+    if (label) label.textContent = getArchiveThemeLabel(next);
+    const swWrap = $('bookThemeCurrentSwatches');
+    if (swWrap) {
+      const spans = swWrap.querySelectorAll('span');
+      let a = '#ffd3e5',
+        b = '#fff4f9',
+        c = '#ff8fbe';
+      if (next === 'custom') {
+        a = String(state.archiveThemeCustomA || a);
+        b = String(state.archiveThemeCustomB || b);
+        c = String(state.archiveThemeCustomC || c);
+      } else {
+        const btn = document.querySelector(`#themePickerPalette .book-theme-card[data-theme-value=\"${CSS.escape(next)}\"]`);
+        if (btn) {
+          const cs = getComputedStyle(btn);
+          a = cs.getPropertyValue('--theme-a').trim() || a;
+          b = cs.getPropertyValue('--theme-b').trim() || b;
+          c = cs.getPropertyValue('--theme-c').trim() || c;
+        }
+      }
+      if (spans?.[0]) spans[0].style.background = a;
+      if (spans?.[1]) spans[1].style.background = b;
+      if (spans?.[2]) spans[2].style.background = c;
+    }
+  } catch {}
 }
 
 function updateSortControls() {
@@ -2821,6 +2868,9 @@ async function refreshSession() {
     state.privateArchivePath = String(me.user.privateArchivePath || '').trim();
     if (!state.isArchiveMode || isOwnerArchive) {
       state.archiveTheme = String(me.user.privateTheme || 'pink').trim() || state.archiveTheme || 'pink';
+      state.archiveThemeCustomA = String(me.user.privateThemeCustomA || state.archiveThemeCustomA || '#f2f3ff');
+      state.archiveThemeCustomB = String(me.user.privateThemeCustomB || state.archiveThemeCustomB || '#ffffff');
+      state.archiveThemeCustomC = String(me.user.privateThemeCustomC || state.archiveThemeCustomC || '#6b5bff');
       // 공개 노래책 사용자면 개인 노래책 설정값을 함께 사용한다.
       if (state.hasPublicBook) state.archiveTitleImage = String(me.user.privateTitleImage || '').trim() || state.archiveTitleImage;
       if (state.hasPublicBook) state.archiveStatusTitle = String(me.user.privateStatusTitle || '').trim();
@@ -3019,10 +3069,19 @@ async function saveBookSettings() {
   const statusTitle = String($('bookStatusTitleInput')?.value || '').trim();
   const statusDesc = String($('bookStatusDescInput')?.value || '').trim();
   const reviewEnabled = Boolean($('bookReviewEnabledToggle')?.checked);
-  const res = await apiJson('/api/private-book', 'PATCH', { titleImage: v, theme, statusTitle, statusDesc, reviewEnabled });
+  const payload = { titleImage: v, theme, statusTitle, statusDesc, reviewEnabled };
+  if (theme === 'custom') {
+    payload.customA = String(state.archiveThemeCustomA || '#f2f3ff');
+    payload.customB = String(state.archiveThemeCustomB || '#ffffff');
+    payload.customC = String(state.archiveThemeCustomC || '#6b5bff');
+  }
+  const res = await apiJson('/api/private-book', 'PATCH', payload);
   if (!res.ok) return toast(`저장 실패: ${res.error || ''}`);
   state.archiveTitleImage = String(res.titleImage || '').trim();
   state.archiveTheme = String(res.theme || 'pink').trim() || 'pink';
+  state.archiveThemeCustomA = String(res.customA || state.archiveThemeCustomA || '#f2f3ff');
+  state.archiveThemeCustomB = String(res.customB || state.archiveThemeCustomB || '#ffffff');
+  state.archiveThemeCustomC = String(res.customC || state.archiveThemeCustomC || '#6b5bff');
   state.archiveStatusTitle = String(res.statusTitle || '').trim();
   state.archiveStatusDesc = String(res.statusDesc || '').trim();
   state.reviewEnabled = Boolean(res.reviewEnabled);
@@ -3084,6 +3143,20 @@ function wireEvents() {
     try {
       $('bookTitleImageInput').value = state.archiveTitleImage || '';
       setBookThemeSelection(state.archiveTheme || 'pink');
+      try {
+        const a = $('customThemeA');
+        const b = $('customThemeB');
+        const c = $('customThemeC');
+        if (a) a.value = String(state.archiveThemeCustomA || '#f2f3ff');
+        if (b) b.value = String(state.archiveThemeCustomB || '#ffffff');
+        if (c) c.value = String(state.archiveThemeCustomC || '#6b5bff');
+        const customCard = $('customThemeCard');
+        if (customCard) {
+          customCard.style.setProperty('--theme-a', String(state.archiveThemeCustomA || '#f2f3ff'));
+          customCard.style.setProperty('--theme-b', String(state.archiveThemeCustomB || '#ffffff'));
+          customCard.style.setProperty('--theme-c', String(state.archiveThemeCustomC || '#6b5bff'));
+        }
+      } catch {}
       $('bookStatusTitleInput').value = state.archiveStatusTitle || '';
       $('bookStatusDescInput').value = state.archiveStatusDesc || '';
       try {
@@ -3099,9 +3172,69 @@ function wireEvents() {
   };
   $('bookSettingsCancelBtn').onclick = () => closeModal('bookSettingsModal');
   $('bookSettingsSaveBtn').onclick = () => saveBookSettings().catch(() => {});
-  document.querySelectorAll('#bookThemePalette .book-theme-card').forEach((btn) => {
+  // theme picker modal
+  $('bookThemeOpenBtn').onclick = () => {
+    state._themePickerPrev = {
+      theme: String($('bookThemeSelect')?.value || state.archiveTheme || 'pink'),
+      a: String(state.archiveThemeCustomA || '#f2f3ff'),
+      b: String(state.archiveThemeCustomB || '#ffffff'),
+      c: String(state.archiveThemeCustomC || '#6b5bff')
+    };
+    try {
+      const a = $('customThemeA');
+      const b = $('customThemeB');
+      const c = $('customThemeC');
+      if (a) a.value = state._themePickerPrev.a;
+      if (b) b.value = state._themePickerPrev.b;
+      if (c) c.value = state._themePickerPrev.c;
+      const customCard = $('customThemeCard');
+      if (customCard) {
+        customCard.style.setProperty('--theme-a', state._themePickerPrev.a);
+        customCard.style.setProperty('--theme-b', state._themePickerPrev.b);
+        customCard.style.setProperty('--theme-c', state._themePickerPrev.c);
+      }
+    } catch {}
+    openModal('themePickerModal');
+  };
+  $('themePickerCancelBtn').onclick = () => {
+    try {
+      const prev = state._themePickerPrev;
+      if (prev?.theme) setBookThemeSelection(prev.theme);
+      if (prev?.a) state.archiveThemeCustomA = prev.a;
+      if (prev?.b) state.archiveThemeCustomB = prev.b;
+      if (prev?.c) state.archiveThemeCustomC = prev.c;
+      const customCard = $('customThemeCard');
+      if (customCard) {
+        customCard.style.setProperty('--theme-a', String(state.archiveThemeCustomA || '#f2f3ff'));
+        customCard.style.setProperty('--theme-b', String(state.archiveThemeCustomB || '#ffffff'));
+        customCard.style.setProperty('--theme-c', String(state.archiveThemeCustomC || '#6b5bff'));
+      }
+      setBookThemeSelection(String(prev?.theme || 'pink'));
+    } catch {}
+    closeModal('themePickerModal');
+  };
+  $('themePickerApplyBtn').onclick = () => closeModal('themePickerModal');
+  document.querySelectorAll('#themePickerPalette .book-theme-card').forEach((btn) => {
     btn.addEventListener('click', () => {
       setBookThemeSelection(String(btn.dataset.themeValue || 'pink').trim() || 'pink');
+    });
+  });
+  // custom colors (3)
+  ['customThemeA', 'customThemeB', 'customThemeC'].forEach((id) => {
+    $(id)?.addEventListener?.('input', () => {
+      const a = String($('customThemeA')?.value || '#f2f3ff');
+      const b = String($('customThemeB')?.value || '#ffffff');
+      const c = String($('customThemeC')?.value || '#6b5bff');
+      state.archiveThemeCustomA = a;
+      state.archiveThemeCustomB = b;
+      state.archiveThemeCustomC = c;
+      const customCard = $('customThemeCard');
+      if (customCard) {
+        customCard.style.setProperty('--theme-a', a);
+        customCard.style.setProperty('--theme-b', b);
+        customCard.style.setProperty('--theme-c', c);
+      }
+      setBookThemeSelection('custom');
     });
   });
   $('bookTitleImageInput')?.addEventListener?.('input', (e) => {
@@ -4090,6 +4223,9 @@ async function bootstrap() {
           state.archiveProfilePhoto = String(r.user.profilePhoto || '');
           state.archiveTitleImage = String(r.user.titleImage || '');
           state.archiveTheme = String(r.user.theme || 'pink').trim() || 'pink';
+          state.archiveThemeCustomA = String(r.user.customA || state.archiveThemeCustomA || '#f2f3ff');
+          state.archiveThemeCustomB = String(r.user.customB || state.archiveThemeCustomB || '#ffffff');
+          state.archiveThemeCustomC = String(r.user.customC || state.archiveThemeCustomC || '#6b5bff');
           state.archiveStatusTitle = String(r.user.statusTitle || '').trim();
           state.archiveStatusDesc = String(r.user.statusDesc || '').trim();
           state.reviewEnabled = Boolean(r.user.reviewEnabled);

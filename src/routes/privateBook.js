@@ -16,7 +16,8 @@ const PRIVATE_THEMES = new Set([
   'rosebeige',
   'mint',
   'coral',
-  'mocha'
+  'mocha',
+  'custom'
 ]);
 
 function clampText(v, max) {
@@ -24,6 +25,12 @@ function clampText(v, max) {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, max);
+}
+
+function normalizeHex(v, fallback) {
+  const s = String(v || '').trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(s)) return s.toLowerCase();
+  return String(fallback || '').trim() || '#000000';
 }
 
 // Public: 개인 노래책 공개 프로필(private 또는 공개 노래책 활성 유저)
@@ -42,6 +49,9 @@ router.get('/private-book/:userId', async (req, res) => {
       profilePhoto: user.profilePhoto || '',
       titleImage: user.privateTitleImage || '',
       theme: PRIVATE_THEMES.has(String(user.privateTheme || '')) ? String(user.privateTheme) : 'pink',
+      customA: normalizeHex(user.privateThemeCustomA, '#f2f3ff'),
+      customB: normalizeHex(user.privateThemeCustomB, '#ffffff'),
+      customC: normalizeHex(user.privateThemeCustomC, '#6b5bff'),
       statusTitle: user.privateStatusTitle || '',
       statusDesc: user.privateStatusDesc || '',
       reviewEnabled: Boolean(user.privateReviewEnabled)
@@ -53,6 +63,9 @@ router.get('/private-book/:userId', async (req, res) => {
 router.patch('/private-book', requireLogin, async (req, res) => {
   const hasTitleImage = req.body?.titleImage !== undefined;
   const hasTheme = req.body?.theme !== undefined;
+  const hasCustomA = req.body?.customA !== undefined;
+  const hasCustomB = req.body?.customB !== undefined;
+  const hasCustomC = req.body?.customC !== undefined;
   const hasStatusTitle = req.body?.statusTitle !== undefined;
   const hasStatusDesc = req.body?.statusDesc !== undefined;
   const hasReviewEnabled = req.body?.reviewEnabled !== undefined;
@@ -64,6 +77,9 @@ router.patch('/private-book', requireLogin, async (req, res) => {
   const user = await User.findById(req.session.user.id);
   if (!user) return res.status(401).json({ ok: false, error: 'UNAUTHORIZED' });
   if (!hasPublicBook(user)) return res.status(403).json({ ok: false, error: 'FORBIDDEN' });
+  const customA = normalizeHex(req.body?.customA, user.privateThemeCustomA || '#f2f3ff');
+  const customB = normalizeHex(req.body?.customB, user.privateThemeCustomB || '#ffffff');
+  const customC = normalizeHex(req.body?.customC, user.privateThemeCustomC || '#6b5bff');
 
   // Drive 링크(/view 등)도 받을 수 있게 thumbnail로 저장
   if (hasTitleImage) user.privateTitleImage = titleImage ? driveToThumb(titleImage, 1200) : '';
@@ -71,6 +87,10 @@ router.patch('/private-book', requireLogin, async (req, res) => {
     if (!PRIVATE_THEMES.has(theme)) return res.status(400).json({ ok: false, error: 'BAD_THEME' });
     user.privateTheme = theme;
   }
+  // custom colors are stored even if theme is not custom (so switching is instant)
+  if (hasCustomA) user.privateThemeCustomA = normalizeHex(customA, user.privateThemeCustomA);
+  if (hasCustomB) user.privateThemeCustomB = normalizeHex(customB, user.privateThemeCustomB);
+  if (hasCustomC) user.privateThemeCustomC = normalizeHex(customC, user.privateThemeCustomC);
   if (hasStatusTitle) user.privateStatusTitle = statusTitle;
   if (hasStatusDesc) user.privateStatusDesc = statusDesc;
   if (hasReviewEnabled) user.privateReviewEnabled = reviewEnabled;
@@ -81,6 +101,9 @@ router.patch('/private-book', requireLogin, async (req, res) => {
     ok: true,
     titleImage: user.privateTitleImage || '',
     theme: PRIVATE_THEMES.has(String(user.privateTheme || '')) ? String(user.privateTheme) : 'pink',
+    customA: normalizeHex(user.privateThemeCustomA, '#f2f3ff'),
+    customB: normalizeHex(user.privateThemeCustomB, '#ffffff'),
+    customC: normalizeHex(user.privateThemeCustomC, '#6b5bff'),
     statusTitle: user.privateStatusTitle || '',
     statusDesc: user.privateStatusDesc || '',
     reviewEnabled: Boolean(user.privateReviewEnabled)

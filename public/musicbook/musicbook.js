@@ -125,18 +125,228 @@ function getProficiencyLabel(level) {
   return '미설정';
 }
 
+function getThemeCacheKey(userId) {
+  const uid = String(userId || '').trim();
+  return uid ? `mb_theme_cache_${uid}` : '';
+}
+
+function readThemeCache(userId) {
+  try {
+    const key = getThemeCacheKey(userId);
+    if (!key) return null;
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const v = JSON.parse(raw);
+    if (!v || typeof v !== 'object') return null;
+    const theme = String(v.theme || '').trim();
+    return {
+      theme,
+      customA: String(v.customA || '').trim(),
+      customB: String(v.customB || '').trim(),
+      customC: String(v.customC || '').trim()
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeThemeCache(userId, theme, customA, customB, customC) {
+  try {
+    const key = getThemeCacheKey(userId);
+    if (!key) return;
+    localStorage.setItem(
+      key,
+      JSON.stringify({
+        theme: String(theme || 'pink').trim() || 'pink',
+        customA: String(customA || '#f2f3ff'),
+        customB: String(customB || '#ffffff'),
+        customC: String(customC || '#6b5bff'),
+        savedAt: Date.now()
+      })
+    );
+  } catch {}
+}
+
+function clamp01(n) {
+  const v = Number(n);
+  if (Number.isNaN(v)) return 0;
+  return Math.max(0, Math.min(1, v));
+}
+
+function hexToRgb(hex) {
+  const s = String(hex || '').trim();
+  if (!/^#[0-9a-fA-F]{6}$/.test(s)) return null;
+  const r = parseInt(s.slice(1, 3), 16);
+  const g = parseInt(s.slice(3, 5), 16);
+  const b = parseInt(s.slice(5, 7), 16);
+  return { r, g, b };
+}
+
+function rgbToHex(rgb) {
+  const to = (n) => Math.max(0, Math.min(255, Math.round(Number(n) || 0))).toString(16).padStart(2, '0');
+  return `#${to(rgb.r)}${to(rgb.g)}${to(rgb.b)}`;
+}
+
+function mixHex(a, b, t) {
+  const ar = hexToRgb(a);
+  const br = hexToRgb(b);
+  if (!ar || !br) return String(a || '#000000');
+  const k = clamp01(t);
+  return rgbToHex({
+    r: ar.r * (1 - k) + br.r * k,
+    g: ar.g * (1 - k) + br.g * k,
+    b: ar.b * (1 - k) + br.b * k
+  });
+}
+
+function srgbToLinear(c) {
+  const v = c / 255;
+  return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+}
+
+function luminance(hex) {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return 0;
+  const r = srgbToLinear(rgb.r);
+  const g = srgbToLinear(rgb.g);
+  const b = srgbToLinear(rgb.b);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function contrastRatio(a, b) {
+  const L1 = luminance(a);
+  const L2 = luminance(b);
+  const hi = Math.max(L1, L2);
+  const lo = Math.min(L1, L2);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+function pickBestTextColor(bg) {
+  const black = '#101010';
+  const white = '#f4f7fb';
+  return contrastRatio(bg, black) >= contrastRatio(bg, white) ? black : white;
+}
+
+function adjustTowardToContrast(src, toward, against, minRatio, maxT = 0.5) {
+  let best = String(src || '').trim();
+  if (!best) best = '#000000';
+  const current = contrastRatio(best, against);
+  if (current >= minRatio) return best;
+  // strong: step quickly
+  for (let t = 0.08; t <= maxT + 1e-9; t += 0.06) {
+    const cand = mixHex(best, toward, t);
+    if (contrastRatio(cand, against) >= minRatio) return cand;
+  }
+  return mixHex(best, toward, maxT);
+}
+
+function rgba(hex, a) {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return `rgba(0,0,0,${clamp01(a)})`;
+  return `rgba(${rgb.r},${rgb.g},${rgb.b},${clamp01(a)})`;
+}
+
+function computeCustomThemeStrong(rawA, rawB, rawC) {
+  const A0 = /^#[0-9a-fA-F]{6}$/.test(String(rawA || '').trim()) ? String(rawA).toLowerCase() : '#f2f3ff';
+  const B0 = /^#[0-9a-fA-F]{6}$/.test(String(rawB || '').trim()) ? String(rawB).toLowerCase() : '#ffffff';
+  const C0 = /^#[0-9a-fA-F]{6}$/.test(String(rawC || '').trim()) ? String(rawC).toLowerCase() : '#6b5bff';
+
+  const aLum = luminance(A0);
+  const isDark = aLum < 0.38;
+
+  // 1) Ensure card stands out from background (stronger)
+  const targetForB = aLum > 0.78 ? '#000000' : '#ffffff';
+  const B1 = adjustTowardToContrast(B0, targetForB, A0, 1.45, 0.32);
+
+  // 2) Ensure accent is visible on card (borders/buttons)
+  const bLum = luminance(B1);
+  const targetForC = bLum > 0.55 ? '#000000' : '#ffffff';
+  const C1 = adjustTowardToContrast(C0, targetForC, B1, 3.2, 0.58);
+
+  // 3) Text colors
+  const text = pickBestTextColor(B1);
+  const btnText = pickBestTextColor(C1);
+
+  // 4) Derived surfaces
+  const top = mixHex(A0, isDark ? '#000000' : '#ffffff', isDark ? 0.12 : 0.16);
+  const mid = mixHex(B1, isDark ? '#000000' : '#ffffff', isDark ? 0.08 : 0.10);
+  const bottom = mixHex(A0, isDark ? '#000000' : '#ffffff', isDark ? 0.18 : 0.06);
+
+  return {
+    A: A0,
+    B: B1,
+    C: C1,
+    isDark,
+    pageBg: `linear-gradient(180deg, ${top} 0%, ${mid} 45%, ${bottom} 100%)`,
+    text,
+    btnText,
+    glass: isDark ? rgba(mixHex(A0, '#000000', 0.25), 0.76) : 'rgba(255,255,255,0.70)',
+    surfaceSoft: isDark ? rgba(mixHex(B1, A0, 0.35), 0.72) : rgba(mixHex(B1, A0, 0.35), 0.78),
+    surfaceStrong: isDark ? rgba(mixHex(B1, A0, 0.18), 0.82) : rgba('#ffffff', 0.86),
+    inputBg: isDark ? rgba(mixHex(B1, A0, 0.2), 0.90) : rgba('#ffffff', 0.88),
+    selectBg: isDark ? rgba(mixHex(B1, A0, 0.2), 0.94) : rgba('#ffffff', 0.92),
+    softSurface: isDark ? rgba(mixHex(B1, A0, 0.2), 0.90) : rgba('#ffffff', 0.92),
+    cardBg: isDark ? rgba(mixHex(B1, A0, 0.16), 0.94) : rgba('#ffffff', 0.88),
+    cardBorder: mixHex(C1, isDark ? '#000000' : '#ffffff', isDark ? 0.25 : 0.50),
+    cardHoverBorder: C1,
+    modalSurface: isDark ? rgba(mixHex(B1, A0, 0.2), 0.97) : rgba('#ffffff', 0.96),
+    mutedSurface: isDark ? 'rgba(255,255,255,0.06)' : rgba(text, 0.04),
+    overlayBg: isDark ? 'rgba(0,0,0,0.58)' : 'rgba(0,0,0,0.24)',
+    shadow: isDark ? '0 14px 40px rgba(0,0,0,0.36)' : '0 12px 34px rgba(0,0,0,0.12)'
+  };
+}
+
 function applyArchiveTheme() {
   try {
     const theme = String(state.archiveTheme || 'pink').trim() || 'pink';
     document.body.dataset.privateTheme = theme;
     if (theme === 'custom') {
+      const t = computeCustomThemeStrong(state.archiveThemeCustomA, state.archiveThemeCustomB, state.archiveThemeCustomC);
+      // raw colors (for tooling / preview)
       document.body.style.setProperty('--custom-a', String(state.archiveThemeCustomA || '#f2f3ff'));
       document.body.style.setProperty('--custom-b', String(state.archiveThemeCustomB || '#ffffff'));
       document.body.style.setProperty('--custom-c', String(state.archiveThemeCustomC || '#6b5bff'));
+      // corrected colors (for rendering)
+      document.body.style.setProperty('--page-bg', t.pageBg);
+      document.body.style.setProperty('--black', t.text);
+      document.body.style.setProperty('--btn-fill-text', t.btnText);
+      document.body.style.setProperty('--glass', t.glass);
+      document.body.style.setProperty('--surface-soft', t.surfaceSoft);
+      document.body.style.setProperty('--surface-strong', t.surfaceStrong);
+      document.body.style.setProperty('--shadow', t.shadow);
+      document.body.style.setProperty('--input-bg', t.inputBg);
+      document.body.style.setProperty('--select-bg', t.selectBg);
+      document.body.style.setProperty('--soft-surface', t.softSurface);
+      document.body.style.setProperty('--card-bg', t.cardBg);
+      document.body.style.setProperty('--card-border', t.cardBorder);
+      document.body.style.setProperty('--card-hover-border', t.cardHoverBorder);
+      document.body.style.setProperty('--modal-surface', t.modalSurface);
+      document.body.style.setProperty('--muted-surface', t.mutedSurface);
+      document.body.style.setProperty('--overlay-bg', t.overlayBg);
+      document.body.style.setProperty('--btn-fill', t.cardHoverBorder);
+      document.body.style.setProperty('--btn-fill-hover', t.cardBorder);
     } else {
       document.body.style.removeProperty('--custom-a');
       document.body.style.removeProperty('--custom-b');
       document.body.style.removeProperty('--custom-c');
+      document.body.style.removeProperty('--page-bg');
+      document.body.style.removeProperty('--black');
+      document.body.style.removeProperty('--btn-fill-text');
+      document.body.style.removeProperty('--glass');
+      document.body.style.removeProperty('--surface-soft');
+      document.body.style.removeProperty('--surface-strong');
+      document.body.style.removeProperty('--shadow');
+      document.body.style.removeProperty('--input-bg');
+      document.body.style.removeProperty('--select-bg');
+      document.body.style.removeProperty('--soft-surface');
+      document.body.style.removeProperty('--card-bg');
+      document.body.style.removeProperty('--card-border');
+      document.body.style.removeProperty('--card-hover-border');
+      document.body.style.removeProperty('--modal-surface');
+      document.body.style.removeProperty('--muted-surface');
+      document.body.style.removeProperty('--overlay-bg');
+      document.body.style.removeProperty('--btn-fill');
+      document.body.style.removeProperty('--btn-fill-hover');
     }
   } catch {}
 }
@@ -2877,6 +3087,15 @@ async function refreshSession() {
       if (state.hasPublicBook) state.archiveStatusDesc = String(me.user.privateStatusDesc || '').trim();
       if (state.hasPublicBook) state.reviewEnabled = Boolean(me.user.privateReviewEnabled);
     }
+    if (state.isArchiveMode && isOwnerArchive && state.archiveTargetUserId) {
+      writeThemeCache(
+        state.archiveTargetUserId,
+        state.archiveTheme,
+        state.archiveThemeCustomA,
+        state.archiveThemeCustomB,
+        state.archiveThemeCustomC
+      );
+    }
     state.profilePhoto = me.user.profilePhoto || '';
     updateProfileImage('profilePhoto', state.profilePhoto);
     if (isOwnerArchive) {
@@ -3082,6 +3301,9 @@ async function saveBookSettings() {
   state.archiveThemeCustomA = String(res.customA || state.archiveThemeCustomA || '#f2f3ff');
   state.archiveThemeCustomB = String(res.customB || state.archiveThemeCustomB || '#ffffff');
   state.archiveThemeCustomC = String(res.customC || state.archiveThemeCustomC || '#6b5bff');
+  if (state.isArchiveMode && state.archiveTargetUserId) {
+    writeThemeCache(state.archiveTargetUserId, state.archiveTheme, state.archiveThemeCustomA, state.archiveThemeCustomB, state.archiveThemeCustomC);
+  }
   state.archiveStatusTitle = String(res.statusTitle || '').trim();
   state.archiveStatusDesc = String(res.statusDesc || '').trim();
   state.reviewEnabled = Boolean(res.reviewEnabled);
@@ -3091,6 +3313,7 @@ async function saveBookSettings() {
   }
   // header + loading 갱신
   setArchiveShellUI();
+  applyArchiveTheme();
   applySongFilters();
   setLoadingContext({ titleImage: state.archiveTitleImage, profilePhoto: state.archiveProfilePhoto, displayName: state.archiveDisplayName });
   toast('저장 완료');
@@ -4209,6 +4432,12 @@ async function bootstrap() {
     // 로딩 화면부터 아카이브 전용 UI/애니메이션이 적용되도록, 초기에 class를 세팅한다.
     if (state.isArchiveMode) {
       document.body.classList.add('archive-mode');
+      // 로딩 화면에서도 테마가 어느 정도 보이도록, 마지막 저장된 테마를 먼저 적용(캐시).
+      const cached = readThemeCache(state.archiveTargetUserId);
+      if (cached?.theme) state.archiveTheme = cached.theme;
+      if (cached?.customA) state.archiveThemeCustomA = cached.customA;
+      if (cached?.customB) state.archiveThemeCustomB = cached.customB;
+      if (cached?.customC) state.archiveThemeCustomC = cached.customC;
       applyArchiveTheme();
     }
 
@@ -4229,6 +4458,13 @@ async function bootstrap() {
           state.archiveStatusTitle = String(r.user.statusTitle || '').trim();
           state.archiveStatusDesc = String(r.user.statusDesc || '').trim();
           state.reviewEnabled = Boolean(r.user.reviewEnabled);
+          writeThemeCache(
+            state.archiveTargetUserId,
+            state.archiveTheme,
+            state.archiveThemeCustomA,
+            state.archiveThemeCustomB,
+            state.archiveThemeCustomC
+          );
           applyArchiveTheme();
           applySongsViewMode();
           setLoadingContext({

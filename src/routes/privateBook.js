@@ -5,7 +5,19 @@ const { driveToThumb } = require('../services/legacyCsvImport');
 const { hasPublicBook, buildPublicBookUserQuery } = require('../services/bookAccess');
 
 const router = express.Router();
-const PRIVATE_THEMES = new Set(['pink', 'dark', 'sky', 'green', 'amber']);
+const PRIVATE_THEMES = new Set([
+  'pink',
+  'dark',
+  'sky',
+  'green',
+  'amber',
+  'lavender',
+  'midnight',
+  'rosebeige',
+  'mint',
+  'coral',
+  'mocha'
+]);
 
 function clampText(v, max) {
   return String(v || '')

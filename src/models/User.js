@@ -16,7 +16,11 @@ const UserSchema = new mongoose.Schema(
     // 개인 노래책 타이틀 배너(이미지)
     privateTitleImage: { type: String, default: '' },
     // 개인 노래책 전용 테마
-    privateTheme: { type: String, enum: ['pink', 'dark', 'sky', 'green', 'amber'], default: 'pink' },
+    privateTheme: {
+      type: String,
+      enum: ['pink', 'dark', 'sky', 'green', 'amber', 'lavender', 'midnight', 'rosebeige', 'mint', 'coral', 'mocha'],
+      default: 'pink'
+    },
     // 개인 노래책 상태메세지 카드
     privateStatusTitle: { type: String, default: '' },
     privateStatusDesc: { type: String, default: '' },

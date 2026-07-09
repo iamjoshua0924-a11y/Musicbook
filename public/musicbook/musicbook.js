@@ -635,6 +635,12 @@ function getArchiveThemeLabel() {
   if (theme === 'sky') return '하늘색';
   if (theme === 'green') return '연두색';
   if (theme === 'amber') return '노랑/주황';
+  if (theme === 'lavender') return '라벤더 나이트';
+  if (theme === 'midnight') return '미드나잇 블루';
+  if (theme === 'rosebeige') return '로즈 베이지';
+  if (theme === 'mint') return '포레스트 민트';
+  if (theme === 'coral') return '선셋 코랄';
+  if (theme === 'mocha') return '모카 크림';
   return '핑크';
 }
 

@@ -644,6 +644,17 @@ function getArchiveThemeLabel() {
   return '핑크';
 }
 
+function setBookThemeSelection(theme) {
+  const next = String(theme || 'pink').trim() || 'pink';
+  const sel = $('bookThemeSelect');
+  if (sel) sel.value = next;
+  document.querySelectorAll('#bookThemePalette .book-theme-card').forEach((btn) => {
+    const active = String(btn.dataset.themeValue || '').trim() === next;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+}
+
 function updateSortControls() {
   const field = $('sortFieldSelect');
   const asc = $('sortAscBtn');
@@ -3009,7 +3020,7 @@ function wireEvents() {
   $('bookSettingsBtn').onclick = () => {
     try {
       $('bookTitleImageInput').value = state.archiveTitleImage || '';
-      $('bookThemeSelect').value = state.archiveTheme || 'pink';
+      setBookThemeSelection(state.archiveTheme || 'pink');
       $('bookStatusTitleInput').value = state.archiveStatusTitle || '';
       $('bookStatusDescInput').value = state.archiveStatusDesc || '';
       try {
@@ -3025,6 +3036,11 @@ function wireEvents() {
   };
   $('bookSettingsCancelBtn').onclick = () => closeModal('bookSettingsModal');
   $('bookSettingsSaveBtn').onclick = () => saveBookSettings().catch(() => {});
+  document.querySelectorAll('#bookThemePalette .book-theme-card').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      setBookThemeSelection(String(btn.dataset.themeValue || 'pink').trim() || 'pink');
+    });
+  });
   $('bookTitleImageInput')?.addEventListener?.('input', (e) => {
     try {
       const pv = $('bookTitleImagePreview');

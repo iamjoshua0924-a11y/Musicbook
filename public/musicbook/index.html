@@ -5,7 +5,7 @@
     <title>밍긴어게인 노래책</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='bg' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23ff9ecf'/%3E%3Cstop offset='55%25' stop-color='%23b28cff'/%3E%3Cstop offset='100%25' stop-color='%236fa8ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='4' y='4' width='56' height='56' rx='16' fill='url(%23bg)'/%3E%3Cpath d='M40 17v23.5c-1.7-1.1-4.3-1.6-6.8-1.1-4 .8-6.8 3.6-6.2 6.3.6 2.7 4.2 4.1 8.2 3.3 3.6-.7 6.1-3 6.2-5.5V26.5l9-2.2v12.2c-1.7-1.1-4.3-1.6-6.8-1.1-4 .8-6.8 3.6-6.2 6.3.6 2.7 4.2 4.1 8.2 3.3 3.8-.7 6.3-3.2 6.2-5.8V17.8c0-1.1-1-1.9-2-1.7L40 17z' fill='white'/%3E%3C/svg%3E" />
-    <link rel="stylesheet" href="musicbook.css?v=20260709_1" />
+    <link rel="stylesheet" href="musicbook.css?v=20260709_2" />
   </head>
 
   <body class="preload">
@@ -589,7 +589,7 @@
         <div class="muted" style="font-weight:900;">개인 타이틀 배너(이미지)</div>
         <input id="bookTitleImageInput" class="input" placeholder="드라이브 이미지 링크를 넣으세요" />
         <div class="muted" style="font-weight:900; margin-top:12px;">테마</div>
-        <select id="bookThemeSelect" class="select">
+        <select id="bookThemeSelect" class="select" style="display:none;" aria-hidden="true" tabindex="-1">
           <option value="pink">핑크(기본)</option>
           <option value="dark">다크</option>
           <option value="sky">하늘색</option>
@@ -602,6 +602,52 @@
           <option value="coral">선셋 코랄</option>
           <option value="mocha">모카 크림</option>
         </select>
+        <div id="bookThemePalette" class="book-theme-grid" role="listbox" aria-label="노래책 테마 선택">
+          <button class="book-theme-card" type="button" data-theme-value="pink" style="--theme-a:#ffd3e5; --theme-b:#fff4f9; --theme-c:#ff8fbe;">
+            <span class="book-theme-name">핑크(기본)</span>
+            <span class="book-theme-swatches"><span></span><span></span><span></span></span>
+          </button>
+          <button class="book-theme-card" type="button" data-theme-value="dark" style="--theme-a:#10151f; --theme-b:#273042; --theme-c:#84b2ff;">
+            <span class="book-theme-name">다크</span>
+            <span class="book-theme-swatches"><span></span><span></span><span></span></span>
+          </button>
+          <button class="book-theme-card" type="button" data-theme-value="sky" style="--theme-a:#eef8ff; --theme-b:#ffffff; --theme-c:#58acff;">
+            <span class="book-theme-name">하늘색</span>
+            <span class="book-theme-swatches"><span></span><span></span><span></span></span>
+          </button>
+          <button class="book-theme-card" type="button" data-theme-value="green" style="--theme-a:#f5fff1; --theme-b:#ffffff; --theme-c:#6dbd62;">
+            <span class="book-theme-name">연두색</span>
+            <span class="book-theme-swatches"><span></span><span></span><span></span></span>
+          </button>
+          <button class="book-theme-card" type="button" data-theme-value="amber" style="--theme-a:#fff8eb; --theme-b:#fffdf3; --theme-c:#eea24a;">
+            <span class="book-theme-name">노랑/주황</span>
+            <span class="book-theme-swatches"><span></span><span></span><span></span></span>
+          </button>
+          <button class="book-theme-card" type="button" data-theme-value="lavender" style="--theme-a:#18122f; --theme-b:#312959; --theme-c:#c2b3ff;">
+            <span class="book-theme-name">라벤더 나이트</span>
+            <span class="book-theme-swatches"><span></span><span></span><span></span></span>
+          </button>
+          <button class="book-theme-card" type="button" data-theme-value="midnight" style="--theme-a:#0d1a2d; --theme-b:#1b3356; --theme-c:#a6c8ff;">
+            <span class="book-theme-name">미드나잇 블루</span>
+            <span class="book-theme-swatches"><span></span><span></span><span></span></span>
+          </button>
+          <button class="book-theme-card" type="button" data-theme-value="rosebeige" style="--theme-a:#fff5f3; --theme-b:#fffdfa; --theme-c:#d97c9a;">
+            <span class="book-theme-name">로즈 베이지</span>
+            <span class="book-theme-swatches"><span></span><span></span><span></span></span>
+          </button>
+          <button class="book-theme-card" type="button" data-theme-value="mint" style="--theme-a:#f2fff8; --theme-b:#ffffff; --theme-c:#2daa7b;">
+            <span class="book-theme-name">포레스트 민트</span>
+            <span class="book-theme-swatches"><span></span><span></span><span></span></span>
+          </button>
+          <button class="book-theme-card" type="button" data-theme-value="coral" style="--theme-a:#fff6f1; --theme-b:#fffaf7; --theme-c:#f07a52;">
+            <span class="book-theme-name">선셋 코랄</span>
+            <span class="book-theme-swatches"><span></span><span></span><span></span></span>
+          </button>
+          <button class="book-theme-card" type="button" data-theme-value="mocha" style="--theme-a:#fff9f2; --theme-b:#fffdf9; --theme-c:#9a6c4a;">
+            <span class="book-theme-name">모카 크림</span>
+            <span class="book-theme-swatches"><span></span><span></span><span></span></span>
+          </button>
+        </div>
         <div class="muted" style="font-weight:900; margin-top:12px;">상태메세지</div>
         <input id="bookStatusTitleInput" class="input" placeholder="예) 오늘은 신나는 곡 위주로!" />
         <div class="muted" style="font-weight:900; margin-top:12px;">설명</div>
@@ -732,6 +778,6 @@
     <script src="../config.js"></script>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
     <script src="../common/avatar.js?v=20260529_1"></script>
-    <script src="musicbook.js?v=20260709_1"></script>
+    <script src="musicbook.js?v=20260709_2"></script>
   </body>
 </html>

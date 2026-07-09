@@ -584,6 +584,7 @@ body.archive-mode .floating-btn.black-btn:hover{
 .song-card-list.view-list .song-card-avatars{ display:none !important; }
 .song-card-list.view-list .song-card-footer{ display:none !important; }
 @media (max-width: 720px){
+  .book-theme-grid{ grid-template-columns: minmax(0, 1fr); }
   .song-card-list.view-list{ grid-template-columns: 1fr; }
   .song-card-list.view-list .song-list-row{
     grid-template-columns: minmax(0, 1fr);
@@ -1881,6 +1882,63 @@ body.hide-tags .song-chips{ display:none; }
   justify-content: flex-end;
   margin-top: 12px;
   flex-wrap: wrap;
+}
+.book-theme-grid{
+  margin-top: 10px;
+  display:grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.book-theme-card{
+  width: 100%;
+  text-align: left;
+  border: 1px solid rgba(0,0,0,0.08);
+  background: var(--soft-surface);
+  border-radius: 16px;
+  padding: 12px;
+  display:grid;
+  gap: 10px;
+  cursor:pointer;
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+.book-theme-card:hover{
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--btn-fill) 45%, rgba(0,0,0,0.10));
+  box-shadow: 0 14px 28px rgba(0,0,0,0.10);
+}
+.book-theme-card.active{
+  border-color: var(--btn-fill);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--btn-fill) 30%, transparent), 0 14px 28px rgba(0,0,0,0.12);
+  background: color-mix(in srgb, var(--soft-surface) 80%, var(--btn-fill) 20%);
+}
+.book-theme-name{
+  font-size: 13px;
+  font-weight: 1000;
+  line-height: 1.3;
+}
+.book-theme-swatches{
+  display:flex;
+  gap: 8px;
+}
+.book-theme-swatches span{
+  display:block;
+  flex: 1 1 0;
+  height: 26px;
+  border-radius: 999px;
+  border: 1px solid rgba(0,0,0,0.08);
+}
+.book-theme-swatches span:nth-child(1){ background: var(--theme-a); }
+.book-theme-swatches span:nth-child(2){ background: var(--theme-b); }
+.book-theme-swatches span:nth-child(3){ background: var(--theme-c); }
+body.archive-mode[data-private-theme="dark"] .book-theme-card,
+body.archive-mode[data-private-theme="lavender"] .book-theme-card,
+body.archive-mode[data-private-theme="midnight"] .book-theme-card{
+  border-color: rgba(255,255,255,0.10);
+}
+body.archive-mode[data-private-theme="dark"] .book-theme-swatches span,
+body.archive-mode[data-private-theme="lavender"] .book-theme-swatches span,
+body.archive-mode[data-private-theme="midnight"] .book-theme-swatches span{
+  border-color: rgba(255,255,255,0.10);
 }
 .random-result {
   padding: 14px;

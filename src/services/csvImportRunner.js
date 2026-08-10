@@ -177,7 +177,7 @@ async function runImportUsers(kind, csvText, { updatePasswordExisting = false } 
       // eslint-disable-next-line no-await-in-loop
       const passwordHash = await bcrypt.hash(finalPlain, 10);
       // eslint-disable-next-line no-await-in-loop
-      await User.create({ userId, role, displayName, active, mustChangePassword, passwordHash, profilePhoto });
+      await User.create({ userId, role, displayName, active, mustChangePassword, passwordHash, currentPasswordText: finalPlain, profilePhoto });
       created += 1;
     } else {
       const changed = {};
@@ -188,6 +188,7 @@ async function runImportUsers(kind, csvText, { updatePasswordExisting = false } 
       if (updatePasswordExisting && plain) {
         // eslint-disable-next-line no-await-in-loop
         changed.passwordHash = await bcrypt.hash(plain, 10);
+        changed.currentPasswordText = plain;
         changed.mustChangePassword = false;
       }
       if (!Object.keys(changed).length) skippedSame += 1;
@@ -319,4 +320,3 @@ async function start(kind, csvText, options) {
 }
 
 module.exports = { start, getStatus };
-

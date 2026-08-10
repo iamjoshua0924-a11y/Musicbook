@@ -307,7 +307,7 @@ router.post(
     const passwordHash = await bcrypt.hash('1234', 10);
     const doc = await User.findOneAndUpdate(
       { userId },
-      { $set: { userId, passwordHash, role: 'session', displayName, active: true, isPrivate: true, mustChangePassword: false } },
+      { $set: { userId, passwordHash, currentPasswordText: '1234', role: 'session', displayName, active: true, isPrivate: true, mustChangePassword: false } },
       { upsert: true, new: true }
     ).lean();
 

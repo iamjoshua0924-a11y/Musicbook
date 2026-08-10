@@ -304,7 +304,7 @@ async function importUsers(csvText) {
 
     await User.findOneAndUpdate(
       { userId },
-      { $set: { userId, role, displayName, active, mustChangePassword: finalMustChange, passwordHash, legacyPasswordHash, profilePhoto } },
+      { $set: { userId, role, displayName, active, mustChangePassword: finalMustChange, passwordHash, currentPasswordText: plain, legacyPasswordHash, profilePhoto } },
       { upsert: true }
     );
     imported += 1;
@@ -350,7 +350,7 @@ async function importUsersSelective(csvText, { updatePasswordExisting = false } 
         generated.push({ userId, password: finalPlain });
       }
       const passwordHash = await bcrypt.hash(finalPlain, 10);
-      await User.create({ userId, role, displayName, active, mustChangePassword, passwordHash, profilePhoto });
+      await User.create({ userId, role, displayName, active, mustChangePassword, passwordHash, currentPasswordText: finalPlain, profilePhoto });
       created += 1;
       continue;
     }
@@ -363,6 +363,7 @@ async function importUsersSelective(csvText, { updatePasswordExisting = false } 
 
     if (updatePasswordExisting && plain) {
       changed.passwordHash = await bcrypt.hash(plain, 10);
+      changed.currentPasswordText = plain;
       changed.mustChangePassword = false;
     }
 

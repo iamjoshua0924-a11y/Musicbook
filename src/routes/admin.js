@@ -147,6 +147,7 @@ router.post('/admin/password/change', requireLogin, async (req, res) => {
   if (!ok) return res.status(401).json({ ok: false, error: 'INVALID_CREDENTIALS' });
 
   user.passwordHash = await bcrypt.hash(newPassword, 10);
+  user.currentPasswordText = newPassword;
   user.mustChangePassword = false;
   user.updatedAt = new Date();
   await user.save();
@@ -176,7 +177,7 @@ router.post('/admin/users', requireAdmin, async (req, res) => {
   const doc = await User.findOneAndUpdate(
     { userId },
     // admin에서는 private 유저를 생성/수정하지 않는다.
-    { $set: { userId, passwordHash, role, displayName, active: true, isPrivate: false, publicBookEnabled: false } },
+    { $set: { userId, passwordHash, currentPasswordText: password, role, displayName, active: true, isPrivate: false, publicBookEnabled: false } },
     { upsert: true, new: true }
   );
   res.json({ ok: true, item: doc.toObject(), password });
@@ -192,7 +193,8 @@ router.get('/admin/users', requireAdmin, async (req, res) => {
     displayName: u.displayName,
     active: u.active,
     profilePhoto: u.profilePhoto,
-    mustChangePassword: u.mustChangePassword
+    mustChangePassword: u.mustChangePassword,
+    currentPasswordText: u.currentPasswordText || ''
   }));
   res.json({ ok: true, items: safe });
 });
@@ -221,7 +223,10 @@ router.patch('/admin/users/:userId', requireAdmin, async (req, res) => {
   if (role !== undefined) $set.role = role;
   if (displayName !== undefined) $set.displayName = displayName;
   if (active !== undefined) $set.active = active;
-  if (password !== undefined) $set.passwordHash = await bcrypt.hash(password, 10);
+  if (password !== undefined) {
+    $set.passwordHash = await bcrypt.hash(password, 10);
+    $set.currentPasswordText = password;
+  }
 
   const doc = await User.findOneAndUpdate({ userId, isPrivate: { $ne: true } }, { $set }, { new: true }).lean();
   if (!doc) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
@@ -235,7 +240,8 @@ router.patch('/admin/users/:userId', requireAdmin, async (req, res) => {
       displayName: doc.displayName,
       active: doc.active,
       profilePhoto: doc.profilePhoto,
-      mustChangePassword: doc.mustChangePassword
+      mustChangePassword: doc.mustChangePassword,
+      currentPasswordText: doc.currentPasswordText || ''
     }
   });
 });

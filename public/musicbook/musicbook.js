@@ -690,8 +690,8 @@ async function submitReviewComment() {
 function applySetlistPanelSize() {
   const panel = $('setlistPanel');
   if (!panel) return;
-  const w = Math.max(260, Math.min(640, Number(state.setlistPanelSize?.w || 420) || 420));
-  const h = Math.max(220, Math.min(780, Number(state.setlistPanelSize?.h || 520) || 520));
+  const w = Math.max(340, Math.min(640, Number(state.setlistPanelSize?.w || 420) || 420));
+  const h = Math.max(360, Math.min(780, Number(state.setlistPanelSize?.h || 520) || 520));
   panel.style.width = `min(${w}px, calc(100vw - 44px))`;
   panel.style.height = `min(${h}px, calc(100vh - 140px))`;
 }

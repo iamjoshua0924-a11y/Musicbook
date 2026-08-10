@@ -93,6 +93,7 @@ async function loadUsers() {
       <div style="flex:1; display:grid; gap:6px;">
         <div><span class="kbd">${escapeHtml(u.userId || '')}</span> · <b>${escapeHtml(u.role || '')}</b> ${u.active === false ? '<span class="muted">(비활성)</span>' : ''}</div>
         <div class="muted">${escapeHtml(u.displayName || '')}</div>
+        <div class="muted">현재 비밀번호: <span class="kbd">${escapeHtml(u.currentPasswordText || '(알 수 없음)')}</span></div>
       </div>
       <div class="row" style="justify-content:flex-end;">
         <button class="light" data-action="reset">비번 1234</button>
@@ -104,6 +105,7 @@ async function loadUsers() {
       const rr = await apiJson(`/api/admin/users/${encodeURIComponent(u.userId)}`, 'PATCH', { password: '1234' });
       if (!rr.ok) return alert('실패');
       alert('비밀번호를 1234로 초기화했습니다.');
+      await loadUsers();
     };
     el.querySelector('[data-action="toggle"]').onclick = async () => {
       const next = !(u.active === false);

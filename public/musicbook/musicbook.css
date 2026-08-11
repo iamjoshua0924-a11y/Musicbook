@@ -620,44 +620,6 @@ body.archive-mode .floating-btn.black-btn:hover{
     min-height: 320px;
   }
   .setlist-item{ min-width: 0; }
-
-  /* 곡 카드: 240px 고정 트랙이면 좁은 화면에서 양옆 여백이 크게 버려진다.
-     minmax로 남는 폭을 카드가 나눠 갖도록 한다. */
-  .song-card-list{
-    grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr));
-  }
-
-  /* 떠있는 패널들이 화면을 통째로 덮지 않도록 높이를 제한한다.
-     (셋리스트는 저장된 데스크톱 크기가 인라인으로 재적용되므로 !important가 필요) */
-  .setlist-panel{ height: min(56vh, 480px) !important; max-height: 56vh !important; }
-  .guestbook-panel{
-    left: 12px;
-    right: 12px;
-    top: auto;
-    bottom: 72px;
-    width: auto;
-    height: min(56vh, 480px);
-  }
-  .floating-presence-panel{
-    left: 12px;
-    right: 12px;
-    width: auto;
-    max-height: 42vh;
-  }
-  .floating-session-panel{
-    left: 12px;
-    right: 12px;
-    width: auto;
-    bottom: auto;
-    top: 12px;
-    max-height: 42vh;
-  }
-  .request-dock{
-    left: 12px;
-    right: 12px;
-    width: auto;
-  }
-
   .song-card-list.view-list{ grid-template-columns: 1fr; }
   .song-card-list.view-list .song-list-row{
     grid-template-columns: minmax(0, 1fr);
@@ -2389,5 +2351,54 @@ body.archive-mode .loading-anim{ display:grid; }
   }
   .search-grid .select{
     flex:1 1 120px;
+  }
+}
+
+/* ==================================================================
+   모바일 최적화 (파일 최하단에 두는 이유)
+   기본 규칙(.song-card-list, .guestbook-panel 등)이 이 파일 뒤쪽에
+   정의되어 있어, 같은 특이도의 override를 앞쪽에 두면 무시된다.
+   ================================================================== */
+@media (max-width: 720px){
+  /* 곡 카드: 240px 고정 트랙이면 좁은 화면에서 양옆 여백이 크게 버려진다.
+     남는 폭을 카드가 나눠 갖도록 유동 트랙으로 바꾼다. */
+  .song-card-list{
+    grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr));
+    justify-content: stretch;
+  }
+
+  /* 떠있는 패널이 화면을 통째로 덮지 않도록 높이를 제한하고,
+     좁은 화면에서는 모두 같은 좌우 여백을 쓰게 해 서로 어긋나지 않게 한다.
+     (셋리스트는 저장된 데스크톱 크기가 인라인 style로 재적용되므로 !important 필요) */
+  .setlist-panel{
+    height: min(56vh, 480px) !important;
+    max-height: 56vh !important;
+  }
+  .guestbook-panel{
+    left: 12px;
+    right: 12px;
+    top: auto;
+    bottom: 72px;
+    width: auto;
+    height: min(56vh, 480px);
+  }
+  .floating-presence-panel{
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-height: 42vh;
+  }
+  .floating-session-panel{
+    left: 12px;
+    right: 12px;
+    width: auto;
+    bottom: auto;
+    top: 12px;
+    max-height: 42vh;
+  }
+  .request-dock{
+    left: 12px;
+    right: 12px;
+    width: auto;
   }
 }

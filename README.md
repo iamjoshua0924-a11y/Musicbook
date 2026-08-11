@@ -35,6 +35,17 @@ JSON.parse(Buffer.from(process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64, 'base64')
 - `session:follow:file` (페이지터너만 곡 전환 브로드캐스트)
 - `wb:page:update` (페이지별 스냅샷 SSOT)
 
-## 5) GitHub Push
-현재 실행 환경에는 `git`이 설치되어 있지 않아 제가 직접 push를 수행할 수 없습니다.  
-대신 이 폴더를 그대로 로컬에서 git init 후 push 해주세요.
+## 5) GitHub Push & 배포 파이프라인
+Claude(Cowork) 세션에서 코드를 수정하면 아래 순서로 자동 반영됩니다.
+
+```
+Claude 코드 수정
+  -> git commit (세션 내 최소 단위)
+  -> git push origin main
+  -> Render Auto-Deploy 트리거 (GitHub 연동, main 브랜치 기준)
+  -> Render가 npm ci -> npm start로 재배포
+```
+
+- push는 fine-grained PAT(Contents: Read and write 권한)로 인증한다.
+- Render 쪽 설정/필수 환경변수는 `RENDER_SETUP.md` 참고.
+- 큰 구조 변경은 별도 브랜치 + PR로 진행하고, 사소한 수정은 main에 직접 push한다.

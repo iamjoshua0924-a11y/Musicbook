@@ -706,6 +706,7 @@ function renderSetlistPanel() {
 
   const hasItems = Array.isArray(state.setlistItems) && state.setlistItems.length > 0;
   const owner = isArchiveOwner();
+  const showBtn = $('setlistShowBtn');
 
   // 버튼(오너만)
   fab.style.display = owner ? 'inline-flex' : 'none';
@@ -714,8 +715,17 @@ function renderSetlistPanel() {
   // 뷰어: 아이템이 없으면 패널 자체를 숨김
   if (!owner && !hasItems) {
     panel.style.display = 'none';
+    if (showBtn) showBtn.style.display = 'none';
     return;
   }
+
+  // 사용자가 직접 숨긴 경우(편집 중에는 무시한다)
+  if (state.setlistHidden && !state.setlistEditMode) {
+    panel.style.display = 'none';
+    if (showBtn) showBtn.style.display = 'inline-flex';
+    return;
+  }
+  if (showBtn) showBtn.style.display = 'none';
   // 오너: 편집 모드거나 아이템이 있으면 패널 표시(없어도 편집 진입 중이면 표시)
   if (owner && (state.setlistEditMode || hasItems)) panel.style.display = 'flex';
   else if (hasItems) panel.style.display = 'flex';
@@ -3900,7 +3910,17 @@ function wireEvents() {
   $('setlistFab').onclick = () => {
     if (!isArchiveOwner()) return;
     if (state.setlistEditMode) return exitSetlistEditMode(true);
+    // 숨겨둔 상태에서 편집에 들어가면 패널이 보여야 한다.
+    state.setlistHidden = false;
     enterSetlistEditMode();
+  };
+  $('setlistHideBtn').onclick = () => {
+    state.setlistHidden = true;
+    renderSetlistPanel();
+  };
+  $('setlistShowBtn').onclick = () => {
+    state.setlistHidden = false;
+    renderSetlistPanel();
   };
   $('setlistCancelBtn').onclick = () => exitSetlistEditMode(true);
   $('setlistClearBtn').onclick = () => {

@@ -733,6 +733,20 @@ body.archive-mode[data-private-theme="midnight"] .setlist-resize-handle{
   flex-wrap:wrap;
   justify-content:flex-end;
 }
+.setlist-header-right{
+  display:flex;
+  align-items:center;
+  gap: 8px;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
+/* 셋리스트 나타내기 버튼: 편집 FAB(우하단) 위에 둔다 */
+.setlist-show-btn{
+  position: fixed;
+  right: 22px;
+  bottom: 78px;
+  z-index: 2600;
+}
 .setlist-help{
   padding: 0 14px 10px;
   font-size: 12px;
@@ -2467,6 +2481,8 @@ body.mb-sheet #presenceHideBtn,
 body.mb-sheet #guestbookHideBtn,
 body.mb-sheet #presencePanelHideBtn,
 body.mb-sheet #sessionPanelHideBtn,
+body.mb-sheet #setlistHideBtn,
+body.mb-sheet #setlistShowBtn,
 body.mb-sheet .setlist-resize-handle{
   display: none !important;
 }

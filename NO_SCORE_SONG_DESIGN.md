@@ -268,3 +268,120 @@ if (sourceType === 'external_link' && !externalUrl) BAD_REQUEST
 - 세션 동기화는 기존 PDF 곡만 유지
 
 이렇게 가면 가장 적은 충돌로 원하는 UX를 만들 수 있다.
+
+---
+
+# 개정 (2026-08-11): entryId 우선으로 결정 변경
+
+이 절은 위 문서의 "최종 추천(빠른 버전 = synthetic id)"을 뒤집는다.
+형식: 기존 결정 → 새로운 정보 → 변경 이유 → 새로운 결정
+
+## 기존 결정
+
+- `googleFileId`에 `ext:<uuid>` / `noscore:<uuid>` 같은 synthetic id를 넣어
+  기존 availability/셋리스트 흐름을 안 깨고 빠르게 붙인다.
+- `entryId` 분리는 3단계(선택)로 미룬다.
+
+## 새로운 정보 (코드 확인으로 드러난 사실)
+
+### 1. 문제가 두 축이다
+
+원 문서는 "악보가 **없는** 곡"만 다룬다. 그러나 실제 병목은 두 개다.
+
+- **A. 악보가 영영 없는 곡** — 코드위키 링크만 있거나 아예 없음
+- **B. 악보는 있는데 아직 Drive/DB에 없는 곡** — 등록 자체가 병목
+
+가능곡을 고를 때 "DB에 갱신해 둔 곡 안에서만 고를 수 있다"는 불편은 주로 **B**다.
+B의 핵심은 *지금 목록에 넣고, 나중에 악보가 Drive에 올라오면 그 항목과 합쳐지는*
+화해(reconciliation) 경로인데, 원 문서에는 이 경로가 없다. 없으면 중복 곡이 쌓인다.
+
+### 2. synthetic id는 Drive 동기화에 지워질 수 있다
+
+`src/services/driveSync.js`의 prune:
+
+```js
+await Song.updateMany(
+  { syncRootId: rootFolderId, lastSeenAt: { $lt: startedAt }, hidden: { $ne: true } },
+  { $set: { hidden: true } }
+);
+```
+
+전체 동기화를 돌리면 이번 스캔에서 못 본 곡은 전부 `hidden: true`가 된다.
+synthetic 곡에 `syncRootId`가 실수로 채워지면 다음 동기화에서 **조용히 사라진다.**
+원 문서는 이 위험을 언급하지 않는다.
+
+### 3. 같은 유형의 버그가 이미 존재한다
+
+`src/routes/privateRequests.js`의 승격(promote):
+
+```js
+await Availability.updateOne(
+  { userId: user.userId, googleFileId },   // googleFileId가 '' 일 수 있다
+  { $set: { userId: user.userId, googleFileId, available: true } },
+  { upsert: true }
+);
+```
+
+`normalizeRequest`는 `googleFileId`를 빈 문자열로 허용하고,
+`Availability`에는 `{ googleFileId, userId }` unique 인덱스가 걸려 있다.
+→ 악보 없는 신청곡을 **두 개 이상 승격하면 서로 덮어써서 사용자당 하나만 남는다.**
+
+## 변경 이유
+
+`googleFileId` 필드에 Drive 파일이 아닌 값이 섞이는 순간,
+동기화·승격·셋리스트가 각자 "이 문자열이 진짜 Drive 파일인가"를 판단해야 한다.
+위 3번은 정확히 그 유형의 버그이고, synthetic id를 도입하면 같은 유형이 계속 재생산된다.
+"빠른 버전"의 이득(기존 흐름 보존)보다 이 비용이 크다.
+
+결정적으로, **B의 화해 경로가 synthetic id에서는 성립하지 않는다.**
+`noscore:<uuid>`로 등록한 곡에 나중에 악보가 생기면 id를 `googleFileId`로 바꿔야 하는데,
+그 순간 availability/셋리스트/숙련도의 참조가 전부 끊긴다.
+
+## 새로운 결정
+
+곡의 정체성을 `entryId`로 두고, `googleFileId`는 **"이 곡에 붙은 악보 파일"이라는 속성**으로 강등한다.
+
+```js
+Song {
+  entryId,                                   // UUID, 곡의 정체성 (PK 역할)
+  title, artist, key, genre, mood, vocal,
+  sourceType,                                // 'drive_pdf' | 'external_link' | 'no_score'
+  googleFileId,                              // sourceType==='drive_pdf'일 때만 의미 있음
+  externalUrl, externalLabel,
+  syncRootId                                 // drive_pdf가 아니면 반드시 '' 로 둔다
+}
+
+Availability { entryId, userId, available, proficiency }
+```
+
+이 구조에서:
+
+- **A**는 `sourceType`으로 표현된다.
+- **B**는 `sourceType: 'no_score'`로 먼저 등록해 두고, 나중에 Drive에 악보가 뜨면
+  그 곡의 `googleFileId`만 채우고 `sourceType`을 `drive_pdf`로 승격한다.
+  **`entryId`가 안 바뀌므로 가능곡·셋리스트·숙련도가 그대로 따라온다.**
+
+## 안전장치 (필수)
+
+1. **prune 이중 방어** — synthetic/no_score 곡은 `syncRootId`를 빈 값으로 두고,
+   추가로 prune 쿼리에 `sourceType: 'drive_pdf'` 조건을 명시한다.
+   둘 중 하나만 두면 나중에 누군가 한쪽을 깨뜨렸을 때 조용히 곡이 사라진다.
+2. **승격 경로 가드** — `googleFileId`가 빈 값이면 `Availability` upsert를 막는다.
+   (entryId 전환 전이라도 이 가드는 지금 넣을 수 있다.)
+3. **악보 매칭은 자동화하지 않는다** — 제목/아티스트 정규화 매칭은 오탐이 난다.
+   잘못 붙으면 다른 곡의 악보가 열린다. 관리자 화면의 **"악보 매칭 후보" 큐**로 두고
+   사람이 확인해서 연결한다.
+
+## 마이그레이션
+
+1. 기존 모든 곡에 `entryId = googleFileId` 값으로 채우고,
+   `sourceType = 'drive_pdf'`로 백필한다. → 이 단계에서 동작은 전혀 바뀌지 않는다.
+2. `Availability`에 `entryId`를 추가하고 같은 방식으로 백필한다.
+   (`googleFileId` 컬럼은 당분간 함께 유지해 롤백 여지를 남긴다.)
+3. 읽기 경로를 `entryId` 기준으로 전환한다.
+4. 쓰기 경로를 전환하고, 마지막에 `Availability.googleFileId`를 제거한다.
+
+## 세션 동기화 원칙 (원 문서 유지)
+
+세션 page-turner 동기화는 `viewer/fileId/pageNo` 중심이므로
+1차에서는 `drive_pdf`만 팔로우 대상으로 허용한다. `external_link` / `no_score`는 제외한다.

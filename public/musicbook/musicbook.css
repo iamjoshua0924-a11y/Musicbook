@@ -751,6 +751,10 @@ body.archive-mode[data-private-theme="midnight"] .setlist-resize-handle{
 .setlist-item{
   display:grid;
   grid-template-columns: 22px minmax(0, 1fr) auto;
+  /* flex 자식이므로 shrink를 막아야 한다.
+     기본값(flex-shrink:1)이면 항목이 많을 때 각 항목이 콘텐츠 높이보다 작게 눌리고,
+     컨테이너가 넘치지 않아 .setlist-list의 overflow:auto 스크롤이 동작하지 않는다. */
+  flex: 0 0 auto;
   min-width: 340px;
   gap: 10px;
   align-items:center;

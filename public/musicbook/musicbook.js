@@ -4519,3 +4519,129 @@ bootstrap().catch((e) => {
   toast('초기화 실패');
   showLoading(false);
 });
+
+// ---- Mobile bottom sheet (<=720px) -----------------------------------------------
+// 좁은 화면에서 떠있는 패널(셋리스트/방명록/신청곡/접속자/세션)이 서로 겹치는 문제를
+// 하단 시트 + 탭 전환으로 해결한다. 데스크톱(>720px)에서는 아무 것도 하지 않는다.
+//
+// 설계 메모:
+// - 패널들은 저장된 드래그 위치/리사이즈 크기를 인라인 style로 되살린다. 인라인은
+//   스타일시트를 이기므로, 시트 모드의 위치/크기는 CSS에서 !important로 강제한다.
+// - 시트 모드에서는 탭 바가 "어떤 패널을 보여줄지"의 단일 진실 공급원이다.
+//   따라서 개별 숨기기/보이기 버튼은 CSS로 감춘다.
+(function initMobileSheet() {
+  const MQ = window.matchMedia('(max-width: 720px)');
+
+  // id -> { label, display: 표시할 때 쓸 display 값 }
+  const PANELS = {
+    setlistPanel: { label: '셋리스트', display: 'flex' },
+    guestbookPanel: { label: '방명록', display: 'flex' },
+    requestDock: { label: '신청곡', display: 'block' },
+    presencePanel: { label: '접속자', display: 'block' },
+    sessionPanel: { label: '세션', display: 'block' }
+  };
+
+  let tabsEl = null;
+  let activeId = '';
+  let applying = false; // MutationObserver 재진입 방지
+
+  // 현재 모드에서 의미 있는 패널만 고른다.
+  function availableIds() {
+    const out = [];
+    if (state.isArchiveMode) {
+      const hasSetlist = (state.setlistItems || []).length > 0;
+      const owner = typeof isArchiveOwner === 'function' ? isArchiveOwner() : false;
+      if (hasSetlist || owner) out.push('setlistPanel');
+      out.push('guestbookPanel');
+    } else {
+      out.push('requestDock');
+      out.push('presencePanel');
+      if (state.sessionRoomCode) out.push('sessionPanel');
+    }
+    return out.filter((id) => document.getElementById(id));
+  }
+
+  function ensureTabs() {
+    if (tabsEl) return tabsEl;
+    tabsEl = document.createElement('nav');
+    tabsEl.className = 'mb-sheet-tabs';
+    tabsEl.id = 'mbSheetTabs';
+    document.body.appendChild(tabsEl);
+    return tabsEl;
+  }
+
+  function applyVisibility(ids) {
+    applying = true;
+    try {
+      ids.forEach((id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.classList.add('mb-sheet-panel');
+        el.style.display = id === activeId ? PANELS[id].display : 'none';
+      });
+    } finally {
+      applying = false;
+    }
+  }
+
+  function renderTabs(ids) {
+    const bar = ensureTabs();
+    bar.innerHTML = '';
+    ids.forEach((id) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'mb-sheet-tab' + (id === activeId ? ' active' : '');
+      btn.textContent = PANELS[id].label;
+      btn.onclick = () => {
+        activeId = activeId === id ? '' : id; // 같은 탭을 다시 누르면 접는다
+        refresh();
+        if (id === 'presencePanel' && activeId === id) state._socket?.emit?.('presence:refresh');
+        if (id === 'guestbookPanel' && activeId === id && typeof renderGuestbook === 'function') renderGuestbook();
+      };
+      bar.appendChild(btn);
+    });
+  }
+
+  function teardown() {
+    document.body.classList.remove('mb-sheet');
+    if (tabsEl) tabsEl.innerHTML = '';
+    applying = true;
+    try {
+      Object.keys(PANELS).forEach((id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.classList.remove('mb-sheet-panel');
+        el.style.display = '';
+      });
+    } finally {
+      applying = false;
+    }
+  }
+
+  function refresh() {
+    if (!MQ.matches) {
+      if (document.body.classList.contains('mb-sheet')) teardown();
+      return;
+    }
+    document.body.classList.add('mb-sheet');
+    const ids = availableIds();
+    if (activeId && !ids.includes(activeId)) activeId = '';
+    applyVisibility(ids);
+    renderTabs(ids);
+  }
+
+  // 앱 로직이 패널 display를 다시 건드리면 시트 상태를 복구한다.
+  const observer = new MutationObserver(() => {
+    if (applying || !MQ.matches) return;
+    refresh();
+  });
+  Object.keys(PANELS).forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) observer.observe(el, { attributes: true, attributeFilter: ['style'] });
+  });
+
+  MQ.addEventListener('change', refresh);
+  window.addEventListener('resize', refresh);
+  window.mbSheetRefresh = refresh;
+  refresh();
+})();

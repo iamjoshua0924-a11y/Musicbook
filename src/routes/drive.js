@@ -4,8 +4,14 @@ const { getFileMetadata, getReadonlyAccessToken, buildPreviewUrl, buildViewUrl }
 const { requireSessionOrAdmin } = require('../middleware/auth');
 const { issueDriveGrantToken, consumeDriveGrantToken } = require('../services/publicPdfSign');
 const { pushError } = require('../services/errorLog');
+const { createRateLimiter } = require('../middleware/rateLimit');
 
 const router = express.Router();
+
+// DS-09(부분 완화): 토큰 발급 경로는 무인증이라 무제한 호출이 가능했다.
+// 정상 사용은 곡 열기당 grant+token 각 1회이므로 분당 30회면 여유가 크다.
+// (토큰 자체의 파일 스코프 축소는 SA 공유 범위 확인이 필요한 정책 항목 — §3 DECISION REQUIRED)
+const driveTokenLimiter = createRateLimiter({ windowMs: 60_000, max: 30 });
 
 // 뷰어 PDF 로딩 실패 진단용 (동작 변경 없음, 로깅만).
 // 실패 즉시 서버 콘솔 + /dev 에러뷰어(errorLog)에 fileId+정확한 사유를 남긴다.
@@ -64,7 +70,7 @@ router.get('/drive/meta/:fileId', requireSessionOrAdmin, asyncHandler(async (req
 }));
 
 // Public viewer용 short-lived internal grant. 실제 Google access token은 별도 교환 단계에서만 발급.
-router.post('/drive/token-grants', express.json(), asyncHandler(async (req, res) => {
+router.post('/drive/token-grants', driveTokenLimiter, express.json(), asyncHandler(async (req, res) => {
   const fileId = String(req.body?.fileId || '').trim();
   if (!fileId) return res.status(400).json({ ok: false, error: 'FILE_ID_REQUIRED' });
   try {
@@ -98,7 +104,7 @@ router.post('/drive/token-grants', express.json(), asyncHandler(async (req, res)
   }
 }));
 
-router.post('/drive/access-token', express.json(), asyncHandler(async (req, res) => {
+router.post('/drive/access-token', driveTokenLimiter, express.json(), asyncHandler(async (req, res) => {
   const grantToken = String(req.body?.grantToken || '').trim();
   if (!grantToken) return res.status(400).json({ ok: false, error: 'GRANT_REQUIRED' });
   const consumed = consumeDriveGrantToken(grantToken);

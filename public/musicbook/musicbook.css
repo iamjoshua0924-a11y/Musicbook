@@ -2354,14 +2354,23 @@ body.archive-mode[data-private-theme="midnight"] .book-theme-swatches span{
   inset: 0;
   display: none;
   place-items: center;
-  background: rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(12px);
+  /* 테마 연동: 커스텀 테마가 --page-bg를 세팅하면 그 색으로, 아니면 밝은 기본값.
+     예전의 반투명 흰색+backdrop-filter(blur 12px)는 (a) 다크/커스텀 테마에서 흰 화면,
+     (b) 모바일에서 전체 화면 blur 리페인트 비용으로 끊김을 유발했다. */
+  background: var(--page-bg, #f6f7fb);
   z-index: 3300; /* UX-8: 로딩 스크린 최상단 */
   font-weight: 1000;
   font-size: 18px;
+  opacity: 1;
 }
 .loading-screen.active {
   display: grid;
+}
+/* 퇴장: display 즉시 컷 대신 짧은 페이드 아웃(JS가 leaving 부여 → 전환 후 제거) */
+.loading-screen.active.leaving {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.26s ease;
 }
 
 /* Loading animation (private songbook) */
@@ -2393,7 +2402,7 @@ body.archive-mode .loading-anim{ display:grid; }
   border-radius: 999px;
   border: 2px solid rgba(0,0,0,0.10);
   border-top-color: rgba(59,109,246,0.55);
-  filter: drop-shadow(0 10px 22px rgba(0,0,0,0.10));
+  /* drop-shadow 필터는 회전 애니메이션마다 리페인트 비용이 커서 제거(저사양 끊김) */
   z-index: 0;
   opacity: 0;
   transform: scale(0.92);
@@ -2407,9 +2416,9 @@ body.archive-mode .loading-anim{ display:grid; }
   object-fit: cover;
   background: linear-gradient(90deg, rgba(0,0,0,0.06), rgba(0,0,0,0.03), rgba(0,0,0,0.06));
   background-size: 240% 100%;
-  background-color: rgba(255,255,255,0.75);
+  background-color: var(--card-bg, rgba(255,255,255,0.75));
   box-shadow: 0 18px 46px rgba(0,0,0,0.10);
-  border: 1px solid rgba(255,255,255,0.65);
+  border: 1px solid var(--card-border, rgba(255,255,255,0.65));
   transform: translateY(-80px);
   opacity: 0;
 }
@@ -2421,8 +2430,9 @@ body.archive-mode .loading-anim{ display:grid; }
   gap: 10px;
   padding: 10px 14px;
   border-radius: 999px;
-  background: rgba(255,255,255,0.70);
-  border: 1px solid rgba(255,255,255,0.65);
+  /* 커스텀(다크 포함) 테마 표면과 연동 — 흰색 고정 캡슐이 다크 테마에서 붕 뜨던 문제 */
+  background: var(--card-bg, rgba(255,255,255,0.70));
+  border: 1px solid var(--card-border, rgba(255,255,255,0.65));
   box-shadow: 0 16px 44px rgba(0,0,0,0.10);
   transform: translateY(80px);
   opacity: 0;
@@ -2436,10 +2446,17 @@ body.archive-mode .loading-anim{ display:grid; }
   background: linear-gradient(90deg, rgba(0,0,0,0.06), rgba(0,0,0,0.03), rgba(0,0,0,0.06));
   background-size: 240% 100%;
   background-color: rgba(0,0,0,0.06);
-  animation: mbLoadingShimmer 1.4s ease-in-out infinite;
   border: 1px solid rgba(0,0,0,0.10);
 }
+/* 이미지 상태 클래스(JS가 부여):
+   - img-pending: 로드 중 — 시머 재생(로드 완료/실패 시 중단해 무한 리페인트 방지)
+   - img-empty: 소스 없음/실패 — 타이틀 이미지는 자리 자체를 없앤다(1x1 gif collapse 방지) */
+.loading-title-image.img-empty{ display:none !important; }
+.loading-profile-image.img-pending{ animation: mbLoadingShimmer 1.4s ease-in-out infinite; }
 .loading-screen.active .loading-title-image{
+  animation: mbLoadingDrop 1.05s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.loading-screen.active .loading-title-image.img-pending{
   animation:
     mbLoadingDrop 1.05s cubic-bezier(0.16, 1, 0.3, 1) both,
     mbLoadingShimmer 1.4s ease-in-out infinite;
@@ -2448,14 +2465,35 @@ body.archive-mode .loading-anim{ display:grid; }
   animation: mbLoadingRise 1.05s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 .loading-screen.active .loading-ring{
+  /* infinite: 예전엔 2회전 후 정지해 로딩이 길어지면 죽은 화면처럼 보였다.
+     전용 keyframe(mbLoadingRingSpin) 사용: 공용 mbspin은 to{rotate(360deg)}만 정의하는데
+     링의 기본 transform이 scale(0.92)라 리스트 불일치 → 행렬 분해 보간에서 360°=0°가 되어
+     실제로는 전혀 회전하지 않았다(from/to를 같은 형태로 명시해야 회전이 보간된다). */
   animation:
     mbLoadingRingIntro 0.28s ease 0.88s both,
-    mbspin 1.05s linear 0.88s 2;
+    mbLoadingRingSpin 1.05s linear 0.88s infinite;
+}
+/* 인트로 1회 재생 후(또는 재표시 시) 정착 상태: 인트로 애니메이션 없이 최종 위치 고정,
+   링 회전만 유지 — showLoading이 intro-done을 부여한다(강제 재생 로직 제거). */
+.loading-screen.active.intro-done .loading-title-image,
+.loading-screen.active.intro-done .loading-profile{
+  animation: none;
+  opacity: 1;
+  transform: none;
+}
+.loading-screen.active.intro-done .loading-title-image.img-pending{
+  animation: mbLoadingShimmer 1.4s ease-in-out infinite;
+}
+.loading-screen.active.intro-done .loading-ring{
+  animation: mbLoadingRingSpin 1.05s linear infinite;
+  opacity: 1;
+  transform: none;
 }
 .loading-nickname{
   font-size: 18px;
   font-weight: 1000;
   letter-spacing: -0.02em;
+  color: var(--black, #111318);
 }
 @keyframes mbLoadingDrop{
   0%{ transform: translateY(-80px); opacity: 0; }
@@ -2475,8 +2513,20 @@ body.archive-mode .loading-anim{ display:grid; }
   0%{ opacity: 0; transform: scale(0.92); }
   100%{ opacity: 1; transform: scale(1); }
 }
+@keyframes mbLoadingRingSpin{
+  from{ transform: scale(1) rotate(0deg); }
+  to{ transform: scale(1) rotate(360deg); }
+}
 @media (prefers-reduced-motion: reduce){
-  .loading-title-image, .loading-profile, .loading-ring{ animation: none !important; }
+  /* 예전에는 animation:none만 걸어 기본 상태(opacity:0 + translateY ±80px)가 그대로 남아
+     모션 축소 사용자에게 "빈 화면"만 보였다. 애니메이션 대신 '최종 상태'를 정적으로 보여준다. */
+  .loading-title-image, .loading-profile, .loading-ring{
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .loading-ring{ opacity: 0.35 !important; }
+  .loading-screen.active.leaving{ transition: none; }
 }
 
 @media (max-width: 980px) {

@@ -147,17 +147,27 @@ function readThemeCache(userId) {
       theme,
       customA: String(v.customA || '').trim(),
       customB: String(v.customB || '').trim(),
-      customC: String(v.customC || '').trim()
+      customC: String(v.customC || '').trim(),
+      // 로딩 인트로용: 재방문 시 서버 응답 전에 이미지/닉네임까지 즉시 표시
+      titleImage: String(v.titleImage || '').trim(),
+      profilePhoto: String(v.profilePhoto || '').trim(),
+      displayName: String(v.displayName || '').trim()
     };
   } catch {
     return null;
   }
 }
 
-function writeThemeCache(userId, theme, customA, customB, customC) {
+function writeThemeCache(userId, theme, customA, customB, customC, extra = {}) {
   try {
     const key = getThemeCacheKey(userId);
     if (!key) return;
+    // extra(titleImage/profilePhoto/displayName)를 안 주는 호출부(테마 설정 저장 등)에서도
+    // 기존 캐시의 인트로 정보가 지워지지 않게 병합한다.
+    let prev = {};
+    try {
+      prev = JSON.parse(localStorage.getItem(key) || '{}') || {};
+    } catch {}
     localStorage.setItem(
       key,
       JSON.stringify({
@@ -165,6 +175,9 @@ function writeThemeCache(userId, theme, customA, customB, customC) {
         customA: String(customA || '#f2f3ff'),
         customB: String(customB || '#ffffff'),
         customC: String(customC || '#6b5bff'),
+        titleImage: String(extra.titleImage ?? prev.titleImage ?? '').trim(),
+        profilePhoto: String(extra.profilePhoto ?? prev.profilePhoto ?? '').trim(),
+        displayName: String(extra.displayName ?? prev.displayName ?? '').trim(),
         savedAt: Date.now()
       })
     );
@@ -1071,19 +1084,34 @@ function setArchiveShellUI() {
 
 function setLoadingContext({ titleImage = '', profilePhoto = '', displayName = '' } = {}) {
   try {
-    const blank = 'data:image/gif;base64,R0lGODlhAQABAAAAACw=';
-    const ti = document.getElementById('loadingTitleImage');
-    if (ti) {
-      const u = normalizeProfilePhotoUrl(titleImage || '', 1200);
-      ti.src = u || blank;
-      ti.style.display = 'block';
-    }
-    const pi = document.getElementById('loadingProfileImage');
-    if (pi) {
-      const u = normalizeProfilePhotoUrl(profilePhoto || '', 240);
-      pi.src = u || blank;
-      pi.style.display = 'block';
-    }
+    // 이미지 로드 상태를 클래스로 관리:
+    // img-pending(로드 중: 시머) → img-loaded(완료: 시머 중단) / img-empty(없음·실패: 숨김/정적).
+    // 예전에는 소스가 없으면 1x1 투명 gif를 넣어 타이틀 이미지가 1px로 collapse했고,
+    // 시머가 로드 완료 후에도 무한 재생되어 리페인트 비용을 냈다.
+    const wireImg = (img, url) => {
+      if (!img) return;
+      const u = String(url || '').trim();
+      if (!u) {
+        img.classList.remove('img-pending', 'img-loaded');
+        img.classList.add('img-empty');
+        img.removeAttribute('src');
+        return;
+      }
+      if (img.getAttribute('src') === u && img.classList.contains('img-loaded')) return; // 동일 소스 재적용 무시
+      img.classList.remove('img-loaded', 'img-empty');
+      img.classList.add('img-pending');
+      img.onload = () => {
+        img.classList.add('img-loaded');
+        img.classList.remove('img-pending', 'img-empty');
+      };
+      img.onerror = () => {
+        img.classList.add('img-empty');
+        img.classList.remove('img-pending', 'img-loaded');
+      };
+      img.src = u;
+    };
+    wireImg(document.getElementById('loadingTitleImage'), normalizeProfilePhotoUrl(titleImage || '', 1200));
+    wireImg(document.getElementById('loadingProfileImage'), normalizeProfilePhotoUrl(profilePhoto || '', 240));
     const nn = document.getElementById('loadingNickname');
     if (nn) nn.textContent = String(displayName || '').trim() || '로딩 중...';
   } catch {}
@@ -1249,6 +1277,21 @@ function highlightHtml(text, q) {
 
 let _loadingShownAt = 0;
 let _loadingHideTimer = null;
+let _loadingIntroPlayed = false;
+function prefersReducedMotion() {
+  try {
+    return Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches);
+  } catch {
+    return false;
+  }
+}
+// 로딩 화면(개인 노래책 브랜딩 인트로) 표시/숨김.
+// 재설계(2차 감사 후속):
+// - 인트로(드롭/상승)는 페이지 로드당 1회만 재생. 재표시 시에는 정착 상태(intro-done)로
+//   바로 보여준다 — 예전의 "강제 reflow로 매번 재시작" 로직 제거.
+// - 최소 노출은 인트로가 도는 중일 때만 짧게(700ms) 보장 — 예전의 고정 1100ms 강제 대기 제거.
+// - 숨김은 display 즉시 컷이 아니라 0.26s 페이드 아웃(leaving) 후 제거.
+// - 모션 축소 설정에서는 즉시 전환(전환/인트로는 CSS에서 정적 최종 상태로 대체됨).
 function showLoading(on) {
   const el = $('loadingScreen');
   if (!el) return;
@@ -1258,21 +1301,36 @@ function showLoading(on) {
     _loadingHideTimer = null;
   }
   if (enabled) {
+    el.classList.remove('leaving');
+    if (el.classList.contains('active')) return; // 이미 표시 중 — 인트로 재시작 금지
     _loadingShownAt = Date.now();
-    // 애니메이션 재시작을 위해 active를 강제로 토글
-    el.classList.remove('active');
-    // force reflow
-    void el.offsetHeight; // eslint-disable-line no-unused-expressions
+    el.classList.toggle('intro-done', _loadingIntroPlayed);
     el.classList.add('active');
+    _loadingIntroPlayed = true;
     return;
   }
 
-  // 개인 노래책에서는 로딩 애니메이션이 눈에 보이도록 최소 노출 시간을 준다.
-  const minMs = state?.isArchiveMode ? 1100 : 0;
+  const reduced = prefersReducedMotion();
+  // 인트로 진행 중 갑자기 사라지는 "잘림"만 막는다(짧은 보장). 데이터가 준비된 뒤
+  // 사용자를 오래 붙잡던 고정 지연은 제거.
+  const introActive = state?.isArchiveMode && !el.classList.contains('intro-done') && !reduced;
+  const minMs = introActive ? 700 : 0;
   const elapsed = Date.now() - (_loadingShownAt || 0);
   const wait = Math.max(0, minMs - elapsed);
-  if (wait) _loadingHideTimer = setTimeout(() => el.classList.remove('active'), wait);
-  else el.classList.remove('active');
+  const hide = () => {
+    if (reduced) {
+      el.classList.remove('active', 'leaving', 'intro-done');
+      _loadingHideTimer = null;
+      return;
+    }
+    el.classList.add('leaving');
+    _loadingHideTimer = setTimeout(() => {
+      el.classList.remove('active', 'leaving', 'intro-done');
+      _loadingHideTimer = null;
+    }, 300);
+  };
+  if (wait) _loadingHideTimer = setTimeout(hide, wait);
+  else hide();
 }
 
 // T-21: 로딩 중 이전 결과 유지(리스트 흐림 처리)
@@ -4329,7 +4387,12 @@ async function saveBookSettings() {
   state.archiveThemeCustomB = String(res.customB || state.archiveThemeCustomB || '#ffffff');
   state.archiveThemeCustomC = String(res.customC || state.archiveThemeCustomC || '#6b5bff');
   if (state.isArchiveMode && state.archiveTargetUserId) {
-    writeThemeCache(state.archiveTargetUserId, state.archiveTheme, state.archiveThemeCustomA, state.archiveThemeCustomB, state.archiveThemeCustomC);
+    // 설정 저장으로 타이틀 이미지가 바뀌었을 수 있으니 인트로 캐시도 갱신
+    writeThemeCache(state.archiveTargetUserId, state.archiveTheme, state.archiveThemeCustomA, state.archiveThemeCustomB, state.archiveThemeCustomC, {
+      titleImage: state.archiveTitleImage,
+      profilePhoto: state.archiveProfilePhoto,
+      displayName: state.archiveDisplayName
+    });
   }
   state.archiveStatusTitle = String(res.statusTitle || '').trim();
   state.archiveStatusDesc = String(res.statusDesc || '').trim();
@@ -5525,6 +5588,15 @@ async function bootstrap() {
       if (cached?.customB) state.archiveThemeCustomB = cached.customB;
       if (cached?.customC) state.archiveThemeCustomC = cached.customC;
       applyArchiveTheme();
+      // 재방문: 서버 응답을 기다리지 않고 캐시된 타이틀/프로필/닉네임으로 인트로를 완성한다.
+      // (예전에는 색만 캐시되어 빈 <img>로 인트로가 돌다가 fetch 후 이미지가 팝인했다)
+      if (cached?.titleImage || cached?.profilePhoto || cached?.displayName) {
+        setLoadingContext({
+          titleImage: cached.titleImage,
+          profilePhoto: cached.profilePhoto,
+          displayName: cached.displayName
+        });
+      }
     }
 
     wireEvents();
@@ -5559,7 +5631,13 @@ async function bootstrap() {
             state.archiveTheme,
             state.archiveThemeCustomA,
             state.archiveThemeCustomB,
-            state.archiveThemeCustomC
+            state.archiveThemeCustomC,
+            // 다음 방문의 로딩 인트로가 첫 프레임부터 완성되도록 이미지/닉네임도 캐시
+            {
+              titleImage: state.archiveTitleImage,
+              profilePhoto: state.archiveProfilePhoto,
+              displayName: state.archiveDisplayName
+            }
           );
           applyArchiveTheme();
           applySongsViewMode();

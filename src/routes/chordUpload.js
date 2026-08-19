@@ -3,6 +3,9 @@ const { z } = require('zod');
 const { nanoid } = require('nanoid');
 
 const { asyncHandler } = require('../middleware/asyncHandler');
+const { createRateLimiter } = require('../middleware/rateLimit');
+// CHORD-3(2차 감사): 무인증 파서(CPU) 유발 경로 — IP당 분당 10회 제한
+const chordUploadLimiter = createRateLimiter({ windowMs: 60_000, max: 10 });
 const { parseRawTextToBlocks } = require('../services/chordParser');
 const { setTempDoc } = require('../services/chordDocTempStore');
 const ChordDoc = require('../models/ChordDoc');
@@ -77,6 +80,7 @@ function compactBlocksV2(blocks) {
 // - 목적: Render 502/DB 이슈와 무관하게 "docId 발급"을 안정화
 router.post(
   '/chord/upload',
+  chordUploadLimiter,
   asyncHandler(async (req, res) => {
     const schema = z
       .object({

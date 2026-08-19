@@ -3,6 +3,9 @@ const { z } = require('zod');
 const { nanoid } = require('nanoid');
 
 const { asyncHandler } = require('../middleware/asyncHandler');
+const { createRateLimiter } = require('../middleware/rateLimit');
+// CHORD-3(2차 감사): 무인증 외부 fetch/puppeteer 유발 경로 — IP당 분당 10회 제한
+const proxyChordLimiter = createRateLimiter({ windowMs: 60_000, max: 10 });
 const { parseRawTextToBlocks } = require('../services/chordParser');
 const { fetchRenderedHtml } = require('../services/puppeteerFetch');
 const ChordDoc = require('../models/ChordDoc');
@@ -277,6 +280,7 @@ function shouldTryPuppeteer({ status, text, errorCode }) {
 
 router.get(
   '/proxy-chord',
+  proxyChordLimiter,
   asyncHandler(async (req, res) => {
   const schema = z.object({ url: z.string().url() });
   const parsed = schema.safeParse(req.query);
@@ -387,6 +391,7 @@ router.get(
 
 router.post(
   '/proxy-chord',
+  proxyChordLimiter,
   asyncHandler(async (req, res) => {
   const schema = z
     .union([

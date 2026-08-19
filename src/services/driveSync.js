@@ -157,7 +157,7 @@ async function syncDriveFolderTree({
     if (typeof shouldAbort === 'function' && shouldAbort()) return abortResult();
     const { folderId, path } = queue.shift();
     try {
-      onProgress?.({ phase: 'folder', processed, skipped, currentPath: path, queueLength: queue.length });
+      Promise.resolve(onProgress?.({ phase: 'folder', processed, skipped, currentPath: path, queueLength: queue.length })).catch(() => {});
     } catch {}
     let pageToken = undefined;
 
@@ -220,6 +220,12 @@ async function syncDriveFolderTree({
         const isLatest = driveModifiedTime ? driveModifiedTime.getTime() >= latestThreshold : false;
         const prevMs = prevMap.has(String(fileId)) ? prevMap.get(String(fileId)) : null;
         const nextMs = driveModifiedTime ? driveModifiedTime.getTime() : 0;
+        // DS-01(2차 감사): 파일이 변경되지 않았으면(mtime 동일) 관리자가 DB에서 수동
+        // 편집한 title/displayTitle/artist/parseError를 보존한다. Drive에서 파일명을
+        // 실제로 바꾸면 mtime이 갱신되어 기존처럼 파싱값으로 덮인다("파일명=진실"은
+        // 파일이 변한 경우에만). incremental skip 브랜치의 보존 철학과 동일.
+        const fileUnchanged =
+          prevMs !== null && Number.isFinite(prevMs) && Number.isFinite(nextMs) && nextMs !== 0 && prevMs === nextMs;
 
         if (incSinceDate && driveModifiedTime && driveModifiedTime.getTime() <= incSinceDate.getTime()) {
           // still mark as seen to avoid pruning when scanning the same root repeatedly
@@ -259,7 +265,7 @@ async function syncDriveFolderTree({
           );
           skipped += 1;
           try {
-            onProgress?.({ phase: 'skip', processed, skipped, currentPath: path, fileName: f.name || '' });
+            Promise.resolve(onProgress?.({ phase: 'skip', processed, skipped, currentPath: path, fileName: f.name || '' })).catch(() => {});
           } catch {}
           continue;
         }
@@ -277,12 +283,13 @@ async function syncDriveFolderTree({
           [
             {
               $set: {
-                title,
-                displayTitle,
-                artist,
+                // fileUnchanged면 기존 문서 값 보존($ifNull은 upsert 신규 문서에만 파싱값 적용)
+                title: fileUnchanged ? { $ifNull: ['$title', title] } : title,
+                displayTitle: fileUnchanged ? { $ifNull: ['$displayTitle', displayTitle] } : displayTitle,
+                artist: fileUnchanged ? { $ifNull: ['$artist', artist] } : artist,
                 driveUrl: buildViewUrl(fileId),
                 folderPath: path,
-                parseError,
+                parseError: fileUnchanged ? { $ifNull: ['$parseError', parseError] } : parseError,
                 isLatest,
                 driveModifiedTime,
                 hidden: hiddenByPattern ? true : false,
@@ -311,11 +318,11 @@ async function syncDriveFolderTree({
                 searchText: {
                   $toLower: {
                     $concat: [
-                      String(displayTitle || ''),
+                      { $ifNull: ['$displayTitle', ''] },
                       ' ',
-                      String(title || ''),
+                      { $ifNull: ['$title', ''] },
                       ' ',
-                      String(artist || ''),
+                      { $ifNull: ['$artist', ''] },
                       ' ',
                       { $ifNull: ['$genre', ''] },
                       ' ',
@@ -346,7 +353,7 @@ async function syncDriveFolderTree({
 
         processed += 1;
         try {
-          onProgress?.({ phase: 'file', processed, skipped, currentPath: path, fileName: f.name || '' });
+          Promise.resolve(onProgress?.({ phase: 'file', processed, skipped, currentPath: path, fileName: f.name || '' })).catch(() => {});
         } catch {}
       }
 

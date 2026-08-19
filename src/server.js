@@ -51,17 +51,42 @@ process.on('uncaughtException', (err) => {
   } catch {}
 });
 
+// DS-03b(2차 감사): sync 도중 프로세스가 재시작(배포/크래시)되면 DB의
+// driveSyncStatus에 running:true가 남는다. in-memory lock은 리셋되지만
+// UI(/dev·musicbook 관리자 메뉴)는 DB status를 보고 영구 '동기화 중'으로
+// 잠긴다. 부팅 시 1회 정리한다(best-effort — 실패해도 부팅은 계속).
+async function cleanupStaleSyncStatus() {
+  try {
+    const { KEYS, getJson, setJson } = require('./services/syncStatus');
+    const s = await getJson(KEYS.driveSyncStatus, null);
+    if (s && s.running === true) {
+      await setJson(KEYS.driveSyncStatus, {
+        ...s,
+        running: false,
+        ok: false,
+        error: s.error || 'INTERRUPTED_BY_RESTART',
+        endedAt: s.endedAt || new Date().toISOString()
+      });
+      // eslint-disable-next-line no-console
+      console.log('[musicbook-server] cleared stale driveSyncStatus.running (process restarted during sync)');
+    }
+  } catch {}
+}
+
 async function main() {
   // In dev, allow the server to start even if MongoDB is not reachable
   // (e.g., Atlas IP whitelist not configured). Routes that require DB may fail
   // until a connection is established.
   if (env === 'development') {
-    connectMongo().catch((err) => {
-      // eslint-disable-next-line no-console
-      console.error('[musicbook-server] MongoDB connection failed:', err?.message || err);
-    });
+    connectMongo()
+      .then(() => cleanupStaleSyncStatus())
+      .catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error('[musicbook-server] MongoDB connection failed:', err?.message || err);
+      });
   } else {
     await connectMongo();
+    cleanupStaleSyncStatus().catch(() => {});
   }
 
   const app = createApp();

@@ -12,8 +12,26 @@
 // - 전각 괄호(（ ）)도 허용
 const KEY_IN_PAREN_RE = /[（(]\s*([A-Ga-g])\s*([#b♯♭]?)\s*(m?)\s*[)）]/;
 
-const BAD_TOKENS_RE =
-  /(악보바다|악보|스코어|score|sheet|3단|2단|4단|단|MR|inst|instrumental|파트|피아노|기타|드럼|베이스)/i;
+// DS-08(2차 감사): 기존 구현은 파일명 전체에 대한 부분 문자열 매치라서
+// '단'이 "단발머리", 'MR'이 "Mr.Children", 'inst'가 "Instinct" 같은 정상 곡명에도
+// 걸려 곡이 조용히 숨김 처리됐다(실측 재현). 스크랩 유입 파일명의 실제 형태는
+// "아티스트-곡제목-악보바다-3단"처럼 토큰이 하이픈 세그먼트 단위로 붙으므로,
+// 판정을 세그먼트 기준으로 좁힌다(차단 의도는 유지):
+// - 세그먼트가 토큰과 정확히 일치하면 차단 (예: "…-3단", "…-MR", "…-피아노")
+// - '악보'/'악보바다'류 출처 표기는 세그먼트 안 부분 매치 유지 (예: "…-피아노 악보")
+const BAD_SEGMENT_TOKENS = new Set(
+  ['악보바다', '악보', '스코어', 'score', 'sheet', '3단', '2단', '4단', '단', 'mr', 'inst', 'instrumental', '파트', '피아노', '기타', '드럼', '베이스']
+);
+const BAD_SEGMENT_SUBSTR_RE = /악보/; // 출처/형태 표기(부분 매치 유지 대상)
+
+function hasBadSegmentToken(parts) {
+  return parts.some((seg) => {
+    const s = String(seg || '').trim().toLowerCase();
+    if (!s) return false;
+    if (BAD_SEGMENT_TOKENS.has(s)) return true;
+    return BAD_SEGMENT_SUBSTR_RE.test(s);
+  });
+}
 
 function clean(s) {
   return String(s ?? '').replace(/\s+/g, ' ').trim();
@@ -65,7 +83,7 @@ function normalizeSongFileName({ filenameNoExt, artistFreqMap } = {}) {
   // 이상 패턴(예: 아티스트-곡제목-악보바다-3단)은 사이트 비노출 대상
   // - 하이픈 분절이 3개 이상이면서, 출처/형태 토큰이 포함된 경우
   const rawParts = raw.split('-').map((x) => clean(x)).filter(Boolean);
-  if (rawParts.length >= 3 && BAD_TOKENS_RE.test(raw)) {
+  if (rawParts.length >= 3 && hasBadSegmentToken(rawParts)) {
     return {
       title: '',
       key: '',

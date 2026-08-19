@@ -723,12 +723,35 @@ function formatBytes(bytes) {
   return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
+// flush(): 대기 중인 호출을 즉시 실행. teardown 직전에 "아직 저장 안 된 상태"를 잃지 않으려면 필요하다.
+// cancel(): 대기 중인 호출을 폐기.
 function debounce(fn, ms) {
   let t = null;
-  return (...args) => {
+  let pendingArgs = null;
+  const wrapped = (...args) => {
+    pendingArgs = args;
     clearTimeout(t);
-    t = setTimeout(() => fn(...args), ms);
+    t = setTimeout(() => {
+      t = null;
+      const a = pendingArgs || [];
+      pendingArgs = null;
+      fn(...a);
+    }, ms);
   };
+  wrapped.flush = () => {
+    if (t === null) return;
+    clearTimeout(t);
+    t = null;
+    const a = pendingArgs || [];
+    pendingArgs = null;
+    fn(...a);
+  };
+  wrapped.cancel = () => {
+    clearTimeout(t);
+    t = null;
+    pendingArgs = null;
+  };
+  return wrapped;
 }
 
 function clamp(n, min, max) {
@@ -4451,6 +4474,14 @@ function applyPanScroll() {
 }
 
 function clearViews() {
+  // IMPORTANT: dispose보다 먼저 flush해야 한다.
+  // 주석 저장은 200ms 디바운스라, 그린 직후 페이지를 넘기면 타이머가 dispose 이후에 발화한다.
+  // 그때는 snapshotPage()가 viewMap을 못 찾아 null을 반환하고 주석이 조용히 사라졌다.
+  for (const fn of broadcastDebouncedByPage.values()) {
+    try {
+      fn?.flush?.();
+    } catch {}
+  }
   for (const v of viewMap.values()) {
     try {
       v.fabric?.dispose?.();
@@ -4832,11 +4863,14 @@ function makeView(pageNo) {
 
   const broadcast = broadcastDebouncedByPage.get(pageNo) ||
     debounce(() => {
-      if (!state.isInSession || !state.roomCode || !state.fileId) return;
-      if (!canUseToolsNow()) return;
+      // IMPORTANT: 로컬 보존(annoStore)은 세션 여부와 무관하게 항상 먼저 수행한다.
+      // 예전에는 아래 세션 가드 뒤에 있어서, 세션에 들어가지 않은 상태로 그린 주석이
+      // 어디에도 저장되지 않아 페이지를 넘길 때마다 사라졌다.
       const snap = snapshotPage(pageNo);
       if (!snap) return;
       state.annoStore[pageNo] = snap;
+      if (!state.isInSession || !state.roomCode || !state.fileId) return;
+      if (!canUseToolsNow()) return;
       socket.emit('wb:page:update', {
         roomCode: state.roomCode,
         fileId: state.fileId,

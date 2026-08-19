@@ -5,8 +5,9 @@ const morgan = require('morgan');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const session = require('express-session');
+const { MongoStore } = require('connect-mongo');
 
-const { env, sessionSecret } = require('./config/env');
+const { env, sessionSecret, mongoUri } = require('./config/env');
 const { pushError } = require('./services/errorLog');
 
 function requireMemberPage(req, res, next) {
@@ -49,7 +50,19 @@ function createApp() {
   app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
   // Sessions (Admin vs Developer cookies are intentionally separated)
+  // NEW-1(2차 감사): store 미지정 시 MemoryStore가 쓰여 재시작/크래시마다 전 로그인
+  // 세션이 소실되고 프로덕션 경고가 떴다. MongoDB에 영속화한다.
+  // - 자체 커넥션(mongoUrl)을 쓰므로 mongoose 연결 상태와 독립(부팅 순서 무관).
+  // - saveUninitialized:false라 로그인된 세션만 저장된다.
+  // - 세션 ID는 전역 유일하므로 admin/dev 두 미들웨어가 한 store를 공유해도 안전.
+  const sessionStore = MongoStore.create({
+    mongoUrl: mongoUri,
+    collectionName: 'httpSessions',
+    // 요청마다 세션 touch 쓰기가 나가지 않도록 24h에 1회만 갱신
+    touchAfter: 24 * 3600
+  });
   const baseSessionOpts = {
+    store: sessionStore,
     secret: sessionSecret,
     resave: false,
     saveUninitialized: false,

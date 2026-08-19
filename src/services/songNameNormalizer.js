@@ -160,4 +160,27 @@ function normalizeSongFileName({ filenameNoExt, artistFreqMap } = {}) {
   };
 }
 
-module.exports = { normalizeSongFileName, KEY_IN_PAREN_RE };
+/**
+ * normalizeSongFileName()의 반대 방향: {title,key,artist} -> Drive에 올릴 파일명.
+ * "곡제목(조성)-아티스트.ext" 규칙(admin.js의 rename-on-edit에서 쓰던 buildDriveName을 그대로 이식).
+ *
+ * @param {object} fields
+ * @param {string} fields.title - displayTitle이 있으면 호출부에서 미리 title 자리에 넣어서 넘길 것
+ *   (이 함수는 어느 쪽을 우선할지 모르므로 "최종적으로 파일명에 쓸 제목" 하나만 받는다).
+ * @param {string} [fields.key]
+ * @param {string} [fields.artist]
+ * @param {string} ext - 확장자('.pdf' 또는 'pdf' 둘 다 허용). 기존 파일명에서 추출하는 로직은
+ *   호출부 책임이다(업로드는 기존 파일명이 없을 수 있어 이 함수에서 강제하지 않는다).
+ */
+function buildSongFileName({ title, key, artist } = {}, ext) {
+  const safe = (s) => String(s || '').replace(/[\\/]/g, '_').trim();
+  const t = safe(String(title || '').trim() || '제목없음');
+  const k = safe(key);
+  const a = safe(artist);
+  const base = `${t}${k ? `(${k})` : ''}${a ? `-${a}` : ''}`;
+  const rawExt = String(ext || '.pdf').trim() || '.pdf';
+  const normalizedExt = rawExt.startsWith('.') ? rawExt : `.${rawExt}`;
+  return `${base}${normalizedExt}`;
+}
+
+module.exports = { normalizeSongFileName, buildSongFileName, KEY_IN_PAREN_RE };

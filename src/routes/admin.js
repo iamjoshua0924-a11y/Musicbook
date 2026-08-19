@@ -16,6 +16,7 @@ const { getTrafficMetrics, resetTrafficMetrics } = require('../services/trafficM
 const { driveToThumb } = require('../services/legacyCsvImport');
 const { buildPrivateArchivePath } = require('../services/privateArchive');
 const { hasPublicBook } = require('../services/bookAccess');
+const { buildSongFileName } = require('../services/songNameNormalizer');
 
 const router = express.Router();
 
@@ -368,6 +369,8 @@ router.patch('/admin/songs/:id', requireAdmin, async (req, res) => {
   const mood = req.body?.mood !== undefined ? String(req.body.mood || '').trim() : undefined;
   const vocal = req.body?.vocal !== undefined ? String(req.body.vocal || '').trim() : undefined;
   const hidden = req.body?.hidden !== undefined ? Boolean(req.body.hidden) : undefined;
+  // 이미 악보(파일) 있는 글로벌 곡에도 코드위키 등 외부 링크를 추가/수정할 수 있게 한다.
+  const externalLink = req.body?.externalLink !== undefined ? String(req.body.externalLink || '').trim() : undefined;
   if (!id) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
 
   const update = {};
@@ -379,6 +382,7 @@ router.patch('/admin/songs/:id', requireAdmin, async (req, res) => {
   if (mood !== undefined) update.mood = mood;
   if (vocal !== undefined) update.vocal = vocal;
   if (hidden !== undefined) update.hidden = hidden;
+  if (externalLink !== undefined) update.externalLink = externalLink;
   update.parseError = '';
   update.updatedAt = new Date();
 
@@ -398,20 +402,6 @@ router.patch('/admin/songs/:id', requireAdmin, async (req, res) => {
     .toLowerCase()
     .trim();
 
-  const buildDriveName = (merged2, existingName) => {
-    const extM = String(existingName || '').match(/\.[^.]+$/);
-    const ext = extM ? extM[0] : '.pdf';
-    const t0 = String(merged2.displayTitle || merged2.title || '').trim() || '제목없음';
-    const k0 = String(merged2.key || '').trim();
-    const a0 = String(merged2.artist || '').trim();
-    const safe = (s) => String(s || '').replace(/[\\/]/g, '_').trim();
-    const t = safe(t0);
-    const k = safe(k0);
-    const a = safe(a0);
-    const base = `${t}${k ? `(${k})` : ''}${a ? `-${a}` : ''}`;
-    return `${base}${ext}`;
-  };
-
   /** @type {string} */
   let renameError = '';
   const doc = await Song.findByIdAndUpdate(id, { $set: update }, { new: true }).lean();
@@ -423,7 +413,11 @@ router.patch('/admin/songs/:id', requireAdmin, async (req, res) => {
       const fileId = String(before.googleFileId || '').trim();
       if (fileId) {
         const meta = await getFileMetadata(fileId);
-        const desired = buildDriveName(merged, meta?.name || '');
+        const extM = String(meta?.name || '').match(/\.[^.]+$/);
+        const desired = buildSongFileName(
+          { title: merged.displayTitle || merged.title, key: merged.key, artist: merged.artist },
+          extM ? extM[0] : '.pdf'
+        );
         await renameFile(fileId, desired);
       }
     } catch (e) {
@@ -443,6 +437,7 @@ router.patch('/admin/songs/:id', requireAdmin, async (req, res) => {
       mood: doc.mood,
       vocal: doc.vocal,
       hidden: Boolean(doc.hidden),
+      externalLink: doc.externalLink || '',
       searchText: doc.searchText,
       parseError: doc.parseError
     }

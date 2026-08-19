@@ -1489,6 +1489,20 @@ async function apiJson(url, method, body) {
     return { ok: false, error: `NETWORK_ERROR:${String(e?.message || e)}` };
   }
 }
+// multipart/form-data 업로드용(apiJson은 JSON 전용이라 별도로 둠). formData는 이미 구성된
+// FormData 인스턴스를 받는다(Content-Type은 브라우저가 boundary 포함해서 자동으로 채움).
+async function apiUpload(url, formData) {
+  try {
+    const res = await fetch(apiUrl(url), { method: 'POST', credentials: 'include', body: formData });
+    try {
+      return await res.json();
+    } catch {
+      return { ok: false, error: `BAD_JSON:${res.status}` };
+    }
+  } catch (e) {
+    return { ok: false, error: `NETWORK_ERROR:${String(e?.message || e)}` };
+  }
+}
 
 function updateProfileImage(id, url) {
   const image = $(id);
@@ -2114,6 +2128,9 @@ function renderSongCards(hideTags) {
         : `<span class="score-badge score-badge-none">악보없음</span>`;
 
     const isAdmin = state.role === 'admin';
+    // 악보 연결(placeholder 승격/링크 추가): 오너 본인 또는 관리자만. 서버 권한 체크(song.scope==='private'
+    // && privateOwnerId===본인 || requireAdmin)와 동일 조건이라 버튼이 보이면 실제로도 호출 가능하다.
+    const canAttachFile = !cardHasScoreFile && (isArchiveOwner() || isAdmin);
     const users = state.isArchiveMode ? [] : Array.isArray(c.availableUsers) ? c.availableUsers : [];
     const maxShown = 8;
     const shown = users.slice(0, maxShown);
@@ -2174,6 +2191,7 @@ function renderSongCards(hideTags) {
               ${scoreBadgeHtml}
             </div>
             <div class="song-card-actions">
+              ${canAttachFile ? `<span class="chip edit-chip" data-action="attachFile">악보 연결</span>` : ''}
               ${
                 setlistEdit
                   ? `<label class="setlist-check"><input type="checkbox" data-action="setlistCheck" /> 추가</label>`
@@ -2217,6 +2235,12 @@ function renderSongCards(hideTags) {
       e.preventDefault();
       e.stopPropagation();
       openSongTagModal(c);
+    });
+
+    el.querySelector('[data-action="attachFile"]')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openAttachFileModal(c, primaryVariant);
     });
 
     el.querySelector('[data-action="setlistCheck"]')?.addEventListener('click', (e) => {
@@ -2499,8 +2523,12 @@ function wireCatalogEditFields(el, s) {
 // - Tab: 다음 셀로(브라우저 기본 DOM 탭 순서로 자연히 동작 - 별도 처리 불필요)
 // - Enter: 같은 열의 아래 행으로 이동
 // - 붙여넣기: 탭/줄바꿈 구분 텍스트를 여러 셀에 자동으로 채움(스프레드시트 표 붙여넣기)
-// - 마지막 행이 채워지면 자동으로 새 빈 행 추가
-function createBulkGrid(container, columns, { minRows = 4 } = {}) {
+// - 마지막 행이 채워지면 자동으로 새 빈 행 추가(growable:false면 안 함 - 파일 드롭처럼
+//   행 개수가 외부 목록에 고정되는 경우용)
+// - initialRows: [{ values, tag }] - 미리 채워진 값 + 임의의 태그(예: 파일 객체 참조)로
+//   행을 만들어둘 수 있다. tag는 getFilledRows()가 그대로 돌려주므로, 필터링/사용자 수정과
+//   무관하게 행-외부객체 연결을 안정적으로 유지할 수 있다(Phase 4의 파일 업로드 그리드에서 사용).
+function createBulkGrid(container, columns, { minRows = 4, growable = true, initialRows = null } = {}) {
   container.innerHTML = '';
   const table = document.createElement('table');
   table.className = 'bulk-grid';
@@ -2527,6 +2555,7 @@ function createBulkGrid(container, columns, { minRows = 4 } = {}) {
   }
 
   function ensureTrailingEmptyRow() {
+    if (!growable) return;
     const rows = Array.from(tbody.children);
     const last = rows[rows.length - 1];
     if (!last || rowHasAnyValue(last)) buildRow();
@@ -2564,6 +2593,9 @@ function createBulkGrid(container, columns, { minRows = 4 } = {}) {
             const targetColIdx = colIdx + j;
             if (targetColIdx >= columns.length) return; // 컬럼 수 넘어가는 값은 버림
             const targetRowIdx = rowIdx + i;
+            // growable:false(예: 파일 바인딩 그리드)면 기존 행 범위를 벗어나는 값은 버린다 -
+            // 새로 만든 행은 바인딩된 파일/태그가 없어서 의미가 없다.
+            if (!growable && targetRowIdx >= tbody.children.length) return;
             while (targetRowIdx >= tbody.children.length) buildRow();
             const cell = cellInputAt(targetRowIdx, targetColIdx);
             if (cell) cell.value = val.trim();
@@ -2574,14 +2606,16 @@ function createBulkGrid(container, columns, { minRows = 4 } = {}) {
     });
   }
 
-  function buildRow() {
+  function buildRow(initialValues, tag) {
     const tr = document.createElement('tr');
+    tr._bulkGridTag = tag; // 임의 태그(예: 바인딩된 File 객체) - DOM에 직렬화되지 않는 순수 JS 참조
     columns.forEach((col) => {
       const td = document.createElement('td');
       const input = document.createElement('input');
       input.type = 'text';
       input.dataset.key = col.key;
       input.placeholder = col.placeholder || col.label || '';
+      if (initialValues && initialValues[col.key] !== undefined) input.value = String(initialValues[col.key] || '');
       td.appendChild(input);
       tr.appendChild(td);
     });
@@ -2593,10 +2627,15 @@ function createBulkGrid(container, columns, { minRows = 4 } = {}) {
     return tr;
   }
 
-  for (let i = 0; i < Math.max(1, minRows); i += 1) buildRow();
+  if (Array.isArray(initialRows) && initialRows.length) {
+    initialRows.forEach((r) => buildRow(r?.values, r?.tag));
+  } else {
+    for (let i = 0; i < Math.max(1, minRows); i += 1) buildRow();
+  }
 
-  // 값이 하나라도 채워진 행만 { tr, values } 형태로 반환한다.
-  // 반환 배열의 인덱스가 곧 백엔드에 보낼 items 배열의 인덱스와 같다(row 매칭용).
+  // 값이 하나라도 채워진 행만 { tr, values, tag } 형태로 반환한다.
+  // growable 그리드는 반환 배열의 인덱스가 곧 백엔드에 보낼 items 배열의 인덱스와 같다(row 매칭용).
+  // 파일 바인딩처럼 인덱스가 필터링에 흔들리면 안 되는 경우엔 tag로 원본 객체를 직접 찾는다.
   function getFilledRows() {
     return Array.from(tbody.children)
       .map((tr) => {
@@ -2604,7 +2643,7 @@ function createBulkGrid(container, columns, { minRows = 4 } = {}) {
         columns.forEach((col) => {
           values[col.key] = String(tr.querySelector(`input[data-key="${col.key}"]`)?.value || '').trim();
         });
-        return { tr, values };
+        return { tr, values, tag: tr._bulkGridTag };
       })
       .filter((r) => Object.values(r.values).some(Boolean));
   }
@@ -2696,6 +2735,230 @@ async function submitBulkAddSongs() {
       btn.textContent = '일괄 추가';
     }
   }
+}
+
+// ---- 악보 연결(placeholder 승격 + 코드위키 링크 추가/교체) --------------------------
+let _attachFileTarget = null; // { songId }
+
+function openAttachFileModal(card, variant) {
+  const songId = String(variant?.songId || '').trim();
+  if (!songId) return toast('연결할 곡 정보를 찾을 수 없습니다.');
+  _attachFileTarget = { songId };
+  $('attachFileSubtitle').textContent = `${card.title || ''} - ${card.artist || ''}`.trim();
+  if ($('attachFileInput')) $('attachFileInput').value = '';
+  if ($('attachFileExternalLinkInput')) {
+    // 프리필: 기존에 유효한 링크가 있었다면 그대로 두고(안 건드리면 동일 값 재저장 -> 무변화),
+    // 없었으면 빈 칸으로 시작한다.
+    $('attachFileExternalLinkInput').value = looksLikeUrl(variant?.externalLink) ? variant.externalLink : '';
+  }
+  openModal('attachFileModal');
+}
+
+async function submitAttachFile() {
+  if (!_attachFileTarget?.songId) return;
+  const file = $('attachFileInput')?.files?.[0];
+  const externalLink = String($('attachFileExternalLinkInput')?.value || '').trim();
+  if (!file && !externalLink) return toast('파일 또는 링크 중 하나는 입력해 주세요.');
+
+  const btn = $('attachFileSubmitBtn');
+  try {
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '연결 중...';
+    }
+    const fd = new FormData();
+    if (file) fd.append('file', file);
+    fd.append('externalLink', externalLink);
+    const res = await apiUpload(`/api/songs/${encodeURIComponent(_attachFileTarget.songId)}/attach-file`, fd);
+    if (!res.ok) return toast(res.error === 'FORBIDDEN' ? '권한이 없습니다.' : `연결 실패: ${res.error || ''}`);
+    toast('악보를 연결했습니다.');
+    closeModal('attachFileModal');
+    await refreshSongDataAfterMutation();
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '연결';
+    }
+  }
+}
+
+// ---- 악보 업로드(드래그&드롭) -------------------------------------------------------
+const UPLOAD_ALLOWED_EXT = new Set(['.pdf', '.png', '.jpg', '.jpeg']);
+const UPLOAD_BULK_COLUMNS = [
+  { key: 'title', label: '곡명', placeholder: '곡명', required: true },
+  { key: 'artist', label: '아티스트', placeholder: '아티스트', required: true },
+  { key: 'key', label: '조성', placeholder: '조성(선택)', required: false },
+  { key: 'genre', label: '장르', placeholder: '장르(선택)', required: false }
+];
+
+function fileExtOf(name) {
+  const m = String(name || '').match(/\.[^.]+$/);
+  return m ? m[0].toLowerCase() : '';
+}
+
+let uploadBulkGrid = null;
+let uploadDropFiles = [];
+let uploadMarkAvailableForSelf = false;
+
+// 이 화면(개인 노래책 편집 중이면 true)에 맞게 곡 목록 캐시를 비우고 재조회한다.
+// saveCatalogEdits/submitBulkAddSongs와 같은 이유 - 지금 보이는 화면이 songFilesAll
+// 기준(가능곡 편집모드)인지 songCardsAll 기준(일반 브라우징)인지에 따라 다른 로더를 써야 한다.
+async function refreshSongDataAfterMutation() {
+  state.songCardsAll = [];
+  state.songFilesAll = [];
+  if (state.availabilityEditMode) await loadSongFiles(true);
+  else await loadSongs(true);
+  applySongFilters();
+}
+
+function resetUploadDropModalUI() {
+  uploadDropFiles = [];
+  uploadBulkGrid = null;
+  setHiddenEl($('uploadDropZone'), false);
+  setHiddenEl($('uploadSingleFormWrap'), true);
+  setHiddenEl($('uploadBulkGridWrap'), true);
+  if ($('uploadBulkGridWrap')) $('uploadBulkGridWrap').innerHTML = '';
+  setHiddenEl($('uploadDropSubmitBtn'), true);
+  if ($('uploadDropFileInput')) $('uploadDropFileInput').value = '';
+  ['uploadSingleTitle', 'uploadSingleArtist', 'uploadSingleKey', 'uploadSingleGenre'].forEach((id) => {
+    if ($(id)) $(id).value = '';
+  });
+}
+
+function openUploadDropModal({ markAvailableForSelf = false } = {}) {
+  uploadMarkAvailableForSelf = Boolean(markAvailableForSelf);
+  resetUploadDropModalUI();
+  openModal('uploadDropModal');
+}
+
+async function handleUploadFilesSelected(fileList) {
+  const files = Array.from(fileList || []).filter(Boolean);
+  if (!files.length) return;
+  const invalid = files.filter((f) => !UPLOAD_ALLOWED_EXT.has(fileExtOf(f.name)));
+  const valid = files.filter((f) => UPLOAD_ALLOWED_EXT.has(fileExtOf(f.name)));
+  if (invalid.length) toast(`지원하지 않는 형식이라 제외됨: ${invalid.map((f) => f.name).join(', ')}`);
+  if (!valid.length) return;
+
+  uploadDropFiles = valid;
+  setHiddenEl($('uploadDropZone'), true);
+  setHiddenEl($('uploadDropSubmitBtn'), false);
+
+  if (valid.length === 1) {
+    const f = valid[0];
+    setHiddenEl($('uploadSingleFormWrap'), false);
+    if ($('uploadSingleFileName')) $('uploadSingleFileName').textContent = f.name;
+    // 파일명에서 title/key/artist 기본값을 미리 채워준다(driveSync가 이미 쓰는 파서 그대로 재사용).
+    const res = await apiJson('/api/songs/parse-filenames', 'POST', { filenames: [f.name] });
+    const parsed = res?.items?.[0];
+    if ($('uploadSingleTitle')) $('uploadSingleTitle').value = parsed?.title || '';
+    if ($('uploadSingleArtist')) $('uploadSingleArtist').value = parsed?.artist || '';
+    if ($('uploadSingleKey')) $('uploadSingleKey').value = parsed?.key || '';
+  } else {
+    setHiddenEl($('uploadBulkGridWrap'), false);
+    const res = await apiJson('/api/songs/parse-filenames', 'POST', { filenames: valid.map((f) => f.name) });
+    const items = res?.items || [];
+    const initialRows = valid.map((f, i) => ({
+      values: { title: items[i]?.title || '', artist: items[i]?.artist || '', key: items[i]?.key || '', genre: '' },
+      tag: f // 원본 File 객체를 행에 그대로 매달아둔다(인덱스 필터링에 흔들리지 않음)
+    }));
+    uploadBulkGrid = createBulkGrid($('uploadBulkGridWrap'), UPLOAD_BULK_COLUMNS, { growable: false, initialRows });
+  }
+}
+
+async function submitUploadDrop() {
+  if (!uploadDropFiles.length) return;
+  const btn = $('uploadDropSubmitBtn');
+  try {
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '업로드 중...';
+    }
+    if (uploadDropFiles.length === 1) {
+      const title = String($('uploadSingleTitle')?.value || '').trim();
+      const artist = String($('uploadSingleArtist')?.value || '').trim();
+      if (!title) return toast('곡명을 입력해 주세요.');
+      if (!artist) return toast('아티스트를 입력해 주세요.');
+      const fd = new FormData();
+      fd.append('file', uploadDropFiles[0]);
+      fd.append('title', title);
+      fd.append('artist', artist);
+      fd.append('key', String($('uploadSingleKey')?.value || '').trim());
+      fd.append('genre', String($('uploadSingleGenre')?.value || '').trim());
+      if (uploadMarkAvailableForSelf) fd.append('markAvailableForSelf', 'true');
+      const res = await apiUpload('/api/songs/upload', fd);
+      if (!res.ok) return toast(`업로드 실패: ${res.error || ''}`);
+      toast('업로드 완료');
+      closeModal('uploadDropModal');
+      await refreshSongDataAfterMutation();
+      return;
+    }
+
+    if (!uploadBulkGrid) return;
+    const rows = uploadBulkGrid.getFilledRows();
+    if (!rows.length) return toast('입력된 곡이 없습니다.');
+    const fd = new FormData();
+    const meta = [];
+    rows.forEach((r) => {
+      fd.append('files', r.tag);
+      meta.push({ title: r.values.title, artist: r.values.artist, key: r.values.key, genre: r.values.genre });
+    });
+    fd.append('meta', JSON.stringify(meta));
+    if (uploadMarkAvailableForSelf) fd.append('markAvailableForSelf', 'true');
+    const res = await apiUpload('/api/songs/upload/bulk', fd);
+    if (!res.ok) return toast(`업로드 실패: ${res.error || ''}`);
+
+    (res.created || []).forEach((c) => {
+      rows[c.row]?.tr.remove();
+    });
+    (res.failed || []).forEach((f) => {
+      const row = rows[f.row];
+      if (!row) return;
+      row.tr.classList.add('bulk-row-error');
+      const statusTd = row.tr.querySelector('.bulk-grid-status');
+      if (statusTd) statusTd.textContent = bulkAddFailReasonLabel(f.reason);
+    });
+
+    const createdCount = (res.created || []).length;
+    const failedCount = (res.failed || []).length;
+    if (createdCount) {
+      toast(failedCount ? `${createdCount}곡 업로드됨 · ${failedCount}곡 실패` : `${createdCount}곡 업로드됨`);
+      await refreshSongDataAfterMutation();
+      if (!failedCount) closeModal('uploadDropModal');
+    } else if (failedCount) {
+      toast('모두 실패했어요. 빨간 칸을 확인해 주세요.');
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '업로드';
+    }
+  }
+}
+
+function wireUploadDropZone() {
+  const zone = $('uploadDropZone');
+  const input = $('uploadDropFileInput');
+  if (!zone || !input) return;
+  zone.addEventListener('click', () => input.click());
+  input.addEventListener('change', () => handleUploadFilesSelected(input.files));
+  ['dragenter', 'dragover'].forEach((evt) =>
+    zone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      zone.classList.add('drag-over');
+    })
+  );
+  ['dragleave', 'drop'].forEach((evt) =>
+    zone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      zone.classList.remove('drag-over');
+    })
+  );
+  zone.addEventListener('drop', (e) => {
+    const files = e.dataTransfer?.files;
+    if (files?.length) handleUploadFilesSelected(files);
+  });
 }
 
 function renderAvailabilityEditCards(hideTags) {
@@ -2971,11 +3234,13 @@ function openSongActionModal(card, variant) {
   const k = variant?.key ? ` (${variant.key})` : '';
   $('songActionSubtitle').textContent = `${card.title || ''} - ${card.artist || ''}${k}`.trim();
 
-  // 악보없음/코드위키 placeholder 곡 분기. variant.hasScoreFile !== false(기존 곡 포함)면
-  // 이 블록은 전혀 안 타고 기존 동작(드라이브 링크 복사/세션뷰어) 그대로 나간다 - 절대 건드리지 않음.
+  // 악보없음/코드위키 placeholder 곡 분기 + (Phase 4) 악보 있는 곡에 코드위키 링크가 같이 붙은 경우.
+  // variant.hasScoreFile !== false(기존 곡, 링크 없음)면 externalLink 관련 두 요소가 전부 숨겨져서
+  // 기존 동작(드라이브 링크 복사/세션뷰어) 그대로 나간다 - 이 케이스의 분기 자체는 안 건드림.
   const hasScoreFile = variant?.hasScoreFile !== false;
-  const hasExternalLink = !hasScoreFile && looksLikeUrl(variant?.externalLink);
+  const hasExternalLink = looksLikeUrl(variant?.externalLink);
   setHiddenEl($('songActionScoreRow'), !hasScoreFile);
+  // 악보가 있어도 코드위키 링크가 있으면 "외부 링크 열기"를 추가로 보여준다(기존 버튼 대체 아님).
   setHiddenEl($('songActionExternalRow'), !hasExternalLink);
   setHiddenEl($('songActionNoScoreNotice'), !(!hasScoreFile && !hasExternalLink));
 
@@ -3490,6 +3755,8 @@ function applyRoleUI() {
   if ($('catalogEditSaveBtn')) $('catalogEditSaveBtn').style.display = isAdmin ? 'inline-flex' : 'none';
   // 노래책에 없는 곡 벌크 추가 - 개인 노래책(private-book) 오너 전용. 메인 노래책 편집 플로우에는 노출 안 함.
   if ($('bulkAddSongsBtn')) $('bulkAddSongsBtn').style.display = canEditArchiveAvailability ? 'inline-flex' : 'none';
+  // 실제 악보 파일 업로드(Drive로) - 위와 동일 조건(개인 노래책 오너 전용). 관리자는 adminUploadOpenBtn 사용.
+  if ($('uploadDropOpenBtn')) $('uploadDropOpenBtn').style.display = canEditArchiveAvailability ? 'inline-flex' : 'none';
   const profBtn = $('proficiencyEditToggleBtn');
   if (profBtn) profBtn.style.display = canEditArchiveAvailability ? 'inline-flex' : 'none';
   const profFilter = $('proficiencyFilter');
@@ -4138,6 +4405,18 @@ function wireEvents() {
   if ($('bulkAddSongsBtn')) $('bulkAddSongsBtn').onclick = () => openBulkAddSongsModal();
   if ($('bulkAddCancelBtn')) $('bulkAddCancelBtn').onclick = () => closeModal('bulkAddSongsModal');
   if ($('bulkAddSubmitBtn')) $('bulkAddSubmitBtn').onclick = () => submitBulkAddSongs();
+
+  // 악보 연결(placeholder 승격 + 코드위키 링크).
+  if ($('attachFileCancelBtn')) $('attachFileCancelBtn').onclick = () => closeModal('attachFileModal');
+  if ($('attachFileSubmitBtn')) $('attachFileSubmitBtn').onclick = () => submitAttachFile().catch(() => toast('연결 실패'));
+
+  // 악보 업로드(드래그&드롭). 개인 노래책(가능곡 편집 중)에서는 markAvailableForSelf:true,
+  // 메인 노래책(관리자)에서는 false로 연다.
+  wireUploadDropZone();
+  if ($('uploadDropOpenBtn')) $('uploadDropOpenBtn').onclick = () => openUploadDropModal({ markAvailableForSelf: true });
+  if ($('adminUploadOpenBtn')) $('adminUploadOpenBtn').onclick = () => openUploadDropModal({ markAvailableForSelf: false });
+  if ($('uploadDropCancelBtn')) $('uploadDropCancelBtn').onclick = () => closeModal('uploadDropModal');
+  if ($('uploadDropSubmitBtn')) $('uploadDropSubmitBtn').onclick = () => submitUploadDrop().catch(() => toast('업로드 실패'));
 
   $('proficiencyEditToggleBtn').onclick = async () => {
     const userId = state.isArchiveMode && state.archiveTargetUserId ? state.archiveTargetUserId : state.userId || '';

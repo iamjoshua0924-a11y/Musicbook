@@ -1,3 +1,4 @@
+const { Readable } = require('stream');
 const { google } = require('googleapis');
 const { googleServiceAccountJsonBase64 } = require('../config/env');
 
@@ -65,6 +66,27 @@ async function getFileMetadata(fileId) {
   return res.data;
 }
 
+// 새 악보 파일을 Drive 루트(또는 임의 폴더)에 업로드한다. 업로드 UI(단일/벌크/악보 연결)에서 공용으로 쓴다.
+// 권한은 부모 폴더의 공유 설정을 그대로 상속받는다(별도로 permissions.create를 호출하지 않음) —
+// driveSync가 인식하는 루트 폴더가 이미 "공유된 폴더"라는 전제이므로, 사람이 드래그해서 올린 파일과
+// 동일하게 폴더 공유 설정이 자동으로 적용된다.
+async function createFile(parentFolderId, name, mimeType, buffer) {
+  const drive = getDriveClient();
+  const res = await drive.files.create({
+    requestBody: {
+      name: String(name || '').trim(),
+      parents: [String(parentFolderId || '').trim()]
+    },
+    media: {
+      mimeType,
+      body: Readable.from(buffer)
+    },
+    supportsAllDrives: true,
+    fields: 'id,name,webViewLink'
+  });
+  return res.data;
+}
+
 async function renameFile(fileId, name) {
   const drive = getDriveClient();
   const res = await drive.files.update({
@@ -88,6 +110,7 @@ module.exports = {
   getDriveReadonlyAuth,
   getReadonlyAccessToken,
   getFileMetadata,
+  createFile,
   renameFile,
   buildPreviewUrl,
   buildViewUrl

@@ -15,6 +15,7 @@ router.use(require('./reviews'));
 router.use(require('./privateRequests'));
 router.use(require('./guestbook'));
 router.use(require('./availability'));
+router.use(require('./privateAvailableSongs'));
 router.use(require('./socketMeta'));
 router.use(require('./proxyChord'));
 router.use(require('./chordUpload'));

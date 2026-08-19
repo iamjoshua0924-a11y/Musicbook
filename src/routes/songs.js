@@ -267,7 +267,11 @@ router.get('/songs/cards', async (req, res) => {
         // 실제 문서의 displayTitle과 다를 수 있고, 관리자가 "진짜 저장된 표시제목"을 봐야 한다.
         title,
         artist,
-        displayTitle: String(s.displayTitle || '').trim()
+        displayTitle: String(s.displayTitle || '').trim(),
+        // 악보 없음/외부링크 placeholder 곡(Phase 2) 판별용. 기존 문서엔 필드 자체가 없을 수 있으므로
+        // 프론트에서는 반드시 `hasScoreFile !== false`로 "있음"을 판정해야 한다(undefined = 있음).
+        hasScoreFile: s.hasScoreFile !== false,
+        externalLink: String(s.externalLink || '').trim()
       });
     }
     fileIdToCardKey.set(String(s.googleFileId), cardKey);

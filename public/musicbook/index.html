@@ -5,7 +5,7 @@
     <title>밍긴어게인 노래책</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='bg' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23ff9ecf'/%3E%3Cstop offset='55%25' stop-color='%23b28cff'/%3E%3Cstop offset='100%25' stop-color='%236fa8ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='4' y='4' width='56' height='56' rx='16' fill='url(%23bg)'/%3E%3Cpath d='M40 17v23.5c-1.7-1.1-4.3-1.6-6.8-1.1-4 .8-6.8 3.6-6.2 6.3.6 2.7 4.2 4.1 8.2 3.3 3.6-.7 6.1-3 6.2-5.5V26.5l9-2.2v12.2c-1.7-1.1-4.3-1.6-6.8-1.1-4 .8-6.8 3.6-6.2 6.3.6 2.7 4.2 4.1 8.2 3.3 3.8-.7 6.3-3.2 6.2-5.8V17.8c0-1.1-1-1.9-2-1.7L40 17z' fill='white'/%3E%3C/svg%3E" />
-    <link rel="stylesheet" href="musicbook.css?v=20260811_5" />
+    <link rel="stylesheet" href="musicbook.css?v=20260819_1" />
   </head>
 
   <body class="preload">
@@ -528,6 +528,8 @@
         기존 가능곡 안보기
       </label>
       <div class="availability-edit-actions">
+        <!-- 노래책에 없는 곡(악보없음/코드위키) 벌크 추가 - 개인 노래책 오너 전용 -->
+        <button class="floating-btn compact-btn" id="bulkAddSongsBtn" type="button" style="display:none;">곡 추가</button>
         <!-- 곡정보(제목/가수/조성/장르 등) 인라인 편집 저장 - 관리자 전용, 가능곡 체크 저장과는 별개 -->
         <button class="floating-btn compact-btn" id="catalogEditSaveBtn" type="button" style="display:none;" disabled>곡정보 저장</button>
         <button class="floating-btn compact-btn" id="availabilityEditCancelBtn" type="button">취소</button>
@@ -815,14 +817,20 @@
       </div>
     </div>
 
-    <!-- Song action modal (복사/뷰어) -->
+    <!-- Song action modal (복사/뷰어 / 악보없음·코드위키 placeholder 곡 분기) -->
     <div class="modal-overlay" id="songActionModal">
       <div class="modal">
         <div class="modal-title">선택</div>
         <div class="muted" id="songActionSubtitle" style="font-weight:1000;"></div>
-        <div class="row" style="margin-top:14px; gap:10px; flex-wrap:wrap;">
+        <div class="row" id="songActionScoreRow" style="margin-top:14px; gap:10px; flex-wrap:wrap;">
           <button class="floating-btn" id="copyDriveLinkBtn" type="button">구글 드라이브 링크 복사하기</button>
           <button class="floating-btn black-btn" id="openViewerBtn" type="button">세션뷰어에서 보기</button>
+        </div>
+        <div class="row" id="songActionExternalRow" style="display:none; margin-top:14px; gap:10px; flex-wrap:wrap;">
+          <button class="floating-btn black-btn" id="openExternalLinkBtn" type="button">외부 링크 열기</button>
+        </div>
+        <div class="muted" id="songActionNoScoreNotice" style="display:none; margin-top:14px;">
+          아직 악보가 없어요.
         </div>
         <div class="modal-actions">
           <button class="floating-btn" id="songActionCancelBtn" type="button">취소</button>
@@ -830,9 +838,25 @@
       </div>
     </div>
 
+    <!-- 가능곡 벌크 추가(개인 노래책 전용). 그리드는 musicbook.js가 컬럼 구성을 받아 동적으로 그린다
+         (하드코딩 안 함 - 다음 phase의 파일 업로드에서도 같은 그리드 컴포넌트를 재사용할 예정). -->
+    <div class="modal-overlay" id="bulkAddSongsModal">
+      <div class="modal modal-wide">
+        <div class="modal-title">노래책에 없는 곡 추가</div>
+        <div class="muted" style="margin-top:-4px; margin-bottom:10px;">
+          곡명/아티스트는 필수예요. 스프레드시트에서 표를 복사해 첫 칸에 그대로 붙여넣을 수 있어요.
+        </div>
+        <div id="bulkAddGridWrap" class="bulk-grid-wrap"></div>
+        <div class="modal-actions">
+          <button class="floating-btn" id="bulkAddCancelBtn" type="button">취소</button>
+          <button class="floating-btn black-btn" id="bulkAddSubmitBtn" type="button">일괄 추가</button>
+        </div>
+      </div>
+    </div>
+
     <script src="../config.js"></script>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
     <script src="../common/avatar.js?v=20260529_1"></script>
-    <script src="musicbook.js?v=20260811_5"></script>
+    <script src="musicbook.js?v=20260819_1"></script>
   </body>
 </html>

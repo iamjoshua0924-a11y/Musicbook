@@ -1099,6 +1099,9 @@ const cssEsc = (s) => {
   } catch {}
   return String(s ?? '').replace(/[^a-zA-Z0-9_-]/g, '_');
 };
+// 가능곡 벌크 추가(악보없음/코드위키)에서 자유입력으로 들어온 링크가 실제로 열어볼 만한 URL인지 확인.
+// http(s)가 아니면 "링크 있음"으로 취급하지 않는다(배지/열기 버튼 오작동 방지).
+const looksLikeUrl = (s) => /^https?:\/\/\S+$/i.test(String(s || '').trim());
 
 function extractDriveFileIdFromAny(input) {
   const s = String(input || '').trim();
@@ -1614,6 +1617,12 @@ async function loadSongs(force = false) {
       }
     }
     const params = new URLSearchParams();
+    // 이 아카이브 오너의 private-scope placeholder 곡(악보없음/코드위키)도 함께 보이게 한다.
+    // edit 모드 여부와 무관하게 항상 붙인다 - "전체 곡 중에서 고르는" edit 모드에서도
+    // 다른 사람의 private 곡이 섞여 나오면 안 되니, 항상 "이 아카이브 오너 것만" 범위로 제한한다.
+    if (state.isArchiveMode && state.archiveTargetUserId) {
+      params.set('privateOwnerId', String(state.archiveTargetUserId));
+    }
     if (!state._forceAllSongsForEdit && state.isArchiveMode && !state.availabilityEditMode && state.archiveTargetUserId) {
       params.set('availableUserId', String(state.archiveTargetUserId));
     }
@@ -1655,6 +1664,11 @@ async function loadSongFiles(force = false) {
   //   5000 cap 환경에서 "한쪽에는 있는데 다른 쪽에는 없는" 불일치가 발생할 수 있다(정렬/limit 기준 차이).
   // - 따라서 file 목록도 cards 응답을 펼쳐서 생성해 UI/정렬/노출을 일관되게 유지한다.
   const params = new URLSearchParams();
+  // 이 아카이브 오너의 private-scope placeholder 곡(악보없음/코드위키)도 함께 보이게 한다.
+  // loadSongs()와 동일한 이유로 edit 모드 여부와 무관하게 항상 붙인다.
+  if (state.isArchiveMode && state.archiveTargetUserId) {
+    params.set('privateOwnerId', String(state.archiveTargetUserId));
+  }
   // archive 기본 화면은 "내 가능곡만"이므로, 파일 목록도 동일하게 제한(편집 모드에서는 전체 곡을 봐야 한다)
   if (!state._forceAllSongsForEdit && state.isArchiveMode && !state.availabilityEditMode && state.archiveTargetUserId) {
     params.set('availableUserId', String(state.archiveTargetUserId));
@@ -2089,6 +2103,16 @@ function renderSongCards(hideTags) {
     const proficiencyLevel = Math.max(0, Math.min(3, Number(c.proficiencyLevel || 0) || 0));
     const showProficiency = state.isArchiveMode && proficiencyLevel > 0;
 
+    // 악보없음/코드위키 placeholder 곡 배지. 대표 variant(첫 번째) 기준으로 판정한다.
+    // hasScoreFile 필드 자체가 없는 기존 곡도 있으므로 반드시 !== false로 "있음"을 판정한다.
+    const primaryVariant = (c.variants || [])[0];
+    const cardHasScoreFile = primaryVariant?.hasScoreFile !== false;
+    const scoreBadgeHtml = cardHasScoreFile
+      ? ''
+      : looksLikeUrl(primaryVariant?.externalLink)
+        ? `<span class="score-badge score-badge-link">코드위키</span>`
+        : `<span class="score-badge score-badge-none">악보없음</span>`;
+
     const isAdmin = state.role === 'admin';
     const users = state.isArchiveMode ? [] : Array.isArray(c.availableUsers) ? c.availableUsers : [];
     const maxShown = 8;
@@ -2116,6 +2140,7 @@ function renderSongCards(hideTags) {
           <div class="song-list-title">
             <span class="song-list-title-text">${highlightHtml(title, state._lastSearchRaw)}</span>
             ${c.isLatest ? `<span class="new-badge">new!</span>` : ''}
+            ${scoreBadgeHtml}
           </div>
           <div class="song-list-artist">${highlightHtml(c.artist || '', state._lastSearchRaw)}</div>
           <div class="song-list-tags">
@@ -2146,6 +2171,7 @@ function renderSongCards(hideTags) {
             <div class="song-card-title">
               <span>${highlightHtml(title, state._lastSearchRaw)}</span>
               ${c.isLatest ? `<span class="new-badge">new!</span>` : ''}
+              ${scoreBadgeHtml}
             </div>
             <div class="song-card-actions">
               ${
@@ -2465,6 +2491,213 @@ function wireCatalogEditFields(el, s) {
   });
 }
 
+// ---- 벌크 입력 그리드(재사용 컴포넌트) ----------------------------------------------
+// 컬럼 구성을 하드코딩하지 않는다 - 이번엔 "가능곡 추가"에서 쓰지만, 다음 phase의
+// 파일 업로드 미리보기 등에서도 같은 컴포넌트를 그대로 재사용할 수 있게 설계했다.
+//
+// container에 <table class="bulk-grid">를 그려 넣고, 아래 기능을 제공한다:
+// - Tab: 다음 셀로(브라우저 기본 DOM 탭 순서로 자연히 동작 - 별도 처리 불필요)
+// - Enter: 같은 열의 아래 행으로 이동
+// - 붙여넣기: 탭/줄바꿈 구분 텍스트를 여러 셀에 자동으로 채움(스프레드시트 표 붙여넣기)
+// - 마지막 행이 채워지면 자동으로 새 빈 행 추가
+function createBulkGrid(container, columns, { minRows = 4 } = {}) {
+  container.innerHTML = '';
+  const table = document.createElement('table');
+  table.className = 'bulk-grid';
+  const thead = document.createElement('thead');
+  thead.innerHTML = `<tr>${columns.map((c) => `<th>${esc(c.label || c.key)}${c.required ? '*' : ''}</th>`).join('')}<th></th></tr>`;
+  const tbody = document.createElement('tbody');
+  table.appendChild(thead);
+  table.appendChild(tbody);
+  container.appendChild(table);
+
+  function rowIndexOf(tr) {
+    return Array.from(tbody.children).indexOf(tr);
+  }
+  function colIndexOf(input) {
+    return columns.findIndex((c) => c.key === input.dataset.key);
+  }
+  function cellInputAt(rowIdx, colIdx) {
+    const tr = tbody.children[rowIdx];
+    if (!tr) return null;
+    return tr.children[colIdx]?.querySelector('input') || null;
+  }
+  function rowHasAnyValue(tr) {
+    return columns.some((col) => String(tr.querySelector(`input[data-key="${col.key}"]`)?.value || '').trim());
+  }
+
+  function ensureTrailingEmptyRow() {
+    const rows = Array.from(tbody.children);
+    const last = rows[rows.length - 1];
+    if (!last || rowHasAnyValue(last)) buildRow();
+  }
+
+  function wireRow(tr) {
+    tr.querySelectorAll('input').forEach((input) => {
+      input.addEventListener('input', () => {
+        tr.classList.remove('bulk-row-error');
+        const statusTd = tr.querySelector('.bulk-grid-status');
+        if (statusTd) statusTd.textContent = '';
+        ensureTrailingEmptyRow();
+      });
+      input.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' || e.isComposing) return;
+        e.preventDefault();
+        const rowIdx = rowIndexOf(tr);
+        const colIdx = colIndexOf(input);
+        ensureTrailingEmptyRow();
+        cellInputAt(rowIdx + 1, colIdx)?.focus();
+      });
+      input.addEventListener('paste', (e) => {
+        const text = e.clipboardData?.getData('text/plain') || '';
+        // 셀 하나 값만 붙여넣는 흔한 경우는 브라우저 기본 동작에 맡긴다.
+        if (!text || !/[\t\n]/.test(text)) return;
+        e.preventDefault();
+        const rowIdx = rowIndexOf(tr);
+        const colIdx = colIndexOf(input);
+        const lines = text.replace(/\r/g, '').split('\n');
+        // 맨 끝의 빈 줄(줄바꿈으로 끝나는 붙여넣기)은 무시
+        if (lines.length && lines[lines.length - 1] === '') lines.pop();
+        lines.forEach((line, i) => {
+          const cells = line.split('\t');
+          cells.forEach((val, j) => {
+            const targetColIdx = colIdx + j;
+            if (targetColIdx >= columns.length) return; // 컬럼 수 넘어가는 값은 버림
+            const targetRowIdx = rowIdx + i;
+            while (targetRowIdx >= tbody.children.length) buildRow();
+            const cell = cellInputAt(targetRowIdx, targetColIdx);
+            if (cell) cell.value = val.trim();
+          });
+        });
+        ensureTrailingEmptyRow();
+      });
+    });
+  }
+
+  function buildRow() {
+    const tr = document.createElement('tr');
+    columns.forEach((col) => {
+      const td = document.createElement('td');
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.dataset.key = col.key;
+      input.placeholder = col.placeholder || col.label || '';
+      td.appendChild(input);
+      tr.appendChild(td);
+    });
+    const statusTd = document.createElement('td');
+    statusTd.className = 'bulk-grid-status';
+    tr.appendChild(statusTd);
+    tbody.appendChild(tr);
+    wireRow(tr);
+    return tr;
+  }
+
+  for (let i = 0; i < Math.max(1, minRows); i += 1) buildRow();
+
+  // 값이 하나라도 채워진 행만 { tr, values } 형태로 반환한다.
+  // 반환 배열의 인덱스가 곧 백엔드에 보낼 items 배열의 인덱스와 같다(row 매칭용).
+  function getFilledRows() {
+    return Array.from(tbody.children)
+      .map((tr) => {
+        const values = {};
+        columns.forEach((col) => {
+          values[col.key] = String(tr.querySelector(`input[data-key="${col.key}"]`)?.value || '').trim();
+        });
+        return { tr, values };
+      })
+      .filter((r) => Object.values(r.values).some(Boolean));
+  }
+
+  function reset() {
+    tbody.innerHTML = '';
+    for (let i = 0; i < Math.max(1, minRows); i += 1) buildRow();
+  }
+
+  return { getFilledRows, ensureTrailingEmptyRow, reset };
+}
+
+const BULK_ADD_SONG_COLUMNS = [
+  { key: 'title', label: '곡명', placeholder: '곡명', required: true },
+  { key: 'artist', label: '아티스트', placeholder: '아티스트', required: true },
+  { key: 'externalLink', label: '링크', placeholder: '링크(선택)', required: false },
+  { key: 'genre', label: '장르', placeholder: '장르(선택)', required: false }
+];
+
+let bulkAddGrid = null;
+function openBulkAddSongsModal() {
+  if (!bulkAddGrid) {
+    bulkAddGrid = createBulkGrid($('bulkAddGridWrap'), BULK_ADD_SONG_COLUMNS, { minRows: 4 });
+  } else {
+    bulkAddGrid.reset();
+  }
+  openModal('bulkAddSongsModal');
+}
+
+function bulkAddFailReasonLabel(reason) {
+  if (reason === 'TITLE_REQUIRED') return '곡명을 입력해 주세요';
+  if (reason === 'ARTIST_REQUIRED') return '아티스트를 입력해 주세요';
+  return String(reason || '추가 실패');
+}
+
+async function submitBulkAddSongs() {
+  if (!bulkAddGrid) return;
+  const rows = bulkAddGrid.getFilledRows();
+  if (!rows.length) return toast('입력된 곡이 없습니다.');
+  const btn = $('bulkAddSubmitBtn');
+  try {
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '추가 중...';
+    }
+    const res = await apiJson('/api/private-book/available-songs/bulk', 'POST', {
+      items: rows.map((r) => r.values)
+    });
+    if (!res.ok) return toast(res.error === 'FORBIDDEN' ? '개인 노래책 오너만 추가할 수 있어요.' : '추가 실패');
+
+    (res.created || []).forEach((c) => {
+      rows[c.row]?.tr.remove();
+      // 백엔드가 이미 이 곡을 available:true로 저장했다(bulkUpsertAvailability). 프론트의
+      // 가능곡 체크 draft/original/캐시에도 반영해야, 방금 추가한 카드가 "체크 안 됨"으로
+      // 잘못 보이거나 - 반영 안 하면 나중에 저장 버튼을 눌러도 diff가 없어서 아무 일도
+      // 안 일어나는데 겉보기엔 이미 체크돼 보이는 - 혼란이 생기지 않는다.
+      if (state.availabilityDraftSet) state.availabilityDraftSet.add(c.googleFileId);
+      if (state.availabilityOriginalSet) state.availabilityOriginalSet.add(c.googleFileId);
+      if (state.myAvailabilitySet) state.myAvailabilitySet.add(c.googleFileId);
+    });
+    (res.failed || []).forEach((f) => {
+      const row = rows[f.row];
+      if (!row) return;
+      row.tr.classList.add('bulk-row-error');
+      const statusTd = row.tr.querySelector('.bulk-grid-status');
+      if (statusTd) statusTd.textContent = bulkAddFailReasonLabel(f.reason);
+    });
+    bulkAddGrid.ensureTrailingEmptyRow();
+
+    const createdCount = (res.created || []).length;
+    const failedCount = (res.failed || []).length;
+    if (createdCount) {
+      toast(failedCount ? `${createdCount}곡 추가됨 · ${failedCount}곡 실패` : `${createdCount}곡 추가됨`);
+      // 이 버튼은 항상 availabilityEditMode 중에만 보이므로, 화면은 songFilesAll 기준으로 그려진다
+      // (renderAvailabilityEditCards). songCardsAll도 같이 비워서 편집모드를 나간 뒤 일반 브라우징
+      // 화면으로 돌아가도 새로 추가한 곡이 바로 보이게 한다.
+      state.songCardsAll = [];
+      state.songFilesAll = [];
+      await loadSongFiles(true);
+      applySongFilters();
+    } else if (failedCount) {
+      toast('모두 실패했어요. 빨간 칸을 확인해 주세요.');
+    }
+  } catch {
+    toast('추가 실패(네트워크)');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '일괄 추가';
+    }
+  }
+}
+
 function renderAvailabilityEditCards(hideTags) {
   const wrap = $('songCardList');
   wrap.innerHTML = '';
@@ -2737,7 +2970,21 @@ function openSongActionModal(card, variant) {
   state._pendingVariant = variant;
   const k = variant?.key ? ` (${variant.key})` : '';
   $('songActionSubtitle').textContent = `${card.title || ''} - ${card.artist || ''}${k}`.trim();
+
+  // 악보없음/코드위키 placeholder 곡 분기. variant.hasScoreFile !== false(기존 곡 포함)면
+  // 이 블록은 전혀 안 타고 기존 동작(드라이브 링크 복사/세션뷰어) 그대로 나간다 - 절대 건드리지 않음.
+  const hasScoreFile = variant?.hasScoreFile !== false;
+  const hasExternalLink = !hasScoreFile && looksLikeUrl(variant?.externalLink);
+  setHiddenEl($('songActionScoreRow'), !hasScoreFile);
+  setHiddenEl($('songActionExternalRow'), !hasExternalLink);
+  setHiddenEl($('songActionNoScoreNotice'), !(!hasScoreFile && !hasExternalLink));
+
   openModal('songActionModal');
+}
+
+function setHiddenEl(el, hidden) {
+  if (!el) return;
+  el.style.display = hidden ? 'none' : '';
 }
 
 function needsTagGate(card) {
@@ -3241,6 +3488,8 @@ function applyRoleUI() {
   // 가능곡 편집모드 안의 곡정보 인라인 편집(관리자 전용) — 버튼 자체는 availabilityEditBar가
   // 숨겨져 있으면 같이 안 보이므로, 여기서는 role 조건만 반영한다.
   if ($('catalogEditSaveBtn')) $('catalogEditSaveBtn').style.display = isAdmin ? 'inline-flex' : 'none';
+  // 노래책에 없는 곡 벌크 추가 - 개인 노래책(private-book) 오너 전용. 메인 노래책 편집 플로우에는 노출 안 함.
+  if ($('bulkAddSongsBtn')) $('bulkAddSongsBtn').style.display = canEditArchiveAvailability ? 'inline-flex' : 'none';
   const profBtn = $('proficiencyEditToggleBtn');
   if (profBtn) profBtn.style.display = canEditArchiveAvailability ? 'inline-flex' : 'none';
   const profFilter = $('proficiencyFilter');
@@ -3885,6 +4134,11 @@ function wireEvents() {
   // 위 availabilityEditSaveBtn(가능곡 체크 저장)과는 완전히 별개 데이터/버튼이다.
   if ($('catalogEditSaveBtn')) $('catalogEditSaveBtn').onclick = () => saveCatalogEdits().catch(() => toast('저장 실패'));
 
+  // 가능곡 편집모드 안에서 "노래책에 없는 곡" 벌크 추가(개인 노래책 오너 전용).
+  if ($('bulkAddSongsBtn')) $('bulkAddSongsBtn').onclick = () => openBulkAddSongsModal();
+  if ($('bulkAddCancelBtn')) $('bulkAddCancelBtn').onclick = () => closeModal('bulkAddSongsModal');
+  if ($('bulkAddSubmitBtn')) $('bulkAddSubmitBtn').onclick = () => submitBulkAddSongs();
+
   $('proficiencyEditToggleBtn').onclick = async () => {
     const userId = state.isArchiveMode && state.archiveTargetUserId ? state.archiveTargetUserId : state.userId || '';
     if (!userId) return toast('로그인이 필요합니다.');
@@ -4326,6 +4580,14 @@ function wireEvents() {
   $('songActionCancelBtn').onclick = () => closeModal('songActionModal');
   $('copyDriveLinkBtn').onclick = () => copyDriveLink().catch(() => {});
   $('openViewerBtn').onclick = () => openInViewer().catch(() => toast('열기 실패'));
+  if ($('openExternalLinkBtn')) {
+    $('openExternalLinkBtn').onclick = () => {
+      const url = String(state._pendingVariant?.externalLink || '').trim();
+      if (!looksLikeUrl(url)) return;
+      window.open(url, '_blank', 'noopener,noreferrer');
+      closeModal('songActionModal');
+    };
+  }
 }
 
 function attachSockets() {

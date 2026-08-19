@@ -1551,6 +1551,11 @@ body.archive-mode .song-card.clickable:hover{
 .song-card-artist{ margin-top:4px; font-size:12px; font-weight:900; opacity:0.62; word-break:break-word; }
 .new-badge{ display:inline-flex; align-items:center; justify-content:center; padding:5px 8px; border-radius:999px; background:rgba(255,90,130,0.14); border:1px solid rgba(255,90,130,0.28); color:#c51b4f; font-size:11px; font-weight:1000; }
 
+/* 악보없음/코드위키 placeholder 곡 배지 */
+.score-badge{ display:inline-flex; align-items:center; justify-content:center; padding:5px 8px; border-radius:999px; font-size:11px; font-weight:1000; }
+.score-badge-link{ background:rgba(122,162,255,0.16); border:1px solid rgba(122,162,255,0.32); color:#3557c5; }
+.score-badge-none{ background:rgba(140,150,170,0.14); border:1px solid rgba(140,150,170,0.28); color:#5a6072; }
+
 /* search highlight */
 mark.hl{
   background: rgba(122,162,255,0.25);
@@ -1944,6 +1949,72 @@ body.hide-tags .song-chips{ display:none; }
   border-radius: 22px;
   padding: 18px;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.2);
+}
+.modal-wide{
+  width: min(920px, 96vw);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 벌크 입력 그리드(가능곡 추가 등에서 재사용) */
+.bulk-grid-wrap{
+  overflow: auto;
+  border-radius: 14px;
+  border: 1px solid rgba(0,0,0,0.08);
+  max-height: 52vh;
+}
+.bulk-grid{
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.bulk-grid th{
+  position: sticky;
+  top: 0;
+  background: var(--panel2);
+  text-align: left;
+  padding: 8px 10px;
+  font-weight: 900;
+  font-size: 12px;
+  opacity: 0.75;
+  white-space: nowrap;
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+}
+.bulk-grid td{
+  padding: 4px;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+  vertical-align: top;
+}
+.bulk-grid input{
+  width: 100%;
+  min-width: 90px;
+  padding: 8px 9px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--black);
+}
+.bulk-grid input:focus{
+  outline: none;
+  border-color: rgba(122,162,255,0.5);
+  background: var(--input-bg);
+}
+.bulk-grid tr.bulk-row-error input{
+  border-color: rgba(255,90,130,0.6);
+  background: rgba(255,90,130,0.08);
+}
+.bulk-grid-status{
+  min-width: 120px;
+  max-width: 180px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #c51b4f;
+  padding: 8px 10px !important;
+  white-space: normal;
+  word-break: break-word;
 }
 .modal-title {
   font-size: 18px;

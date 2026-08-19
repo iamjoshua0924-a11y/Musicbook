@@ -81,7 +81,7 @@ async function loadSessions() {
   const rooms = Array.isArray(r.rooms) ? r.rooms : [];
   const st = sr?.ok ? sr.stats : null;
   $('sessionsOut').textContent = st
-    ? `룸 ${st.roomsCount} · 멤버 ${st.totalMembers} · unique ${st.uniqueMemberIds} · TURNER ${st.pageTurnerCount} · TOOL ${st.toolAuthorizedCount} · 요청 ${st.toolRequestedCount} · 합주 ${st.rehearsalEligibleCount}/${st.rehearsalReadyCount}`
+    ? `룸 ${st.roomsCount} · 멤버 ${st.totalMembers} · unique ${st.uniqueMemberIds} · TURNER ${st.pageTurnerCount} · TOOL ${st.toolAuthorizedCount} · 요청 ${st.toolRequestedCount}`
     : `총 ${rooms.length}개`;
   rooms.forEach((x) => {
     const el = document.createElement('div');
@@ -89,7 +89,7 @@ async function loadSessions() {
     el.innerHTML = `
       <div style="flex:1; display:grid; gap:6px;">
         <div><span class="kbd">${String(x.roomCode || '')}</span> · members=${x.memberCount || 0} · page=${x.currentPageNo || 1}</div>
-        <div class="muted">${String(x.currentFileId || '') ? `fileId=${String(x.currentFileId)}` : ''} ${x.rehearsalActive ? '· rehearsal=ON' : ''}</div>
+        <div class="muted">${String(x.currentFileId || '') ? `fileId=${String(x.currentFileId)}` : ''}</div>
       </div>
       <div style="display:flex; gap:8px; align-items:center;">
         <button type="button" class="light" data-action="detail">상세</button>
@@ -136,7 +136,6 @@ async function openSessionDetail(roomCode) {
   lines.push(`currentFileId: ${room.currentFileId || '-'}`);
   lines.push(`currentPageNo: ${room.currentPageNo || 1}`);
   lines.push(`scrollRatio: ${room.currentScrollRatio != null ? Number(room.currentScrollRatio).toFixed(3) : '-'}`);
-  lines.push(`rehearsalActive: ${room.rehearsalActive ? 'ON' : 'OFF'}`);
   lines.push(`toolAuthorizedCount: ${room.toolAuthorizedCount ?? 0}`);
   lines.push(`toolRequestedCount: ${room.toolRequestedCount ?? 0}`);
   if (Array.isArray(room.annotationsFiles) && room.annotationsFiles.length) {
@@ -161,7 +160,6 @@ async function openSessionDetail(roomCode) {
     if (m.isPageTurner) badges.push('<span class="badge blue">TURNER</span>');
     if (m.isToolAuthorized) badges.push('<span class="badge green">TOOL</span>');
     if (m.toolRequested) badges.push('<span class="badge red">요청</span>');
-    if (m.isRehearsalEligible) badges.push(`<span class="badge ${m.isRehearsalReady ? 'green' : 'red'}">합주</span>`);
     const el = document.createElement('div');
     el.className = 'item';
     el.innerHTML = `

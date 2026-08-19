@@ -500,31 +500,16 @@ function setHidden(id, hidden) {
   el.classList.toggle('hidden', hidden);
 }
 
-function updateParticipantsBulkRowVisibility() {
-  const el = document.getElementById('participantsBulkRow');
-  if (!el) return;
-  const show = Boolean(state.isInSession && state.isPageTurner);
-  el.classList.toggle('hidden', !show);
-  // 일부 환경에서 class 토글이 늦게 반영되는 듯하여 style로도 강제
-  el.style.display = show ? 'flex' : 'none';
-}
-
 // 네트워크 디버그 배지(UI 노이즈) 제거됨.
 function setNetBadge(_label, _opts = {}) {}
 
 function setParticipantsOpen(open) {
   setHidden('participantsPanel', !open);
-  try {
-    updateParticipantsBulkRowVisibility();
-  } catch {}
 }
 
 function toggleParticipantsPanel() {
   const panel = document.getElementById('participantsPanel');
   if (!panel) return;
-  try {
-    updateParticipantsBulkRowVisibility();
-  } catch {}
   setParticipantsOpen(panel.classList.contains('hidden'));
 }
 
@@ -786,30 +771,6 @@ function flashHud(msg, ms = 1200) {
   }, ms);
 }
 
-// ---- Rehearsal ready button -------------------------------------------------------
-function updateReadyBtnUI() {
-  const btn = document.getElementById('readyBtn');
-  if (!btn) return;
-  btn.classList.toggle('hidden', !state.isInSession);
-  // 합주 진행 중에는 준비 해제를 못하게(요구사항)
-  btn.disabled = Boolean(state.rehearsalActive && state.rehearsalReady);
-  btn.classList.toggle('disabled', btn.disabled);
-  btn.classList.toggle('ready-on', Boolean(state.rehearsalReady));
-  btn.textContent = state.rehearsalReady ? '준비됨' : '준비';
-}
-
-function updateRehearsalToggleUI() {
-  const btn = document.getElementById('rehearsalToggleBtn');
-  if (!btn) return;
-  btn.classList.toggle('hidden', !(state.isInSession && state.isPageTurner));
-  btn.classList.toggle('rehearsal-on', Boolean(state.rehearsalActive));
-  btn.textContent = state.rehearsalActive ? '합주종료' : '합주시작';
-  // Flow: 모두 준비 -> 합주시작. 시작 전에는 "모두 준비"일 때만 활성화.
-  const canStart = Number(state._rehEligibleCount || 0) > 0 && Number(state._rehReadyCount || 0) >= Number(state._rehEligibleCount || 0);
-  btn.disabled = !state.rehearsalActive && !canStart;
-  btn.classList.toggle('disabled', btn.disabled);
-}
-
 // ---- Participant (⋯) menu ---------------------------------------------------------
 let _participantMenuEl = null;
 let _participantMenuCleanup = null;
@@ -842,17 +803,6 @@ function openParticipantMenu(anchorEl, m) {
         label: m.isToolAuthorized ? '도구승인 해제' : '도구승인',
         onClick: () =>
           socket.emit('session:tool:grant', { roomCode: state.roomCode, targetSocketId: m.socketId, allow: !m.isToolAuthorized })
-      });
-      items.push({
-        label: m.isRehearsalEligible ? '합주멤버 해제' : '합주멤버 등록',
-        onClick: () =>
-          socket.emit(
-            'session:rehearsal:eligible:set',
-            { roomCode: state.roomCode, targetSocketId: m.socketId, eligible: !m.isRehearsalEligible },
-            (ack) => {
-              if (!ack?.ok) flashHud('합주멤버 설정 실패', 1200);
-            }
-          )
       });
     }
     if (canManage && !isSelf) {
@@ -1476,13 +1426,6 @@ const state = {
   isToolAuthorized: false,
   cursorShareOn: false,
   memberId: getOrCreateMemberId(),
-  // rehearsal
-  rehearsalActive: false,
-  rehearsalReady: false,
-  _rehPrevActive: null, // null=초기 미설정, boolean=직전 브로드캐스트 상태
-  _rehPrevReadyMap: {}, // memberId -> boolean (turner feedback)
-  _rehEligibleCount: 0,
-  _rehReadyCount: 0,
   _lastParticipants: [], // latest rendered participants (for delegated actions)
 
   // BPM/metronome (local only)
@@ -1713,9 +1656,6 @@ function joinSession(roomCode) {
     setHidden('participantsPanel', false);
     // 모바일에서는 기본으로 패널을 접어둠(필요 시 '세션목록' 버튼으로 열기)
     if (isMobileLike()) setHidden('participantsPanel', true);
-    try {
-      updateParticipantsBulkRowVisibility();
-    } catch {}
     // 세션의 최신 상태(현재 악보/페이지)를 재요청해서 동기화 보장
     socket.emit('session:participants:refresh', { roomCode: state.roomCode });
     // request initial annotations
@@ -1723,13 +1663,6 @@ function joinSession(roomCode) {
     setSessionUiDefaultsIfNeeded();
     updateTurnerToggleAccess();
     updateSongBookPickVisibility();
-    // Ready button is visible only in session mode
-    try {
-      const btn = document.getElementById('readyBtn');
-      if (btn) btn.classList.remove('hidden');
-    } catch {}
-    updateReadyBtnUI();
-    updateRehearsalToggleUI();
   }
   );
 }
@@ -1739,23 +1672,12 @@ function leaveSession() {
   state.roomCode = null;
   state.isInSession = false;
   state.isPageTurner = false;
-  state.rehearsalActive = false;
-  state.rehearsalReady = false;
   document.getElementById('sessionFloatBtn').textContent = '세션참여';
   setHidden('sessionBadge', true);
   setHidden('turnerBadge', true);
-  setHidden('rehearsalBadge', true);
   setHidden('touchRoomBadge', true);
   setHidden('touchTurnerBadge', true);
   setHidden('participantsPanel', true);
-  try {
-    const btn = document.getElementById('readyBtn');
-    if (btn) btn.classList.add('hidden');
-  } catch {}
-  try {
-    const btn = document.getElementById('rehearsalToggleBtn');
-    if (btn) btn.classList.add('hidden');
-  } catch {}
   if (roomCode) socket.emit('session:leave', { roomCode });
   setRoomToUrl('');
   if (state.fileId) clearLastRoomForFile(state.fileId);
@@ -3608,45 +3530,6 @@ document.getElementById('sessionMenuJoinBtn')?.addEventListener('click', () => {
   document.getElementById('sessionFloatBtn')?.click?.();
 });
 
-document.getElementById('rehearsalToggleBtn')?.addEventListener('click', () => {
-  if (!state.isInSession || !state.roomCode) return;
-  if (!state.isPageTurner) return;
-  const next = !state.rehearsalActive;
-  socket.emit('session:rehearsal:active:set', { roomCode: state.roomCode, active: next }, (ack) => {
-    if (!ack?.ok) {
-      if (ack?.error === 'NO_ELIGIBLE') return flashHud('합주멤버를 먼저 등록해 주세요', 1400);
-      if (ack?.error === 'NO_ELIGIBLE_CONNECTED') return flashHud('접속 중인 합주멤버가 없습니다', 1400);
-      if (ack?.error === 'NOT_ALL_READY') return flashHud('모두 준비 완료 후 합주시작을 누르세요', 1500);
-      return flashHud('합주 상태 변경 실패', 1200);
-    }
-    // server is source of truth; but optimistic feedback is OK
-    state.rehearsalActive = Boolean(ack.rehearsalActive);
-    updateRehearsalToggleUI();
-    updateReadyBtnUI();
-    // FX/사운드/진동 등은 브로드캐스트(session:participants)에서 모두가 보도록 처리
-  });
-});
-
-document.getElementById('readyBtn')?.addEventListener('click', () => {
-  if (!state.isInSession || !state.roomCode) return;
-  // 합주 진행 중에는 준비 해제를 못하게(요구사항)
-  if (state.rehearsalActive && state.rehearsalReady) return flashHud('합주 중에는 준비 해제 불가', 1200);
-  const next = !state.rehearsalReady;
-  socket.emit('session:rehearsal:ready:set', { roomCode: state.roomCode, ready: next }, (ack) => {
-    if (!ack?.ok) {
-      // server is source of truth; rollback optimistic toggle
-      state.rehearsalReady = !next;
-      updateReadyBtnUI();
-      if (ack?.error === 'NOT_ELIGIBLE') return flashHud('합주멤버로 등록된 사람만 준비를 누를 수 있습니다', 1400);
-      if (ack?.error === 'REHEARSAL_ACTIVE_LOCK') return flashHud('합주 중에는 준비 해제 불가', 1200);
-      flashHud('준비 상태 변경 실패', 1200);
-    }
-  });
-  // optimistic UI (will be corrected by session:participants)
-  state.rehearsalReady = next;
-  updateReadyBtnUI();
-});
-
 document.getElementById('songBookPickBtn')?.addEventListener('click', () => {
   // 멤버+세션 상태에서만 노출되므로 별도 권한 체크는 생략
   openSongPickModal();
@@ -3765,20 +3648,6 @@ function renderSongPickAvailableVocalModalList() {
     });
 }
 
-// T-03: 합주멤버 전원 지정/해제 (turner only)
-document.getElementById('rehearsalAllOnBtn')?.addEventListener('click', () => {
-  if (!state.isInSession || !state.isPageTurner || !state.roomCode) return;
-  socket.emit('session:rehearsal:eligible:set_bulk', { roomCode: state.roomCode, eligible: true }, (ack) => {
-    if (!ack?.ok) flashHud('전원 합주멤버 지정 실패', 1200);
-  });
-});
-document.getElementById('rehearsalAllOffBtn')?.addEventListener('click', () => {
-  if (!state.isInSession || !state.isPageTurner || !state.roomCode) return;
-  socket.emit('session:rehearsal:eligible:set_bulk', { roomCode: state.roomCode, eligible: false }, (ack) => {
-    if (!ack?.ok) flashHud('전원 해제 실패', 1200);
-  });
-});
-
 // T-04: reaction bar wiring (follower only UI)
 try {
   const bar = document.getElementById('reactionBar');
@@ -3829,27 +3698,6 @@ function pulseBpmBar() {
   setTimeout(() => el.classList.remove('on'), 70);
 }
 
-function triggerRehearsalFx() {
-  const el = document.getElementById('rehearsalFx');
-  if (!el) return;
-  const textEl = document.getElementById('rehearsalFxText');
-  const kind = String(arguments?.[0] || 'start');
-  try {
-    el.classList.toggle('start', kind === 'start');
-    el.classList.toggle('finish', kind === 'finish');
-    if (textEl) textEl.textContent = kind === 'finish' ? 'FINISH!' : 'START!';
-  } catch {}
-  el.classList.remove('hidden');
-  // restart animation
-  el.classList.remove('on');
-  // force reflow
-  void el.offsetWidth;
-  el.classList.add('on');
-  setTimeout(() => {
-    el.classList.remove('on');
-    el.classList.add('hidden');
-  }, 950);
-}
 function playMetronomeClick() {
   try {
     if (!_metroAudio) _metroAudio = new (window.AudioContext || window.webkitAudioContext)();
@@ -6070,9 +5918,6 @@ socket.on('session:pageTurner:state', (p) => {
   try {
     if (wasTurner && !state.isPageTurner && state.cursorShareOn) stopCursorShare(true);
   } catch {}
-  try {
-    updateParticipantsBulkRowVisibility();
-  } catch {}
   if (state.isPageTurner) {
     // turner 안내 배지(UI 노이즈) 제거됨.
     // 턴너가 된 순간 room.currentFileId/currentPageNo를 확정(곡리스트→뷰어→세션생성 케이스 안정화)
@@ -6092,32 +5937,10 @@ socket.on('session:pageTurner:state', (p) => {
   updateReactionUI();
   updateToolActiveUI();
   updatePageLabels();
-  updateRehearsalToggleUI();
 });
 
 socket.on('session:participants', (p) => {
   if (!state.isInSession) return;
-  const nextActive = Boolean(p?.rehearsalActive);
-  // rehearsal active transition FX (broadcast)
-  try {
-    if (state._rehPrevActive === null) {
-      state._rehPrevActive = nextActive;
-    } else if (Boolean(state._rehPrevActive) !== nextActive) {
-      state._rehPrevActive = nextActive;
-      flashHud(nextActive ? '합주 START!' : '합주 FINISH!', 1200);
-      try {
-        pulseBpmBar();
-        if (nextActive) setTimeout(() => pulseBpmBar(), 220);
-      } catch {}
-      try {
-        triggerRehearsalFx(nextActive ? 'start' : 'finish');
-      } catch {}
-      try {
-        if (navigator?.vibrate) navigator.vibrate(nextActive ? [30, 40, 30] : [40]);
-      } catch {}
-    }
-  } catch {}
-  state.rehearsalActive = nextActive;
   try {
     const me = (p?.members || []).find((m) => m.socketId === socket.id);
     if (me) {
@@ -6125,21 +5948,15 @@ socket.on('session:participants', (p) => {
       // participants payload 기준으로 TURNER 여부도 확정(이벤트 누락/레이스 대비)
       state.isPageTurner = Boolean(me.isPageTurner);
       state.isToolAuthorized = Boolean(me.isToolAuthorized) || state.isPageTurner;
-      state.rehearsalReady = Boolean(me.isRehearsalReady);
-      updateReadyBtnUI();
       // 턴너를 잃는 순간: 기존 커서공유가 켜져있으면 반드시 끄고 hide를 브로드캐스트
       try {
         if (wasTurner && !state.isPageTurner && state.cursorShareOn) stopCursorShare(true);
       } catch {}
     }
   } catch {}
-  updateRehearsalToggleUI();
   updateTurnerToggleAccess();
   updateCursorShareUI();
   updateReactionUI();
-  try {
-    updateParticipantsBulkRowVisibility();
-  } catch {}
   const list = document.getElementById('participantsList');
   list.innerHTML = '';
   // 같은 사람이 reconnect / 중복 탭 등으로 두 번 뜨는 현상 완화:
@@ -6184,49 +6001,6 @@ socket.on('session:participants', (p) => {
   // merged list
   const values = Array.from(mergedMap.values());
 
-  // Turner feedback: ready count + 변화 알림
-  try {
-    const eligible = {};
-    (p?.members || []).forEach((m) => {
-      const id = String(m?.memberId || '').trim();
-      if (!id) return;
-      if (!m.isRehearsalEligible) return;
-      eligible[id] = {
-        ready: Boolean(m.isRehearsalReady),
-        name: String(m?.displayName || m?.nickname || '익명').trim() || '익명'
-      };
-    });
-    const eligibleIds = Object.keys(eligible);
-    const eligibleCount = eligibleIds.length;
-    const readyCount = eligibleIds.filter((id) => eligible[id].ready).length;
-    state._rehEligibleCount = eligibleCount;
-    state._rehReadyCount = readyCount;
-
-    const badge = document.getElementById('rehearsalBadge');
-    if (badge) {
-      const show = state.isInSession && state.isPageTurner && eligibleCount > 0;
-      badge.classList.toggle('hidden', !show);
-      if (show) badge.textContent = `준비 ${readyCount}/${eligibleCount}`;
-    }
-    updateRehearsalToggleUI();
-
-    if (state.isPageTurner && eligibleCount > 0) {
-      const prev = state._rehPrevReadyMap || {};
-      let msg = '';
-      for (const id of eligibleIds) {
-        if (prev[id] === undefined) continue; // 최초 1회는 알림 생략
-        if (Boolean(prev[id]) !== Boolean(eligible[id].ready)) {
-          msg = `${eligible[id].name} ${eligible[id].ready ? '준비됨' : '준비 해제'}`;
-          break;
-        }
-      }
-      const next = {};
-      eligibleIds.forEach((id) => (next[id] = Boolean(eligible[id].ready)));
-      state._rehPrevReadyMap = next;
-      if (msg) flashHud(msg, 900);
-    }
-  } catch {}
-
   // for delegated participant actions
   state._lastParticipants = values;
 
@@ -6239,9 +6013,6 @@ socket.on('session:participants', (p) => {
     const photo = normalizeProfilePhotoUrl(m.profilePhoto || '', 80);
     const bg = window.mbAvatar?.color ? window.mbAvatar.color(labelName) : 'rgba(0,0,0,0.18)';
     const initial = window.mbAvatar?.initial ? window.mbAvatar.initial(labelName) : (String(labelName || '').trim().slice(0, 1) || '?');
-    const isEligible = Boolean(m.isRehearsalEligible);
-    const isReady = Boolean(m.isRehearsalReady);
-    row.classList.add(isEligible ? (isReady ? 'reh-green' : 'reh-red') : 'reh-gray');
     row.innerHTML = `
       <span class="participant-left">
         ${
@@ -6294,28 +6065,10 @@ socket.on('session:participants', (p) => {
   });
 });
 
-socket.on('session:rehearsal:all_ready', (p) => {
-  if (!state.isInSession) return;
-  if (p?.roomCode && String(p.roomCode).toUpperCase() !== String(state.roomCode || '').toUpperCase()) return;
-  if (!state.isPageTurner) return;
-  const n = Number(p?.count || 0);
-  showTopNotice({
-    title: '모든 세션이 합주 준비가 되었습니다',
-    sub: n ? `합주멤버 ${n}명 준비 완료` : '',
-    timeoutMs: 6000,
-    actions: []
-  });
-});
-
 // Ensure late joiners always align to room's current file/page
 socket.on('session:state', (p) => {
   if (!state.isInSession) return;
   if (p?.roomCode && String(p.roomCode).toUpperCase() !== String(state.roomCode || '').toUpperCase()) return;
-  if (p?.rehearsalActive !== undefined) {
-    state.rehearsalActive = Boolean(p.rehearsalActive);
-    updateReadyBtnUI();
-    updateRehearsalToggleUI();
-  }
   const fileId = String(p?.currentFileId || '').trim();
   const pageNo = Number(p?.currentPageNo || 0);
   // rev 동기화(있으면)

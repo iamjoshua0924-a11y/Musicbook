@@ -80,7 +80,6 @@ router.get(
           pageTurnerSocketId: room.pageTurnerSocketId || null,
           currentFileId: room.currentFileId || '',
           currentPageNo: room.currentPageNo || 1,
-          rehearsalActive: Boolean(room.rehearsalActive),
           ageMs: room.createdAt ? Date.now() - Number(room.createdAt || 0) : null
         });
       }
@@ -98,11 +97,8 @@ router.get(
     let roomsCount = 0;
     let totalMembers = 0;
     let pageTurnerCount = 0;
-    let rehearsalActiveCount = 0;
     let toolAuthorizedCount = 0;
     let toolRequestedCount = 0;
-    let rehearsalEligibleCount = 0;
-    let rehearsalReadyCount = 0;
     /** @type {Set<string>} */
     const uniqueMemberIds = new Set();
 
@@ -111,11 +107,8 @@ router.get(
         roomsCount += 1;
         totalMembers += room.members?.size || 0;
         if (room.pageTurnerSocketId) pageTurnerCount += 1;
-        if (room.rehearsalActive) rehearsalActiveCount += 1;
         toolAuthorizedCount += room.toolAuthorizedSocketIds?.size || 0;
         toolRequestedCount += room.toolRequestSocketIds?.size || 0;
-        rehearsalEligibleCount += room.rehearsalEligibleMemberIds?.size || 0;
-        rehearsalReadyCount += room.rehearsalReadyMemberIds?.size || 0;
         try {
           for (const m of room.members?.values?.() || []) {
             const id = String(m?.memberId || '').trim();
@@ -132,11 +125,8 @@ router.get(
         totalMembers,
         uniqueMemberIds: uniqueMemberIds.size,
         pageTurnerCount,
-        rehearsalActiveCount,
         toolAuthorizedCount,
-        toolRequestedCount,
-        rehearsalEligibleCount,
-        rehearsalReadyCount
+        toolRequestedCount
       }
     });
   })
@@ -165,9 +155,7 @@ router.get(
           profilePhoto: m?.profilePhoto || '',
           isPageTurner: String(room.pageTurnerSocketId || '') === String(socketId),
           isToolAuthorized: room.toolAuthorizedSocketIds?.has?.(socketId) || false,
-          toolRequested: room.toolRequestSocketIds?.has?.(socketId) || false,
-          isRehearsalEligible: memberId ? room.rehearsalEligibleMemberIds?.has?.(memberId) || false : false,
-          isRehearsalReady: memberId ? room.rehearsalReadyMemberIds?.has?.(memberId) || false : false
+          toolRequested: room.toolRequestSocketIds?.has?.(socketId) || false
         });
       }
     } catch {}
@@ -194,7 +182,6 @@ router.get(
         currentOriginalLink: room.currentOriginalLink || '',
         currentPageNo: room.currentPageNo || 1,
         currentScrollRatio: room.currentScrollRatio || 0,
-        rehearsalActive: Boolean(room.rehearsalActive),
         viewerSettings: room.viewerSettings || null,
         toolAuthorizedCount: room.toolAuthorizedSocketIds?.size || 0,
         toolRequestedCount: room.toolRequestSocketIds?.size || 0,

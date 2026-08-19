@@ -75,97 +75,6 @@ body.light{
   box-shadow: 0 0 18px rgba(122,162,255,0.55);
 }
 
-/* rehearsal start/end FX (page-wide) */
-.rehearsalFx{
-  position: fixed;
-  inset: 0;
-  z-index: 6450;
-  pointer-events: none;
-  opacity: 0;
-  background:
-    radial-gradient(circle at 50% 40%, rgba(255,255,255,0.28), rgba(255,255,255,0.0) 52%),
-    conic-gradient(
-      from 90deg,
-      rgba(122,162,255,0.00),
-      rgba(191,90,242,0.40),
-      rgba(54,220,120,0.40),
-      rgba(255,45,85,0.40),
-      rgba(122,162,255,0.00)
-    );
-  mix-blend-mode: screen;
-  filter: saturate(1.25) contrast(1.10);
-}
-body.light .rehearsalFx{ mix-blend-mode: multiply; opacity: 0; }
-.rehearsalFx.on{
-  opacity: 1;
-  animation: rehearsalWave 900ms ease-out both;
-}
-.rehearsalFxText{
-  position: absolute;
-  top: 50%;
-  left: 0;
-  transform: translate(-120%, -50%) rotate(-10deg);
-  font-family: "Black Han Sans", system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans KR", Arial, sans-serif;
-  font-size: clamp(64px, 18vw, 220px);
-  letter-spacing: 0.02em;
-  line-height: 1;
-  white-space: nowrap;
-  text-transform: uppercase;
-  color: rgba(255,255,255,0.98);
-  text-shadow:
-    0 10px 50px rgba(0,0,0,0.58),
-    0 0 18px rgba(255,255,255,0.22);
-  opacity: 0;
-}
-.rehearsalFx.start .rehearsalFxText{ color: rgba(255,255,255,0.94); }
-.rehearsalFx.finish .rehearsalFxText{ color: rgba(255,255,255,0.92); }
-.rehearsalFx.on .rehearsalFxText{
-  opacity: 1;
-  animation: rehearsalTextSweep 900ms ease-out both;
-}
-@keyframes rehearsalTextSweep{
-  0%{ transform: translate(-120%, -50%) rotate(-10deg); filter: blur(2px); opacity: 0; }
-  18%{ opacity: 1; filter: blur(0px); }
-  70%{ opacity: 1; }
-  100%{ transform: translate(120%, -50%) rotate(8deg); filter: blur(2px); opacity: 0; }
-}
-@keyframes rehearsalWave{
-  0%{ opacity: 0; transform: scale(0.95) rotate(-8deg); filter: blur(2px); }
-  35%{ opacity: 1; transform: scale(1.02) rotate(0deg); filter: blur(0px); }
-  100%{ opacity: 0; transform: scale(1.08) rotate(6deg); filter: blur(3px); }
-}
-
-/* ready / rehearsal buttons (top emphasis) */
-#readyBtn{
-  /* before click: green (call-to-action) */
-  border-color: rgba(54,220,120,0.72);
-  background: rgba(54,220,120,0.32);
-  color: rgba(235,255,245,0.98);
-}
-#readyBtn.ready-on{
-  /* after click: red (so you notice "already ready" / can toggle off) */
-  border-color: rgba(255,107,107,0.75);
-  background: rgba(255,107,107,0.30);
-  color: rgba(255,240,240,0.98);
-}
-#readyBtn.disabled{ opacity: 0.78; }
-
-#rehearsalToggleBtn{
-  border-color: rgba(255,195,90,0.70);
-  background: rgba(255,195,90,0.30);
-  color: rgba(255,250,235,0.98);
-}
-#rehearsalToggleBtn.rehearsal-on{
-  border-color: rgba(255,107,107,0.75);
-  background: rgba(255,107,107,0.28);
-  color: rgba(255,240,240,0.98);
-}
-
-/* participant states (rehearsal) */
-.participant-row.reh-green{ border-color: rgba(54,220,120,0.55); box-shadow: 0 0 0 1px rgba(54,220,120,0.12) inset; }
-.participant-row.reh-red{ border-color: rgba(255,107,107,0.55); box-shadow: 0 0 0 1px rgba(255,107,107,0.12) inset; }
-.participant-row.reh-gray{ border-color: rgba(140,150,170,0.35); }
-
 /* participant menu */
 .participantMenu{
   position: fixed;
@@ -1065,18 +974,6 @@ body.live-mode #participantsPanel{
   border-radius: 10px;
   font-size: 12px;
   font-weight: 900;
-}
-.participantsBulkRow{
-  display:flex;
-  gap:8px;
-  padding: 8px 0 10px;
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: linear-gradient(to bottom, rgba(18,19,22,0.95), rgba(18,19,22,0));
-}
-body.light .participantsBulkRow{
-  background: linear-gradient(to bottom, rgba(255,255,255,0.95), rgba(255,255,255,0));
 }
 .participant-row{
   display:flex;

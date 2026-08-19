@@ -71,8 +71,6 @@ function toSessionRoomName(roomCode) {
 }
 
 function buildParticipantsPayload(room) {
-  const eligible = room.rehearsalEligibleMemberIds || new Set();
-  const ready = room.rehearsalReadyMemberIds || new Set();
   const members = Array.from(room.members.entries()).map(([socketId, m]) => {
     const memberId = String(m?.memberId || '').trim();
     return {
@@ -84,13 +82,10 @@ function buildParticipantsPayload(room) {
       memberId,
       isPageTurner: socketId === room.pageTurnerSocketId,
       isToolAuthorized: room.toolAuthorizedSocketIds?.has?.(socketId) || false,
-      toolRequested: room.toolRequestSocketIds?.has?.(socketId) || false,
-      // rehearsal
-      isRehearsalEligible: Boolean(memberId) && eligible.has(memberId),
-      isRehearsalReady: Boolean(memberId) && ready.has(memberId)
+      toolRequested: room.toolRequestSocketIds?.has?.(socketId) || false
     };
   });
-  return { roomCode: room.roomCode, rehearsalActive: Boolean(room.rehearsalActive), members };
+  return { roomCode: room.roomCode, members };
 }
 
 function canUseTools(room, socketId) {
@@ -112,8 +107,7 @@ function emitRoomState(io, room) {
     currentFileRev: Number(room.currentFileRev || 0),
     currentPageNo: room.currentPageNo,
     currentOriginalLink: room.currentOriginalLink || '',
-    currentScrollRatio: Number(room.currentScrollRatio || 0),
-    rehearsalActive: Boolean(room.rehearsalActive)
+    currentScrollRatio: Number(room.currentScrollRatio || 0)
   });
 }
 
@@ -203,8 +197,6 @@ function attachSockets(io) {
       socket.data.nickname = nickname;
       socket.data.displayName = displayName;
       room.members.set(socket.id, { nickname, role, displayName, profilePhoto, memberId });
-      // T-03 정책: 세션 입장 직후 전원을 합주멤버로 기본 지정(가능한 경우)
-      if (memberId) room.rehearsalEligibleMemberIds?.add?.(memberId);
       socket.data.joinedRooms.add(roomCode);
 
       await socket.join(toSessionRoomName(roomCode));
@@ -233,122 +225,6 @@ function attachSockets(io) {
         const snap = await loadSnapshot(roomCode, room.currentFileId);
         if (snap) socket.emit('wb:sync', { fileId: room.currentFileId, snapshot: snap });
       }
-    });
-
-    // --- Rehearsal readiness --------------------------------------------------------
-    socket.on('session:rehearsal:active:set', (payload, ack) => {
-      const roomCode = String(payload?.roomCode || '').trim().toUpperCase();
-      const active = Boolean(payload?.active);
-      const room = store.rooms.get(roomCode);
-      if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
-      if (room.pageTurnerSocketId !== socket.id) return ack?.({ ok: false, error: 'FORBIDDEN' });
-      // Flow: 모두 준비 -> 합주시작 -> 합주종료
-      // - 합주시작 시점에는 준비 상태를 유지한다(준비 완료 후 시작이므로).
-      // - 합주종료 시점에만 준비를 초기화한다.
-      if (active) {
-        const eligibleSet = room.rehearsalEligibleMemberIds || new Set();
-        if (!eligibleSet.size) return ack?.({ ok: false, error: 'NO_ELIGIBLE' });
-        const connectedMemberIds = new Set(
-          Array.from(room.members.values())
-            .map((m) => String(m?.memberId || '').trim())
-            .filter(Boolean)
-        );
-        const eligibleConnected = Array.from(eligibleSet).filter((id) => connectedMemberIds.has(id));
-        if (!eligibleConnected.length) return ack?.({ ok: false, error: 'NO_ELIGIBLE_CONNECTED' });
-        const readySet = room.rehearsalReadyMemberIds || new Set();
-        const allReady = eligibleConnected.every((id) => readySet.has(id));
-        if (!allReady) return ack?.({ ok: false, error: 'NOT_ALL_READY' });
-      } else {
-        room.rehearsalReadyMemberIds?.clear?.();
-      }
-      room.rehearsalActive = active;
-      io.to(toSessionRoomName(roomCode)).emit('session:participants', buildParticipantsPayload(room));
-      io.to(toSessionRoomName(roomCode)).emit('session:state', {
-        roomCode,
-        currentFileId: room.currentFileId,
-        currentFileRev: Number(room.currentFileRev || 0),
-        currentPageNo: room.currentPageNo,
-        currentOriginalLink: room.currentOriginalLink || '',
-        currentScrollRatio: Number(room.currentScrollRatio || 0),
-        rehearsalActive: Boolean(room.rehearsalActive)
-      });
-      ack?.({ ok: true, rehearsalActive: Boolean(room.rehearsalActive) });
-    });
-
-    socket.on('session:rehearsal:eligible:set', (payload, ack) => {
-      const roomCode = String(payload?.roomCode || '').trim().toUpperCase();
-      const targetSocketId = String(payload?.targetSocketId || '').trim();
-      const eligible = Boolean(payload?.eligible);
-      const room = store.rooms.get(roomCode);
-      if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
-      if (room.pageTurnerSocketId !== socket.id) return ack?.({ ok: false, error: 'FORBIDDEN' });
-      const target = room.members.get(targetSocketId);
-      if (!target) return ack?.({ ok: false, error: 'TARGET_NOT_FOUND' });
-      const memberId = String(target.memberId || '').trim();
-      if (!memberId) return ack?.({ ok: false, error: 'MEMBER_ID_REQUIRED' });
-      if (eligible) room.rehearsalEligibleMemberIds?.add?.(memberId);
-      else room.rehearsalEligibleMemberIds?.delete?.(memberId);
-      io.to(toSessionRoomName(roomCode)).emit('session:participants', buildParticipantsPayload(room));
-      ack?.({ ok: true });
-    });
-
-    // T-03: Bulk set rehearsal eligible for all connected members (turner only)
-    socket.on('session:rehearsal:eligible:set_bulk', (payload, ack) => {
-      const roomCode = String(payload?.roomCode || '').trim().toUpperCase();
-      const eligible = Boolean(payload?.eligible);
-      const room = store.rooms.get(roomCode);
-      if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
-      if (room.pageTurnerSocketId !== socket.id) return ack?.({ ok: false, error: 'FORBIDDEN' });
-      try {
-        for (const [, m] of room.members.entries()) {
-          const memberId = String(m?.memberId || '').trim();
-          if (!memberId) continue;
-          if (eligible) room.rehearsalEligibleMemberIds?.add?.(memberId);
-          else room.rehearsalEligibleMemberIds?.delete?.(memberId);
-          // 전원 해제 시 ready도 같이 내려준다(기대 동작)
-          if (!eligible) room.rehearsalReadyMemberIds?.delete?.(memberId);
-        }
-        io.to(toSessionRoomName(roomCode)).emit('session:participants', buildParticipantsPayload(room));
-        ack?.({ ok: true });
-      } catch (e) {
-        ack?.({ ok: false, error: 'BULK_FAILED' });
-      }
-    });
-
-    socket.on('session:rehearsal:ready:set', (payload, ack) => {
-      const roomCode = String(payload?.roomCode || '').trim().toUpperCase();
-      const ready = Boolean(payload?.ready);
-      const room = store.rooms.get(roomCode);
-      if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
-      if (!room.members.has(socket.id)) return ack?.({ ok: false, error: 'NOT_IN_ROOM' });
-      const memberId = String(room.members.get(socket.id)?.memberId || '').trim();
-      if (!memberId) return ack?.({ ok: false, error: 'MEMBER_ID_REQUIRED' });
-      // 합주 진행 중에는 "준비 해제"를 막는다(요구사항)
-      if (!ready && room.rehearsalActive) return ack?.({ ok: false, error: 'REHEARSAL_ACTIVE_LOCK' });
-      // only eligible members can set ready=true
-      const eligibleSet = room.rehearsalEligibleMemberIds || new Set();
-      if (ready && !eligibleSet.has(memberId)) return ack?.({ ok: false, error: 'NOT_ELIGIBLE' });
-      if (ready) room.rehearsalReadyMemberIds?.add?.(memberId);
-      else room.rehearsalReadyMemberIds?.delete?.(memberId);
-      io.to(toSessionRoomName(roomCode)).emit('session:participants', buildParticipantsPayload(room));
-      ack?.({ ok: true });
-
-      // Notify turner when all eligible (connected) members are ready
-      try {
-        if (!eligibleSet.size) return;
-        const connectedMemberIds = new Set(
-          Array.from(room.members.values())
-            .map((m) => String(m?.memberId || '').trim())
-            .filter(Boolean)
-        );
-        const eligibleConnected = Array.from(eligibleSet).filter((id) => connectedMemberIds.has(id));
-        if (!eligibleConnected.length) return;
-        const readySet = room.rehearsalReadyMemberIds || new Set();
-        const allReady = eligibleConnected.every((id) => readySet.has(id));
-        if (allReady && room.pageTurnerSocketId) {
-          io.to(room.pageTurnerSocketId).emit('session:rehearsal:all_ready', { roomCode, count: eligibleConnected.length });
-        }
-      } catch {}
     });
 
     // Kick (turner only): force disconnect target socket
@@ -390,8 +266,7 @@ function attachSockets(io) {
         currentFileRev: Number(room.currentFileRev || 0),
         currentPageNo: room.currentPageNo,
         currentOriginalLink: room.currentOriginalLink || '',
-        currentScrollRatio: Number(room.currentScrollRatio || 0),
-        rehearsalActive: Boolean(room.rehearsalActive)
+        currentScrollRatio: Number(room.currentScrollRatio || 0)
       });
     });
 
@@ -506,14 +381,8 @@ function attachSockets(io) {
       if (room.pageTurnerSocketId !== socket.id) return ack?.({ ok: false, error: 'FORBIDDEN' });
       if (!fileId) return ack?.({ ok: false, error: 'FILE_REQUIRED' });
 
-      const prevFileId = String(room.currentFileId || '');
       room.currentFileId = fileId;
       room.currentPageNo = pageNo;
-      // 곡(파일)이 바뀌면 준비 상태는 초기화(합주 진행 중일 때만)
-      if (room.rehearsalActive && prevFileId && prevFileId !== fileId) {
-        room.rehearsalReadyMemberIds?.clear?.();
-        io.to(toSessionRoomName(roomCode)).emit('session:participants', buildParticipantsPayload(room));
-      }
 
       io.to(toSessionRoomName(roomCode)).emit('viewer:page_change', { fileId, pageNo });
       io.to(toSessionRoomName(roomCode)).emit('session:state', {
@@ -522,8 +391,7 @@ function attachSockets(io) {
         currentFileRev: Number(room.currentFileRev || 0),
         currentPageNo: pageNo,
         currentOriginalLink: room.currentOriginalLink || '',
-        currentScrollRatio: Number(room.currentScrollRatio || 0),
-        rehearsalActive: Boolean(room.rehearsalActive)
+        currentScrollRatio: Number(room.currentScrollRatio || 0)
       });
       ack?.({ ok: true });
     });

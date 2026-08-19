@@ -131,36 +131,32 @@ function getOrCreateMemberId() {
   return id;
 }
 
+// IMPORTANT: "모바일 모드"는 기기 종류로만 판정한다(창 너비로 판정하지 않는다).
+// 예전에는 (max-width: 980px) OR (pointer: coarse) 였는데, 데스크톱에서 창 너비만 줄여도
+// 모바일 모드로 뒤집혀 spreadCount가 1로 강제되는 등 동작 자체가 바뀌었다.
+// 그걸 손으로 되돌리려고 auto/on/off 토글을 뒀던 것이라, 판정을 고치면서 토글도 제거했다.
+// 좁은 창 대응은 CSS 미디어쿼리(레이아웃)만 담당하고, 동작 모드는 바꾸지 않는다.
 function isMobileLike() {
-  const isCoarse = window.matchMedia('(pointer: coarse)').matches;
-  return window.matchMedia('(max-width: 980px)').matches || isCoarse;
-}
-
-function getMobileModePref() {
-  const v = String(localStorage.getItem('mb_viewer_mobile_mode') || 'auto').toLowerCase();
-  return v === 'on' || v === 'off' || v === 'auto' ? v : 'auto';
-}
-
-function setMobileModePref(v) {
-  const vv = v === 'on' || v === 'off' || v === 'auto' ? v : 'auto';
-  localStorage.setItem('mb_viewer_mobile_mode', vv);
+  return window.matchMedia('(pointer: coarse)').matches && window.matchMedia('(hover: none)').matches;
 }
 
 function isMobileModeEnabled() {
-  const pref = getMobileModePref();
-  if (pref === 'on') return true;
-  if (pref === 'off') return false;
   return isMobileLike();
 }
 
 function isMobileViewer() {
   try {
-    // 기존 로직은 화면 크기 기준 자동이었는데, 보기옵션에서 auto/on/off로 강제할 수 있게 한다.
     return isMobileModeEnabled() && String(authState?.role || '') === 'viewer';
   } catch {
     return false;
   }
 }
+
+// 구버전에서 auto/on/off로 저장해둔 값이 남아 있으면 정리한다.
+// (토글 UI가 사라졌으므로 'on'이 남아 있으면 되돌릴 방법이 없다)
+try {
+  localStorage.removeItem('mb_viewer_mobile_mode');
+} catch {}
 
 // T-20: 세션 참여자 수 파비콘 배지
 let _faviconBaseHref = '';
@@ -3555,29 +3551,6 @@ function applyTouchModeAuto(on) {
   document.body.classList.toggle('touch-mode', Boolean(on));
 }
 
-function applyMobileModeButtons() {
-  const pref = getMobileModePref();
-  document.getElementById('mobileAutoBtn')?.classList.toggle('active', pref === 'auto');
-  document.getElementById('mobileOnBtn')?.classList.toggle('active', pref === 'on');
-  document.getElementById('mobileOffBtn')?.classList.toggle('active', pref === 'off');
-}
-
-document.getElementById('mobileAutoBtn')?.addEventListener('click', () => {
-  setMobileModePref('auto');
-  applyMobileModeButtons();
-  updateLiveMode();
-});
-document.getElementById('mobileOnBtn')?.addEventListener('click', () => {
-  setMobileModePref('on');
-  applyMobileModeButtons();
-  updateLiveMode();
-});
-document.getElementById('mobileOffBtn')?.addEventListener('click', () => {
-  setMobileModePref('off');
-  applyMobileModeButtons();
-  updateLiveMode();
-});
-
 document.getElementById('participantsToggleBtn')?.addEventListener('click', () => setParticipantsOpen(false));
 document.getElementById('participantsBtn')?.addEventListener('click', () => toggleParticipantsPanel());
 document.getElementById('touchMenuBtn')?.addEventListener('click', () => toggleParticipantsPanel());
@@ -5967,7 +5940,6 @@ function updateLiveMode() {
   document.body.classList.toggle('live-mode', isLive);
   document.body.classList.toggle('landscape', window.matchMedia('(orientation: landscape)').matches);
   applyTouchModeAuto(isLive);
-  applyMobileModeButtons();
 }
 updateLiveMode();
 window.addEventListener('resize', debounce(updateLiveMode, 200));

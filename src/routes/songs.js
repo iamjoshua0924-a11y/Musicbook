@@ -4,6 +4,7 @@ const Song = require('../models/Song');
 const { requireSessionOrAdmin } = require('../middleware/auth');
 const Availability = require('../models/Availability');
 const User = require('../models/User');
+const { buildPublicBookUserQuery } = require('../services/bookAccess');
 
 const router = express.Router();
 
@@ -63,6 +64,21 @@ function applyScopeFilter(filter, privateOwnerId) {
   return filter;
 }
 
+// PB-6(2차 감사): privateOwnerId로 타인의 private 곡을 조회할 때, 그 사용자의
+// 노래책이 공개 상태가 아니면(buildPublicBookUserQuery 불통과) private 곡을 내주지 않는다.
+// - 오너 본인/admin은 공개 여부와 무관하게 항상 허용 — 공개를 해제한 오너가
+//   자기 아카이브를 계속 편집/열람할 수 있어야 한다.
+// - 통과 실패 시 privateOwnerId를 비워 global 곡만 반환한다(404가 아니라 축소 응답 —
+//   프로필/셋리스트 등 다른 API가 이미 404를 내므로 화면 진입 자체는 그쪽이 막는다).
+async function resolveVisiblePrivateOwnerId(req, privateOwnerId) {
+  const owner = String(privateOwnerId || '').trim();
+  if (!owner) return '';
+  const su = req.session?.user;
+  if (su && (su.role === 'admin' || String(su.userId || '') === owner)) return owner;
+  const u = await User.findOne(buildPublicBookUserQuery(owner)).select('_id').lean();
+  return u ? owner : '';
+}
+
 function normalizeKeySuffix(s) {
   const m = String(s || '').trim().match(KEY_SUFFIX_RE);
   if (!m) return { found: false, key: '', title: String(s || '').trim() };
@@ -95,7 +111,7 @@ router.get('/songs', asyncHandler(async (req, res) => {
   if (genre) filter.genre = genre;
   if (mood) filter.mood = mood;
   if (vocal) filter.vocal = vocal;
-  applyScopeFilter(filter, privateOwnerId);
+  applyScopeFilter(filter, await resolveVisiblePrivateOwnerId(req, privateOwnerId));
 
   const [items0, total] = await Promise.all([
     Song.find(filter).sort({ isLatest: -1, title: 1 }).skip(skip).limit(limit).lean(),
@@ -160,7 +176,7 @@ router.get('/songs/cards', asyncHandler(async (req, res) => {
   if (genre) filter.genre = genre;
   if (mood) filter.mood = mood;
   if (vocal) filter.vocal = vocal;
-  applyScopeFilter(filter, privateOwnerId);
+  applyScopeFilter(filter, await resolveVisiblePrivateOwnerId(req, privateOwnerId));
 
   let availSet = null;
   let availMap = null;

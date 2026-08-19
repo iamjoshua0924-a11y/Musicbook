@@ -266,8 +266,10 @@
         </aside>
 
       </main>
-    </div>
 
+      <!-- UX-1(2차 감사): 아래 모달/팔레트는 반드시 #viewer-wrapper 안에 있어야 한다.
+           Fullscreen API는 fullscreen 요소의 서브트리만 top layer에 렌더하므로,
+           wrapper 밖 형제였던 동안 전체화면에서 모든 모달이 보이지 않았다(MUST-2). -->
     <!-- prompt() 대체: 입력 모달 (닉네임/룸코드) -->
     <div class="modalOverlay hidden" id="inputModal">
       <div class="modalBox">
@@ -397,6 +399,8 @@
       <div class="textPresetHint muted">프리셋을 고른 뒤 악보를 클릭하면 텍스트가 찍힙니다.</div>
       <div id="textPresetList" class="textPresetList"></div>
     </aside>
+    </div>
+
 
     <!-- pdf.js + fabric.js (CDN, GAS 원본과 동일 계열) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>

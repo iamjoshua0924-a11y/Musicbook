@@ -787,7 +787,9 @@ function openParticipantMenu(anchorEl, m) {
     menu.innerHTML = items
       .map((it, i) => `<button type="button" data-idx="${i}" class="${it.danger ? 'danger' : ''}">${String(it.label)}</button>`)
       .join('');
-    document.body.appendChild(menu);
+    // UX-1(2차 감사): 전체화면(#viewer-wrapper) 중에도 보이도록 wrapper 안에 append
+    // (position:fixed라 위치 계산은 동일 — wrapper에 transform/filter 없음)
+    (document.getElementById('viewer-wrapper') || document.body).appendChild(menu);
     _participantMenuEl = menu;
 
     const r = anchorEl.getBoundingClientRect();

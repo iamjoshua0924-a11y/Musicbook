@@ -19,6 +19,14 @@ const SongSchema = new mongoose.Schema(
     isLatest: { type: Boolean, default: false },
     hidden: { type: Boolean, default: false },
 
+    // 악보 없는 곡 / 개인 전용 곡(다음 phase의 "가능곡 추가 UI"에서 채워짐).
+    // googleFileId는 required+unique 제약을 그대로 유지하므로, 이런 문서는
+    // src/services/placeholderSong.js의 헬퍼로 만든 합성 ID(`local-<uuid>`)를 googleFileId에 넣는다.
+    hasScoreFile: { type: Boolean, default: true },
+    externalLink: { type: String, default: '' }, // 코드위키 등 외부 링크
+    scope: { type: String, enum: ['global', 'private'], default: 'global', index: true },
+    privateOwnerId: { type: String, default: '', index: true },
+
     searchText: { type: String, default: '', index: true },
     driveModifiedTime: { type: Date, default: null },
     syncRootId: { type: String, default: '', index: true },

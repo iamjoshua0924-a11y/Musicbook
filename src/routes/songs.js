@@ -51,6 +51,17 @@ function buildSearchClauses(rawQuery) {
   });
 }
 
+// scope 인지 필터: private 문서는 요청자 본인(privateOwnerId 일치) 것만 보이게 하고,
+// 나머지(global 및 scope 필드 자체가 없는 기존 문서)는 항상 보인다.
+//
+// IMPORTANT: { scope: 'global' }로 필터링하면 안 된다 — 기존 문서엔 scope 필드가
+// 아예 없어서(마이그레이션 전) 전부 걸러져 사라진다. 반드시 { scope: { $ne: 'private' } }.
+function applyScopeFilter(filter, privateOwnerId) {
+  const owner = String(privateOwnerId || '').trim();
+  filter.$or = [{ scope: { $ne: 'private' } }, ...(owner ? [{ scope: 'private', privateOwnerId: owner }] : [])];
+  return filter;
+}
+
 function normalizeKeySuffix(s) {
   const m = String(s || '').trim().match(KEY_SUFFIX_RE);
   if (!m) return { found: false, key: '', title: String(s || '').trim() };
@@ -68,6 +79,7 @@ router.get('/songs', async (req, res) => {
   const genre = String(req.query.genre || '').trim();
   const mood = String(req.query.mood || '').trim();
   const vocal = String(req.query.vocal || '').trim();
+  const privateOwnerId = String(req.query.privateOwnerId || '').trim();
 
   const page = Math.max(1, Number(req.query.page || 1));
   // UI 이식 단계에서는 “전체 목록을 한번에 받아서 클라이언트에서 필터/페이징”을 하는 경우가 많아 상한을 넉넉히 둠
@@ -82,6 +94,7 @@ router.get('/songs', async (req, res) => {
   if (genre) filter.genre = genre;
   if (mood) filter.mood = mood;
   if (vocal) filter.vocal = vocal;
+  applyScopeFilter(filter, privateOwnerId);
 
   const [items0, total] = await Promise.all([
     Song.find(filter).sort({ isLatest: -1, title: 1 }).skip(skip).limit(limit).lean(),
@@ -136,6 +149,7 @@ router.get('/songs/cards', async (req, res) => {
   const mood = String(req.query.mood || '').trim();
   const vocal = String(req.query.vocal || '').trim();
   const availableUserId = String(req.query.availableUserId || '').trim();
+  const privateOwnerId = String(req.query.privateOwnerId || '').trim();
 
   const filter = { hidden: { $ne: true } };
   {
@@ -145,6 +159,7 @@ router.get('/songs/cards', async (req, res) => {
   if (genre) filter.genre = genre;
   if (mood) filter.mood = mood;
   if (vocal) filter.vocal = vocal;
+  applyScopeFilter(filter, privateOwnerId);
 
   let availSet = null;
   let availMap = null;

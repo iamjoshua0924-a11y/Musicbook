@@ -107,8 +107,13 @@ function createApp() {
   // - 정적 호스팅 환경에서 "존재하지 않는 폴더"로 접근 시에도 동일한 index.html을 내려줘야 한다.
   app.get(['/public/musicbook', '/public/musicbook/*', '/musicbook', '/musicbook/*'], (req, res) => {
     const last = String(req.path.split('/').pop() || '');
-    // 딥링크 하위 경로에서 상대 참조된 asset(확장자 포함)은 실제 파일 위치로 리다이렉트
-    if (last.includes('.')) return res.redirect(302, withQuery(req, `/public/musicbook/${last}`));
+    // 딥링크 하위 경로에서 상대 참조된 asset(확장자 포함)은 실제 파일 위치로 리다이렉트.
+    // 대상이 자기 자신이면(실존하지 않는 파일 — static에서 이미 miss) 404로 끊어 루프를 막는다.
+    if (last.includes('.')) {
+      const target = `/public/musicbook/${last}`;
+      if (req.path === target) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
+      return res.redirect(302, withQuery(req, target));
+    }
     res.sendFile(path.join(__dirname, '..', 'public', 'musicbook', 'index.html'));
   });
 

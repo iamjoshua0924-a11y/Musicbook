@@ -82,14 +82,6 @@
             <button id="bpmTapBtn" type="button" class="mini" title="Tap tempo">Tap</button>
           </div>
 
-          <!-- 코드위키 모드: 편집만 노출 -->
-          <div class="group hidden" id="cwEditGroup">
-            <span class="label">코드뷰</span>
-            <button id="cwKrToggleBtn" type="button" class="mini" title="독음(번역) 표시 토글">독음 ON</button>
-            <button id="chordEditBtn" type="button" class="mini" title="페이지터너/관리자용">편집</button>
-            <button id="chordHistoryBtn" type="button" class="mini" title="편집 이력">이력</button>
-          </div>
-
           <div class="spacer"></div>
 
           <div class="group" id="pageInfoGroup">
@@ -361,35 +353,6 @@
         <div id="songPickAvailableVocalList" class="songPickVocalList"></div>
         <div class="modalActions">
           <button id="songPickAvailableVocalCloseBtn" type="button" class="primary">닫기</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 코드뷰어 편집(페이지터너/관리자): 통텍스트 편집 -->
-    <div class="modalOverlay hidden" id="chordEditModal">
-      <div class="modalBox chordEditModalBox">
-        <div class="modalTitle">코드뷰어 편집</div>
-        <div class="muted" style="margin-top:6px; line-height:1.35;">
-          1) 위: 코드행 / 아래: 가사행 형식으로 수정하세요. 저장하면 덮어씌워집니다.
-        </div>
-        <div class="muted" id="chordEditDocInfo" style="margin-top:6px;"></div>
-        <textarea id="chordEditField" class="modalTextarea chordEditTextarea" spellcheck="false"></textarea>
-        <div class="modalActions">
-          <button id="chordEditCancelBtn" type="button">취소</button>
-          <button id="chordEditSaveBtn" type="button" class="primary">저장</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 코드뷰어 편집 이력(페이지터너/관리자) -->
-    <div class="modalOverlay hidden" id="chordHistoryModal">
-      <div class="modalBox">
-        <div class="modalTitle">편집 이력</div>
-        <div class="muted" id="chordHistoryDocInfo" style="margin-top:6px;"></div>
-        <div id="chordHistoryList" class="songPickList" style="max-height:50vh; overflow:auto; margin-top:10px;"></div>
-        <div class="modalActions">
-          <button id="chordHistoryResetBtn" type="button" class="danger">편집 전체초기화</button>
-          <button id="chordHistoryCloseBtn" type="button" class="primary">닫기</button>
         </div>
       </div>
     </div>

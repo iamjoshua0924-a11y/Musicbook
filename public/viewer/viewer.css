@@ -682,25 +682,6 @@ body.light .modalTextarea{
   color: var(--text);
 }
 
-/* ===== 코드뷰어 편집 모달(UI 개선) ===== */
-.chordEditModalBox{
-  width: min(1100px, 96vw);
-  max-height: min(92vh, 900px);
-  display:flex;
-  flex-direction:column;
-}
-/* chordEditOverlay 방식은 사용성 이슈로 제거, textarea를 안전하게 크게만 제공 */
-#chordEditModal.modalOverlay{
-  overflow:auto;
-  align-items:flex-start;
-}
-.chordEditTextarea{
-  width: min(1040px, 92vw);
-  height: min(70vh, 640px);
-  resize: none;
-  overflow: auto;
-}
-
 /* ===== 노래책에서 고르기 ===== */
 .songPickList{
   margin-top:10px;

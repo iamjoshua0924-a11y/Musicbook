@@ -446,44 +446,6 @@ function openInputModalRequired({ title, placeholder = '', value = '', minLen = 
   });
 }
 
-function openChordEditModal({ value = '' } = {}) {
-  const overlay = document.getElementById('chordEditModal');
-  const field = document.getElementById('chordEditField');
-  const info = document.getElementById('chordEditDocInfo');
-  const okBtn = document.getElementById('chordEditSaveBtn');
-  const cancelBtn = document.getElementById('chordEditCancelBtn');
-  if (!overlay || !field || !okBtn || !cancelBtn) return Promise.resolve(null);
-
-  field.value = String(value || '');
-  if (info) info.textContent = state?.chordDocId ? `docId: ${String(state.chordDocId)}` : '';
-  overlay.classList.remove('hidden');
-  setTimeout(() => field.focus(), 0);
-
-  return new Promise((resolve) => {
-    const onKey = (e) => {
-      if (e.key === 'Escape') cleanup(null);
-    };
-    const cleanup = (result) => {
-      overlay.classList.add('hidden');
-      okBtn.onclick = null;
-      cancelBtn.onclick = null;
-      document.removeEventListener('keydown', onKey, true);
-      resolve(result);
-    };
-    okBtn.onclick = () => cleanup(field.value);
-    cancelBtn.onclick = () => cleanup(null);
-    field.onkeydown = (e) => {
-      if (e.key === 'Escape') cleanup(null);
-    };
-    // textarea 포커스가 아니어도 Esc로 빠져나오게
-    document.addEventListener('keydown', onKey, true);
-    // 배경 클릭으로 닫기(실수 방지로 저장은 안 함)
-    overlay.onclick = (ev) => {
-      if (ev.target === overlay) cleanup(null);
-    };
-  });
-}
-
 function setText(id, text) {
   const el = document.getElementById(id);
   if (el) el.textContent = text;
@@ -869,7 +831,6 @@ function openParticipantMenu(anchorEl, m) {
 // ---- Top notice (save banner etc.) ------------------------------------------------
 let topNoticeTimer = null;
 let topNoticeCleanup = null;
-let chordUndoOnce = null; // { docId, rawText, savedAt }
 function hideTopNotice() {
   const el = document.getElementById('topNotice');
   if (!el) return;
@@ -2418,14 +2379,6 @@ function setMode(mode) {
 
   setHidden('pdf-container', mode !== 'pdf');
   setHidden('chordwikiPane', mode !== 'chord');
-  // 코드위키 편집 버튼은 "실제 코드위키 문서"일 때만 노출
-  // (평범한 PDF 뷰어 사용 시에는 코드편집 UI가 나오면 혼동됨)
-  const hasChordDoc = Boolean(state.chordDocId || state.chordBlocksRaw || (Array.isArray(state.chordBlocks) && state.chordBlocks.length));
-  setHidden('cwEditGroup', !(mode === 'chord' && hasChordDoc));
-  try {
-    updateCwKrToggleUI();
-  } catch {}
-
   if (mode === 'pdf') {
     document.getElementById('linkInput')?.setAttribute('placeholder', '구글드라이브 PDF 링크 또는 fileId');
     // chord 모드에서 PDF로 넘어갈 때는 chord UI/캔버스를 확실히 정리한다.
@@ -2448,14 +2401,6 @@ function setMode(mode) {
   // chord 모드 주석/선택/이모지 모두 입력을 받아야 하므로 항상 활성화
   if (cwHost) cwHost.style.pointerEvents = state.mode === 'chord' ? 'auto' : 'none';
   updateToolActiveUI();
-}
-
-function updateCwKrToggleUI() {
-  const btn = document.getElementById('cwKrToggleBtn');
-  if (!btn) return;
-  const on = Boolean(state.cwShowKr);
-  btn.textContent = on ? '독음 ON' : '독음 OFF';
-  btn.classList.toggle('active', on);
 }
 
 function rerenderChordKeepScroll() {
@@ -2504,15 +2449,6 @@ document.getElementById('chordModeBtn')?.addEventListener('click', async () => {
       await openChordByDocId(state.chordDocId, { broadcast: false });
     }
   } catch {}
-});
-
-document.getElementById('cwKrToggleBtn')?.addEventListener('click', () => {
-  state.cwShowKr = !state.cwShowKr;
-  try {
-    localStorage.setItem('mb_cw_showKr', state.cwShowKr ? '1' : '0');
-  } catch {}
-  updateCwKrToggleUI();
-  rerenderChordKeepScroll();
 });
 
 function renderChordBlocks(blocks) {
@@ -4834,7 +4770,7 @@ function isAnyTextEditing() {
     const tag = String(ae?.tagName || '').toUpperCase();
     if (tag === 'INPUT' || tag === 'TEXTAREA' || ae?.isContentEditable) return true;
     // 모달이 열려 있으면 기본적으로 입력/선택 중이므로 단축키를 막는다.
-    const openModalIds = ['songPickModal', 'inputModal', 'joinModal', 'chordEditModal', 'cacheModal', 'sessionMenuModal'];
+    const openModalIds = ['songPickModal', 'inputModal', 'joinModal', 'cacheModal', 'sessionMenuModal'];
     for (const id of openModalIds) {
       const el = document.getElementById(id);
       if (el && !el.classList.contains('hidden')) return true;
@@ -5280,15 +5216,6 @@ function updateToolActiveUI() {
     const overlap = document.getElementById('overlapRange');
     if (overlap) overlap.disabled = pv;
   } catch {}
-  // 코드뷰어 편집 버튼(페이지터너/관리자)
-  try {
-    const btn = document.getElementById('chordEditBtn');
-    const can =
-      state.mode === 'chord' &&
-      Boolean(state.chordDocId) &&
-      ((state.isInSession && state.isPageTurner) || (!state.isInSession && ['admin', 'session'].includes(String(authState?.role || ''))));
-    if (btn) btn.classList.toggle('hidden', !can);
-  } catch {}
 }
 
 function syncBrushOptionUI() {
@@ -5379,194 +5306,6 @@ document.getElementById('textBtn').addEventListener('click', () => {
 document.getElementById('textPresetCloseBtn')?.addEventListener('click', () => setTextPresetPaletteOpen(false));
 initTextPresetPaletteDrag();
 
-document.getElementById('chordEditBtn')?.addEventListener('click', async () => {
-  if (state.mode !== 'chord' || !state.chordDocId) return;
-  const can =
-    (state.isInSession && state.isPageTurner) || (!state.isInSession && ['admin', 'session'].includes(String(authState?.role || '')));
-  if (!can) return flashHud('페이지터너/관리자만 편집 가능합니다', 1200);
-
-  const beforeText = String(state.chordEditText || '');
-  const next = await openChordEditModal({ value: state.chordEditText || '' });
-  if (next == null) return;
-  // 저장 전 정규화:
-  // - 줄 끝 공백 제거(폭발 방지)
-  // - 탭을 스페이스로 치환
-  const rawText = String(next || '')
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-    .replace(/\t/g, '  ')
-    .split('\n')
-    .map((ln) => ln.replace(/[ \t]+$/g, ''))
-    .join('\n');
-  if (!rawText.trim()) return flashHud('비어있습니다', 1000);
-  if (!confirm(`저장하면 기존 코드위키 데이터가 덮어씌워집니다.\n(docId: ${state.chordDocId})\n저장할까요?`)) return;
-
-  flashHud('저장 중...', 900);
-  try {
-    const r = await fetch(apiUrl('/api/chord-doc'), {
-      method: 'PUT',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ docId: state.chordDocId, rawText })
-    }).then((x) => x.json());
-    if (!r?.ok) throw new Error(r?.error || 'SAVE_FAILED');
-    chordUndoOnce = { docId: String(state.chordDocId), rawText: beforeText, savedAt: Date.now() };
-    showTopNotice({
-      title: '저장됨',
-      sub: new Date(chordUndoOnce.savedAt).toLocaleString(),
-      timeoutMs: 5000,
-      actions: [
-        {
-          id: 'cwUndoBtn',
-          label: '되돌리기(1단계)',
-          primary: false,
-          onClick: async () => {
-            const u = chordUndoOnce;
-            if (!u?.docId || !u?.rawText) return;
-            if (!confirm('직전 내용으로 되돌릴까요?')) return;
-            flashHud('되돌리는 중...', 900);
-            try {
-              const rr = await fetch(apiUrl('/api/chord-doc'), {
-                method: 'PUT',
-                credentials: 'include',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ docId: u.docId, rawText: u.rawText })
-              }).then((x) => x.json());
-              if (!rr?.ok) throw new Error(rr?.error || 'UNDO_FAILED');
-              chordUndoOnce = null;
-              hideTopNotice();
-              await openChordByDocId(String(state.chordDocId), { broadcast: false });
-              flashHud('되돌림 완료', 900);
-            } catch (e) {
-              flashHud(`되돌리기 실패: ${e?.message || 'ERROR'}`, 1400);
-            }
-          }
-        }
-      ]
-    });
-    // 갱신해서 다시 렌더
-    await openChordByDocId(state.chordDocId, { broadcast: false });
-  } catch (e) {
-    flashHud(`저장 실패: ${e?.message || 'ERROR'}`, 1400);
-  }
-});
-
-// T-08: chord history / rollback
-function setHiddenModal(id, on) {
-  setHidden(id, on);
-}
-
-async function loadChordHistory(docId) {
-  const id = String(docId || '').trim();
-  if (!id) return { ok: false, error: 'DOC_ID_REQUIRED' };
-  return fetch(apiUrl(`/api/chord-doc/history?docId=${encodeURIComponent(id)}&_=${Date.now()}`), { credentials: 'include' }).then((x) =>
-    x.json()
-  );
-}
-
-function openChordHistoryModal({ docId }) {
-  const info = document.getElementById('chordHistoryDocInfo');
-  const list = document.getElementById('chordHistoryList');
-  const esc = (s) =>
-    String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  if (info) info.textContent = docId ? `docId: ${String(docId)}` : '';
-  if (list) list.innerHTML = '<div class="muted">로딩 중...</div>';
-  setHiddenModal('chordHistoryModal', false);
-  Promise.resolve()
-    .then(() => loadChordHistory(docId))
-    .then((r) => {
-      if (!list) return;
-      if (!r?.ok) {
-        list.innerHTML = `<div class="muted">불러오기 실패: ${String(r?.error || '')}</div>`;
-        return;
-      }
-      const items = Array.isArray(r.items) ? r.items : [];
-      if (!items.length) {
-        list.innerHTML = '<div class="muted">이력이 없습니다.</div>';
-        return;
-      }
-      list.innerHTML = '';
-      items.forEach((it) => {
-        const savedAt = Number(it?.savedAt || 0);
-        const when = savedAt ? new Date(savedAt).toLocaleString() : '-';
-        const by = String(it?.savedBy || '');
-        const src = String(it?.source || 'edit');
-        const preview = String(it?.preview || '').trim();
-        const el = document.createElement('div');
-        el.className = 'songPickItem';
-        el.style.cursor = 'default';
-        el.innerHTML = `
-          <div style="flex:1; display:grid; gap:4px;">
-            <div><b>${when}</b> <span class="muted">${by ? `· ${by}` : ''} ${src ? `· ${src}` : ''}</span></div>
-            <div class="muted" style="font-size:12px; line-height:1.35;">${preview ? esc(preview) : '(미리보기 없음)'}</div>
-          </div>
-          <div style="display:flex; gap:8px; align-items:center;">
-            <button type="button" class="mini" data-action="rollback">롤백</button>
-          </div>
-        `;
-        el.querySelector('[data-action="rollback"]').addEventListener('click', async () => {
-          if (!savedAt) return;
-          if (!confirm(`이 버전으로 롤백할까요?\n- ${when}\n- docId: ${docId}`)) return;
-          flashHud('롤백 중...', 900);
-          try {
-            const rr = await fetch(apiUrl('/api/chord-doc/rollback'), {
-              method: 'POST',
-              credentials: 'include',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ docId, savedAt })
-            }).then((x) => x.json());
-            if (!rr?.ok) throw new Error(rr?.error || 'ROLLBACK_FAILED');
-            setHiddenModal('chordHistoryModal', true);
-            await openChordByDocId(String(docId), { broadcast: false });
-            flashHud('롤백 완료', 900);
-          } catch (e) {
-            flashHud(`롤백 실패: ${e?.message || 'ERROR'}`, 1400);
-          }
-        });
-        list.appendChild(el);
-      });
-    })
-    .catch((e) => {
-      if (list) list.innerHTML = `<div class="muted">불러오기 실패: ${String(e?.message || e || '')}</div>`;
-    });
-}
-
-document.getElementById('chordHistoryBtn')?.addEventListener('click', () => {
-  if (state.mode !== 'chord' || !state.chordDocId) return;
-  const can =
-    (state.isInSession && state.isPageTurner) || (!state.isInSession && ['admin', 'session'].includes(String(authState?.role || '')));
-  if (!can) return flashHud('페이지터너/관리자만 확인 가능합니다', 1200);
-  openChordHistoryModal({ docId: state.chordDocId });
-});
-document.getElementById('chordHistoryCloseBtn')?.addEventListener('click', () => setHiddenModal('chordHistoryModal', true));
-document.getElementById('chordHistoryResetBtn')?.addEventListener('click', async () => {
-  if (state.mode !== 'chord' || !state.chordDocId) return;
-  const can =
-    (state.isInSession && state.isPageTurner) || (!state.isInSession && ['admin', 'session'].includes(String(authState?.role || '')));
-  if (!can) return flashHud('페이지터너/관리자만 가능합니다', 1200);
-  if (!confirm(`편집 이력을 전부 삭제하고 "최초 상태"로 초기화할까요?\n(docId: ${state.chordDocId})`)) return;
-  flashHud('초기화 중...', 900);
-  try {
-    const rr = await fetch(apiUrl('/api/chord-doc/reset'), {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ docId: state.chordDocId })
-    }).then((x) => x.json());
-    if (!rr?.ok) throw new Error(rr?.error || 'RESET_FAILED');
-    setHiddenModal('chordHistoryModal', true);
-    state.chordEditText = '';
-    await openChordByDocId(String(state.chordDocId), { broadcast: false });
-    flashHud('초기화 완료', 1000);
-  } catch (e) {
-    const msg = String(e?.message || 'ERROR');
-    if (msg === 'NO_HISTORY') return flashHud('초기화할 이력이 없습니다', 1200);
-    flashHud(`초기화 실패: ${msg}`, 1400);
-  }
-});
-document.getElementById('chordHistoryModal')?.addEventListener('click', (e) => {
-  if (e.target?.id === 'chordHistoryModal') setHiddenModal('chordHistoryModal', true);
-});
 
 
 // Brush / color / text size controls

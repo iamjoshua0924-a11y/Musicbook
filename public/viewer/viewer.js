@@ -733,6 +733,28 @@ function flashHud(msg, ms = 1200) {
   }, ms);
 }
 
+// VA-10(2차 감사): 서버가 주석 저장을 거부(용량 초과/레이트리밋 등)해도 클라이언트가
+// ack를 받지 않아 조용히 사라졌다. 같은 사유는 5초에 한 번만 알린다(HUD 도배 방지).
+const _annoSaveFailLastAt = new Map();
+function notifyAnnoSaveFailure(errCode) {
+  const code = String(errCode || 'SAVE_FAILED');
+  const now = Date.now();
+  if (now - (_annoSaveFailLastAt.get(code) || 0) < 5000) return;
+  _annoSaveFailLastAt.set(code, now);
+  const msg =
+    code === 'PAYLOAD_TOO_LARGE'
+      ? '주석이 너무 많아 이 페이지는 세션에 공유되지 않습니다 (용량 초과)'
+      : code === 'RATE_LIMIT'
+        ? '주석 공유가 너무 잦아 일부가 전송되지 않았습니다'
+        : `주석 세션 공유 실패 (${code}) — 내 화면에는 남아있습니다`;
+  flashHud(msg, 2500);
+}
+function emitAnnoUpdate(payload) {
+  socket.emit('wb:page:update', payload, (ack) => {
+    if (ack && ack.ok === false) notifyAnnoSaveFailure(ack.error);
+  });
+}
+
 // ---- Participant (⋯) menu ---------------------------------------------------------
 let _participantMenuEl = null;
 let _participantMenuCleanup = null;
@@ -1278,7 +1300,10 @@ function makeLaserGroup(points) {
   const group = new fabric.Group([outline, inner], {
     selectable: false,
     evented: false,
-    objectCaching: false
+    objectCaching: false,
+    // VA-11(2차 감사): 레이저는 1.4초 fade 창 안에 다른 이벤트로 스냅샷이 찍히면
+    // annoStore/서버/undo에 영구 저장("박제")됐다. toDatalessJSON 직렬화에서 제외한다.
+    excludeFromExport: true
   });
   group._transient = true;
   return group;
@@ -2358,6 +2383,18 @@ function closeCurrentDocument({ reason = '' } = {}) {
   // Clear PDF state
   try {
     state.isPdfReady = false;
+    // VC-07(2차 감사): 문서 프록시를 참조만 버리면 pdf.js 파싱 컨텍스트가 해제되지 않아
+    // 곡 전환을 반복할수록 메모리가 누적됐다. destroy로 명시 해제한다.
+    renderSpread._seq = (renderSpread._seq || 0) + 1;
+    while (activeRenderTasks.length) {
+      const t = activeRenderTasks.pop();
+      try {
+        t?.cancel?.();
+      } catch {}
+    }
+    try {
+      state.pdfDoc?.destroy?.();
+    } catch {}
     state.pdfDoc = null;
     state.totalPages = 1;
     state.pageNo = 1;
@@ -2416,13 +2453,25 @@ function setMode(mode) {
     clearChordPaneState({ keepMode: true, keepData: true });
     // restore pdf fileId for viewer internals
     if (state.pdfFileId) {
+      // VA-08: chord 모드에서 그린 annoStore가 PDF 페이지에 그대로 적용되지 않도록 파일별로 교체
+      if (String(state.fileId || '') !== String(state.pdfFileId)) {
+        stashAnnoForFile(state.fileId);
+        restoreAnnoForFile(state.pdfFileId);
+      }
       state.fileId = state.pdfFileId;
       loadPdf(state.fileId).catch(() => {});
     }
   } else {
     document.getElementById('linkInput')?.setAttribute('placeholder', '코드위키 링크를 넣으면 새 탭으로 엽니다');
     // if previously opened chord doc, keep it
-    if (state.chordDocId) state.fileId = state.chordDocId;
+    if (state.chordDocId) {
+      // VA-08: PDF 쪽 annoStore가 chord 캔버스(1페이지)에 새어들지 않도록 교체
+      if (String(state.fileId || '') !== String(state.chordDocId)) {
+        stashAnnoForFile(state.fileId);
+        restoreAnnoForFile(state.chordDocId);
+      }
+      state.fileId = state.chordDocId;
+    }
     // chord 모드 진입 시 스크롤 우선(선택 도구)
     if (state.tool !== 'select') setTool('select');
   }
@@ -2956,7 +3005,7 @@ function renderChordCompact(compact) {
   /** @type {Array<{lyricCols:string[], chordCols:string[]}>} */
   const renderedLines = [];
   let globalStd = 0;
-  if (pref.measureStd === 'global') {
+  if (CW_FIXED.measureStd === 'global') {
     for (const ln of lines) {
       const lyric = decodeLineText(ln);
       const { measures, hasBar } = buildMeasuresFromLine(lyric, ln?.chords);
@@ -2977,8 +3026,8 @@ function renderChordCompact(compact) {
     const { measures, hasBar } = buildMeasuresFromLine(lyric, ln?.chords);
 
     let std = 0;
-    if (pref.measureStd === 'off') std = 0;
-    else if (pref.measureStd === 'global') std = globalStd;
+    if (CW_FIXED.measureStd === 'off') std = 0;
+    else if (CW_FIXED.measureStd === 'global') std = globalStd;
     else if (hasBar) {
       const measureHasChord = (m) => Array.isArray(m?.ch) && m.ch.some((c) => c !== ' ');
       for (const m of measures) {
@@ -4176,6 +4225,34 @@ const els = {
 const viewMap = new Map(); // pageNo -> view
 /** @type {Map<number, Function>} */
 const broadcastDebouncedByPage = new Map();
+// VA-05(2차 감사): 텍스트 입력 디바운스(250ms)는 broadcast(200ms)보다 앞단에 있어서
+// clearViews의 broadcast flush만으로는 마지막 입력분이 유실됐다. 같이 flush할 수 있게 등록한다.
+const textDebouncedByPage = new Map();
+
+// VA-08(2차 감사): 로컬 annoStore는 파일 차원이 없어 pdf↔chord 모드 토글 시
+// 서로의 페이지 스냅샷(특히 1페이지)이 섞였다. 모드 전환 시 파일별로 격리 보관한다.
+const annoStashByFile = new Map();
+// VC-14: 진행 중 pdf.js 렌더 태스크 핸들(다음 renderSpread에서 cancel)
+const activeRenderTasks = [];
+function flushPendingAnnoSaves() {
+  try {
+    for (const fn of textDebouncedByPage.values()) fn?.flush?.();
+    for (const fn of broadcastDebouncedByPage.values()) fn?.flush?.();
+  } catch {}
+}
+function stashAnnoForFile(fileId) {
+  const fid = String(fileId || '');
+  if (!fid) return;
+  flushPendingAnnoSaves();
+  annoStashByFile.set(fid, { annoStore: state.annoStore, undoStack: state.undoStack, redoStack: state.redoStack });
+  if (annoStashByFile.size > 8) annoStashByFile.delete(annoStashByFile.keys().next().value);
+}
+function restoreAnnoForFile(fileId) {
+  const s = annoStashByFile.get(String(fileId || ''));
+  state.annoStore = s?.annoStore || {};
+  state.undoStack = s?.undoStack || {};
+  state.redoStack = s?.redoStack || {};
+}
 
 function getSpreadPages(leftPageNo) {
   const pages = [];
@@ -4281,6 +4358,12 @@ function clearViews() {
   // IMPORTANT: dispose보다 먼저 flush해야 한다.
   // 주석 저장은 200ms 디바운스라, 그린 직후 페이지를 넘기면 타이머가 dispose 이후에 발화한다.
   // 그때는 snapshotPage()가 viewMap을 못 찾아 null을 반환하고 주석이 조용히 사라졌다.
+  // VA-05: 텍스트 디바운스를 먼저 flush(→ broadcast 스케줄), 그 다음 broadcast flush.
+  for (const fn of textDebouncedByPage.values()) {
+    try {
+      fn?.flush?.();
+    } catch {}
+  }
   for (const fn of broadcastDebouncedByPage.values()) {
     try {
       fn?.flush?.();
@@ -4293,6 +4376,7 @@ function clearViews() {
   }
   viewMap.clear();
   broadcastDebouncedByPage.clear();
+  textDebouncedByPage.clear();
   els.canvasStack.innerHTML = '';
 }
 
@@ -4675,7 +4759,7 @@ function makeView(pageNo) {
       state.annoStore[pageNo] = snap;
       if (!state.isInSession || !state.roomCode || !state.fileId) return;
       if (!canUseToolsNow()) return;
-      socket.emit('wb:page:update', {
+      emitAnnoUpdate({
         roomCode: state.roomCode,
         fileId: state.fileId,
         pageNo: String(pageNo),
@@ -4704,8 +4788,17 @@ function makeView(pageNo) {
     pushUndo();
     broadcast();
   }, 250);
+  textDebouncedByPage.set(pageNo, pushUndoTextDebounced);
   fabricCanvas.on('text:changed', () => pushUndoTextDebounced());
-  fabricCanvas.on('text:editing:exited', () => pushUndoTextDebounced());
+  fabricCanvas.on('text:editing:exited', () => {
+    // VA-05: 편집 종료는 디바운스를 기다리지 않고 즉시 저장한다.
+    // 종료 직후 250ms 안에 페이지/곡 전환이 일어나면 마지막 입력분이 유실됐다.
+    pushUndoTextDebounced();
+    try {
+      pushUndoTextDebounced.flush?.();
+      broadcast.flush?.();
+    } catch {}
+  });
 
   const v = { pageNo, root, pdfCanvas, annoCanvas, fabric: fabricCanvas, pushUndo, broadcast };
   viewMap.set(pageNo, v);
@@ -4927,6 +5020,15 @@ async function renderSpread(leftPageNo) {
   renderSpread._seq = (renderSpread._seq || 0) + 1;
   const seq = renderSpread._seq;
 
+  // VC-14: 아직 도는 이전 렌더 태스크는 결과만 폐기되는 게 아니라 실제로 취소한다.
+  // (빠른 페이지 넘김 시 폐기될 캔버스에 계속 그리며 CPU를 소모하는 문제)
+  while (activeRenderTasks.length) {
+    const t = activeRenderTasks.pop();
+    try {
+      t?.cancel?.();
+    } catch {}
+  }
+
   // Remove preview fallback if any
   els.previewRoot?.classList.add('hidden');
   els.canvasStack.style.display = 'flex';
@@ -4946,15 +5048,27 @@ async function renderSpread(leftPageNo) {
   // => 현재 스프레드 기준으로 공통 fitScale을 계산해 모두 동일 배율로 렌더한다.
   const pageObjs = [];
   const baseViewports = [];
-  for (const p of pages) {
-    if (seq !== renderSpread._seq) return;
-    const page = await state.pdfDoc.getPage(p);
-    if (seq !== renderSpread._seq) return;
-    pageObjs.push({ p, page });
-    baseViewports.push(page.getViewport({ scale: 1 }));
+  try {
+    for (const p of pages) {
+      if (seq !== renderSpread._seq) return;
+      const page = await state.pdfDoc.getPage(p);
+      if (seq !== renderSpread._seq) return;
+      pageObjs.push({ p, page });
+      baseViewports.push(page.getViewport({ scale: 1 }));
+    }
+  } catch (err) {
+    // 문서 교체/파기(VC-07)로 인한 실패는 정상 취소 흐름
+    if (seq !== renderSpread._seq || !state.pdfDoc) return;
+    throw err;
   }
   const fitScale = computeFitScaleForSpread(baseViewports);
   const scale = state.fitMode ? fitScale : fitScale * state.zoom;
+
+  // VC-06(2차 감사): devicePixelRatio 미반영으로 HiDPI(레티나/모바일)에서 악보가 1x로
+  // 흐릿하게 렌더됐다. PDF 캔버스 백버퍼만 dpr 배율로 키우고 CSS 크기는 그대로 둔다.
+  // (fabric 주석 캔버스는 CSS px 유지 — fabric이 자체 retina 스케일링을 하고,
+  //  annoStore 스냅샷의 w/h도 fabric.getWidth() 기준이라 좌표계가 변하지 않는다.)
+  const outputScale = Math.max(1, Math.min(3, Number(window.devicePixelRatio) || 1));
 
   for (const it of pageObjs) {
     const p = it.p;
@@ -4964,28 +5078,48 @@ async function renderSpread(leftPageNo) {
     if (seq !== renderSpread._seq) return;
     const v = makeView(p);
 
-    v.pdfCanvas.width = Math.floor(viewport.width);
-    v.pdfCanvas.height = Math.floor(viewport.height);
-    v.annoCanvas.width = v.pdfCanvas.width;
-    v.annoCanvas.height = v.pdfCanvas.height;
+    const cssW = Math.floor(viewport.width);
+    const cssH = Math.floor(viewport.height);
+    v.pdfCanvas.width = Math.floor(viewport.width * outputScale);
+    v.pdfCanvas.height = Math.floor(viewport.height * outputScale);
+    v.pdfCanvas.style.width = `${cssW}px`;
+    v.pdfCanvas.style.height = `${cssH}px`;
+    v.annoCanvas.width = cssW;
+    v.annoCanvas.height = cssH;
 
     // size root to fit canvas
-    v.root.style.width = `${v.pdfCanvas.width}px`;
-    v.root.style.height = `${v.pdfCanvas.height}px`;
+    v.root.style.width = `${cssW}px`;
+    v.root.style.height = `${cssH}px`;
 
-    v.fabric.setWidth(v.pdfCanvas.width);
-    v.fabric.setHeight(v.pdfCanvas.height);
+    v.fabric.setWidth(cssW);
+    v.fabric.setHeight(cssH);
 
     const ctx = v.pdfCanvas.getContext('2d');
-    await page.render({ canvasContext: ctx, viewport }).promise;
+    // VC-14(2차 감사): 폐기된 렌더 태스크가 계속 CPU를 쓰지 않도록 핸들을 보관하고
+    // 다음 renderSpread 시작 시 cancel한다. 취소 예외는 정상 흐름이라 삼킨다.
+    const renderTask = page.render({
+      canvasContext: ctx,
+      viewport,
+      transform: outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : undefined
+    });
+    activeRenderTasks.push(renderTask);
+    try {
+      await renderTask.promise;
+    } catch (err) {
+      if (seq !== renderSpread._seq) return; // 취소/파기된 렌더 — 최신 호출이 처리 중
+      throw err;
+    } finally {
+      const idx = activeRenderTasks.indexOf(renderTask);
+      if (idx >= 0) activeRenderTasks.splice(idx, 1);
+    }
     if (seq !== renderSpread._seq) return;
 
     const saved = state.annoStore[p];
     if (saved) applySnapshotToPage(p, saved);
-    else applySnapshotToPage(p, { json: { objects: [] }, w: v.pdfCanvas.width, h: v.pdfCanvas.height });
+    else applySnapshotToPage(p, { json: { objects: [] }, w: cssW, h: cssH });
 
-    contentW += v.pdfCanvas.width;
-    contentH = Math.max(contentH, v.pdfCanvas.height);
+    contentW += cssW;
+    contentH = Math.max(contentH, cssH);
 
   }
   contentW += gap * Math.max(0, pages.length - 1);
@@ -5000,6 +5134,18 @@ async function loadPdf(fileId) {
   state._loadingFileId = String(fileId);
 
   state.isPdfReady = false;
+  // VC-07: 이전 문서 프록시 명시 해제(곡 전환 반복 시 메모리 누적 방지)
+  // 파기 전에 그 문서를 그리던 렌더를 먼저 무효화/취소한다.
+  renderSpread._seq = (renderSpread._seq || 0) + 1;
+  while (activeRenderTasks.length) {
+    const t = activeRenderTasks.pop();
+    try {
+      t?.cancel?.();
+    } catch {}
+  }
+  try {
+    state.pdfDoc?.destroy?.();
+  } catch {}
   state.pdfDoc = null;
   state.totalPages = 1;
   state.pageNo = 1;
@@ -5462,7 +5608,7 @@ document.getElementById('clearBtn').addEventListener('click', () => {
     if (b) {
       b();
     } else if (state.isInSession && state.roomCode && state.fileId && canUseToolsNow()) {
-      socket.emit('wb:page:update', {
+      emitAnnoUpdate({
         roomCode: state.roomCode,
         fileId: state.fileId,
         pageNo: String(pageNo),
@@ -5884,6 +6030,15 @@ socket.on('session:state', (p) => {
 
   // If we are already loading the same file, don't re-trigger loadPdf (prevents oscillation).
   if (needFileAlign && String(state._loadingFileId || '') !== String(fileId || '')) {
+    // VA-07(2차 감사): 이 경로로 곡이 바뀔 때 이전 곡의 annoStore가 남아
+    // 새 문서 위에 그려지고, 첫 broadcast로 새 fileId에 오염 저장됐다.
+    // 미저장분을 (아직 이전 fileId인 지금) flush한 뒤 로컬 스토어를 리셋한다.
+    if (String(fileId) !== String(state.fileId || '')) {
+      flushPendingAnnoSaves();
+      state.annoStore = {};
+      state.undoStack = {};
+      state.redoStack = {};
+    }
     const originalLink = String(p?.currentOriginalLink || '').trim();
     if (fileId.startsWith('chord:')) {
       openChordByDocId(fileId, { broadcast: false }).catch(() => {});
@@ -6133,6 +6288,10 @@ socket.on('session:follow:file', (p) => {
 
   const targetId = originalLink ? extractDriveFileId(originalLink) || fileId : fileId;
 
+  // VA-06(2차 감사): 디바운스 저장이 fileId 교체 이후에 발화하면 이전 곡 주석이
+  // 새 곡으로 오염 저장된다. fileId가 아직 이전 값인 지금 flush한다.
+  if (String(targetId) !== String(state.fileId || '')) flushPendingAnnoSaves();
+
   // 세션 내에서는 페이지 리로드를 하지 않고 PDF만 교체한다(중복 접속/터너 깜빡임 방지)
   state.fileId = String(targetId);
   // pending viewer settings for this file (if arrived early)
@@ -6174,7 +6333,15 @@ socket.on('session:follow:file', (p) => {
     els.canvasStack.style.display = '';
   } catch {}
 
-  loadPdf(state.fileId).catch(() => {});
+  // VC-05(2차 감사): chord 모드에서 follow로 PDF로 전환될 때 setMode('pdf')가 없어
+  // 숨겨진 #pdf-container 안에 렌더됐다. pdfFileId를 먼저 맞춰(구 파일 재로드 방지)
+  // 모드를 전환한다. setMode('pdf')가 loadPdf까지 수행한다.
+  state.pdfFileId = String(state.fileId);
+  if (state.mode !== 'pdf') {
+    setMode('pdf');
+  } else {
+    loadPdf(state.fileId).catch(() => {});
+  }
 });
 
 // Whiteboard sync

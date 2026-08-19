@@ -27,16 +27,6 @@ body.book-context #songPickAvailableVocalOpenBtn{
   display:none !important;
 }
 
-/* 극단 모바일(아주 좁은 폭) 레이아웃 보정 */
-@media (max-width: 520px){
-  #topbar{ flex-wrap: wrap; gap: 6px; padding: 6px 8px; }
-  #topbar .left{ min-width: 0; flex-wrap: wrap; gap: 6px; }
-  #topbar .right{ width: 100%; justify-content: flex-start; }
-  #linkInput{ width: min(240px, 72vw); min-width: 160px; }
-  .toolbarShell{ padding: 8px 10px; }
-  .toolbarRow{ gap: 6px; }
-  #canvas-stack{ padding: 8px; gap: 8px; }
-}
 body.light{
   --bg:#f6f7fb;
   --panel:#ffffff;
@@ -1137,3 +1127,18 @@ body.live-mode.landscape #touchNavBottom{ padding-bottom: 6px; }
 body.drawing-active #tapZoneLeft,
 body.drawing-active #tapZoneRight,
 body.drawing-active #tapZoneCenter{ pointer-events:none !important; }
+
+/* ============================================================
+   모바일 오버라이드는 반드시 파일 "최하단"에 둔다 (UX-4, 790df57과 동일 규약).
+   같은 특이도의 기본 규칙이 뒤에 오면 캐스케이드에서 전부 패배한다.
+   ============================================================ */
+/* 극단 모바일(아주 좁은 폭) 레이아웃 보정 */
+@media (max-width: 520px){
+  #topbar{ flex-wrap: wrap; gap: 6px; padding: 6px 8px; }
+  #topbar .left{ min-width: 0; flex-wrap: wrap; gap: 6px; }
+  #topbar .right{ width: 100%; justify-content: flex-start; }
+  #linkInput{ width: min(240px, 72vw); min-width: 160px; }
+  .toolbarShell{ padding: 8px 10px; }
+  .toolbarRow{ gap: 6px; }
+  #canvas-stack{ padding: 8px; gap: 8px; }
+}

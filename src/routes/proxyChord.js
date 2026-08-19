@@ -10,6 +10,7 @@ const { parseRawTextToBlocks } = require('../services/chordParser');
 const { fetchRenderedHtml } = require('../services/puppeteerFetch');
 const ChordDoc = require('../models/ChordDoc');
 const { setTempDoc } = require('../services/chordDocTempStore');
+const { shouldCompactBlocks, compactBlocksV2 } = require('../services/chordCompact');
 
 const router = express.Router();
 
@@ -172,71 +173,6 @@ function cacheGet(key) {
 }
 function cacheSet(key, value, ttlMs) {
   cache.set(key, { value, expireAt: Date.now() + ttlMs });
-}
-
-function shouldCompactBlocks(blocks) {
-  // Object-per-cell blocks는 Mongo 16MB 제한을 쉽게 초과한다.
-  // 대략 5만 셀 이상이면 compact 저장을 우선 시도한다.
-  return Array.isArray(blocks) && blocks.length > 50_000;
-}
-
-function rleEncodeSpaces(str) {
-  const s = String(str || '');
-  /** @type {Array<[0,number] | [1,string]>} */
-  const out = [];
-  let i = 0;
-  while (i < s.length) {
-    const ch = s[i];
-    if (ch === ' ') {
-      let j = i + 1;
-      while (j < s.length && s[j] === ' ') j += 1;
-      out.push([0, j - i]);
-      i = j;
-      continue;
-    }
-    let j = i + 1;
-    while (j < s.length && s[j] !== ' ') j += 1;
-    out.push([1, s.slice(i, j)]);
-    i = j;
-  }
-  return out;
-}
-
-function compactBlocksV2(blocks) {
-  /** @type {Array<{rawRle:any[], krRle:any[], chords:Array<{col:number, token:string}>}>} */
-  const lines = [];
-  let raw = '';
-  let kr = '';
-  /** @type {Array<{col:number, token:string}>} */
-  let chords = [];
-  let col = 0;
-
-  const flush = () => {
-    if (raw.length || kr.length || chords.length) {
-      lines.push({ rawRle: rleEncodeSpaces(raw), krRle: rleEncodeSpaces(kr), chords });
-    }
-    raw = '';
-    kr = '';
-    chords = [];
-    col = 0;
-  };
-
-  for (const b of blocks || []) {
-    if (b?.lyric_raw === '\n') {
-      flush();
-      continue;
-    }
-    const r = String(b?.lyric_raw ?? ' ');
-    const k = String(b?.lyric_kr ?? b?.lyric_raw ?? ' ');
-    raw += r.length ? r[0] : ' ';
-    kr += k.length ? k[0] : ' ';
-    const c = String(b?.chord || '');
-    if (c) chords.push({ col, token: c });
-    col += 1;
-  }
-  flush();
-
-  return { format: 'mb_chord_compact_v2', lines };
 }
 
 async function createChordDoc({ blocks, meta, rawText = '' }) {

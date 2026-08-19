@@ -8,6 +8,20 @@ const { asyncHandler } = require('../middleware/asyncHandler');
 const router = express.Router();
 const clampProficiency = (v) => Math.max(0, Math.min(3, Number(v || 0) || 0));
 
+// PB-2(2차 감사): 쓰기 API가 body의 userId를 그대로 신뢰해 session 롤 멤버가
+// 타인의 가능곡/숙련도를 조작할 수 있었다. session 롤은 본인 userId만 허용하고,
+// admin은 대리 편집 워크플로 보존을 위해 임의 userId를 유지한다.
+// (프론트는 본인 편집 시 항상 자기 userId를 보내므로 기존 UI 흐름은 전부 통과한다.)
+function resolveWritableUserId(req, bodyUserId) {
+  const su = req.session?.user;
+  const requested = String(bodyUserId || '').trim();
+  if (!su) return '';
+  if (su.role === 'admin') return requested;
+  const own = String(su.userId || '').trim();
+  if (!requested || requested === own) return own;
+  return null; // session 롤이 타인 userId를 지정 — 거부
+}
+
 // Public read (used by viewer filters later)
 router.get('/availability', asyncHandler(async (req, res) => {
   const userId = String(req.query.userId || '').trim();
@@ -48,7 +62,8 @@ router.get('/availability/users', asyncHandler(async (_req, res) => {
 
 // Upsert single (session/admin)
 router.put('/availability', requireSessionOrAdmin, asyncHandler(async (req, res) => {
-  const userId = String(req.body?.userId || '').trim();
+  const userId = resolveWritableUserId(req, req.body?.userId);
+  if (userId === null) return res.status(403).json({ ok: false, error: 'FORBIDDEN_OTHER_USER' });
   const googleFileId = String(req.body?.googleFileId || '').trim();
   const hasAvailable = req.body?.available !== undefined;
   const hasProficiency = req.body?.proficiency !== undefined;
@@ -71,7 +86,8 @@ router.put('/availability', requireSessionOrAdmin, asyncHandler(async (req, res)
 
 // Bulk upsert (session/admin)
 router.post('/availability/bulk', requireSessionOrAdmin, asyncHandler(async (req, res) => {
-  const userId = String(req.body?.userId || '').trim();
+  const userId = resolveWritableUserId(req, req.body?.userId);
+  if (userId === null) return res.status(403).json({ ok: false, error: 'FORBIDDEN_OTHER_USER' });
   const items = Array.isArray(req.body?.items) ? req.body.items : [];
   if (!userId || !items.length) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
 

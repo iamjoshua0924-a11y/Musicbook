@@ -3613,6 +3613,18 @@ try {
   document.documentElement.style.setProperty('--spreadOverlapPx', `0px`);
 } catch {}
 
+// 세션 동기화(viewer:settings / follow:file pending)로 받은 overlap 값을 적용한다.
+// UI 슬라이더는 제거됐지만 프로토콜 필드는 유지된다(서버가 0..40으로 정규화해 항상 number로 보냄).
+// 이 함수가 미정의였던 동안 viewer:settings 적용이 매번 ReferenceError로 중단되어
+// 팔로워의 줌/핏/스프레드/팬 동기화가 사실상 불능이었다(2차 감사 VC-01).
+function setSpreadOverlapPx(v) {
+  const px = clamp(Number(v) || 0, 0, 40);
+  state.overlapPx = px;
+  try {
+    document.documentElement.style.setProperty('--spreadOverlapPx', `${px}px`);
+  } catch {}
+}
+
 // ---- BPM / metronome (local only) -------------------------------------------------
 let _metroTimer = null;
 let _metroAudio = null; // AudioContext

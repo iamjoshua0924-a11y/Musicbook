@@ -547,6 +547,27 @@ async function apiPost(url, body) {
   return res.json();
 }
 
+// PDF 뷰어 로딩 실패 진단용: 콘솔에 남기고, 서버(/dev 에러뷰어)에도 best-effort로 보고한다.
+// 실패해도 로딩 흐름 자체는 막지 않는다(진단 전용, fire-and-forget).
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+let lastPdfLoadFail = { step: '', reason: '', detail: '' };
+// toServer=false: 이미 서버가 같은 사유를 자체 로깅한 경우(예: token-grants/access-token 응답 거부) —
+// 콘솔에만 남기고 중복 보고하지 않는다. toServer=true: 브라우저→googleapis.com 직결 단계처럼
+// 서버가 원래 볼 수 없는 실패만 /api/drive/client-fail로 올려서 /dev 에러뷰어에 모은다.
+function reportDriveFail(step, reason, { fileId = '', detail = '', toServer = false } = {}) {
+  lastPdfLoadFail = { step, reason: String(reason || 'UNKNOWN'), detail: String(detail || '') };
+  try {
+    console.warn(`[pdf-load-fail] step=${step} reason=${reason} fileId=${fileId} ${detail || ''}`);
+  } catch {}
+  if (toServer) {
+    try {
+      apiPost('/api/drive/client-fail', { fileId, step, reason, detail }).catch(() => {});
+    } catch {}
+  }
+}
+
 // ---- PDF offline cache (IndexedDB) ------------------------------------------------
 // 목적: 같은 fileId PDF를 다시 열 때 네트워크 없이 즉시 로드 (LRU: 30개/300MB)
 const PDF_CACHE_DB = 'mb_pdf_cache_v1';
@@ -5145,6 +5166,7 @@ async function loadPdf(fileId) {
   state.totalPages = 1;
   state.pageNo = 1;
   state.activeDrawPageNo = 1;
+  lastPdfLoadFail = { step: '', reason: '', detail: '' };
   updatePageLabels();
 
   const roomParam = state.isInSession && state.roomCode ? `?room=${encodeURIComponent(state.roomCode)}` : '';
@@ -5253,9 +5275,15 @@ async function loadPdf(fileId) {
       };
     }
     const grant = await apiPost('/api/drive/token-grants', { fileId: fid });
-    if (!grant?.ok || !grant?.grantToken) return null;
+    if (!grant?.ok || !grant?.grantToken) {
+      reportDriveFail('token-grants', grant?.error, { fileId: fid });
+      return null;
+    }
     const exchanged = await apiPost('/api/drive/access-token', { grantToken: grant.grantToken });
-    if (!exchanged?.ok || !exchanged?.accessToken) return null;
+    if (!exchanged?.ok || !exchanged?.accessToken) {
+      reportDriveFail('access-token', exchanged?.error, { fileId: fid });
+      return null;
+    }
     state._driveApiAccessToken = String(exchanged.accessToken || '');
     state._driveApiAccessTokenExp = Number(exchanged.expiresAt || 0) || 0;
     state._driveApiAccessTokenFileId = String(fid);
@@ -5283,12 +5311,15 @@ async function loadPdf(fileId) {
       const ct = String(res.headers.get('content-type') || '');
       const blob = await res.blob();
       const bct = String(blob.type || ct || '');
-      if (bct && !bct.includes('pdf') && !bct.includes('octet-stream')) throw new Error('NOT_PDF');
+      if (bct && !bct.includes('pdf') && !bct.includes('octet-stream')) throw new Error(`NOT_PDF:${bct || 'unknown'}`);
       return { blob, previewUrl: tokenInfo.previewUrl, viewUrl: tokenInfo.viewUrl };
     };
     try {
       return await doFetch(false);
-    } catch {
+    } catch (err) {
+      // 여기가 서버를 거치지 않는 유일한 구간(브라우저 -> googleapis.com 직결)이라
+      // 서버 로그에는 절대 안 남는다 -> toServer:true로 반드시 보고한다.
+      reportDriveFail('googleapis-fetch', err?.message || 'FETCH_FAILED', { fileId: fid, toServer: true });
       return null;
     }
   }
@@ -5332,9 +5363,10 @@ async function loadPdf(fileId) {
     } catch {}
 
     setHidden('pageHud', false);
+    const failReasonLabel = lastPdfLoadFail.reason ? ` (사유: ${escapeHtml(lastPdfLoadFail.reason)})` : '';
     setHtml(
       'pageHud',
-      `이 파일은 앱 내부에서 직접 열지 못했습니다 ${
+      `이 파일은 앱 내부에서 직접 열지 못했습니다${failReasonLabel} ${
         previewUrl ? '<button class="hudBtn" id="openDrivePreviewBtn" type="button">미리보기</button> ' : ''
       }<button class="hudBtn" id="openDriveBtn" type="button">Drive에서 열기</button>`
     );
@@ -5348,7 +5380,7 @@ async function loadPdf(fileId) {
         window.open(viewUrl, '_blank');
       } catch {}
     });
-    setNetBadge(`PDF:open-drive ${Date.now() - t0}ms`, { ok: false });
+    setNetBadge(`PDF:open-drive[${lastPdfLoadFail.reason || '?'}] ${Date.now() - t0}ms`, { ok: false });
   } catch {
     setHidden('pageHud', false);
     setText('pageHud', 'PDF 로딩 실패: Drive 공유/권한 또는 fileId 확인');

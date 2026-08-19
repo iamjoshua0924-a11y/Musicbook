@@ -2,19 +2,13 @@ const express = require('express');
 const { z } = require('zod');
 const { nanoid } = require('nanoid');
 
+const { asyncHandler } = require('../middleware/asyncHandler');
 const { parseRawTextToBlocks } = require('../services/chordParser');
 const { fetchRenderedHtml } = require('../services/puppeteerFetch');
 const ChordDoc = require('../models/ChordDoc');
 const { setTempDoc } = require('../services/chordDocTempStore');
 
 const router = express.Router();
-
-// Express 4는 async handler의 throw/reject를 자동으로 처리하지 않는다.
-// => 반드시 wrapper로 감싸서 예외가 프로세스를 죽이거나(Render 502) 응답이 유실되지 않게 한다.
-const asyncHandler =
-  (fn) =>
-  (req, res, next) =>
-    Promise.resolve(fn(req, res, next)).catch((err) => next(err));
 
 // 안전을 위해 allowlist로만 허용(SSRF 방지의 핵심)
 const ALLOWED_HOSTS = new Set([

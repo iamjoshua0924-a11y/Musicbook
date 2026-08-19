@@ -3,6 +3,7 @@ const User = require('../models/User');
 const { requireLogin } = require('../middleware/auth');
 const { driveToThumb } = require('../services/legacyCsvImport');
 const { hasPublicBook, buildPublicBookUserQuery } = require('../services/bookAccess');
+const { asyncHandler } = require('../middleware/asyncHandler');
 
 const router = express.Router();
 const PRIVATE_THEMES = new Set([
@@ -34,7 +35,7 @@ function normalizeHex(v, fallback) {
 }
 
 // Public: 개인 노래책 공개 프로필(private 또는 공개 노래책 활성 유저)
-router.get('/private-book/:userId', async (req, res) => {
+router.get('/private-book/:userId', asyncHandler(async (req, res) => {
   const userId = String(req.params?.userId || '').trim();
   if (!userId) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
 
@@ -57,10 +58,10 @@ router.get('/private-book/:userId', async (req, res) => {
       reviewEnabled: Boolean(user.privateReviewEnabled)
     }
   });
-});
+}));
 
 // Private(로그인): 본인 개인 노래책 설정 저장(private 또는 공개 노래책 활성 유저)
-router.patch('/private-book', requireLogin, async (req, res) => {
+router.patch('/private-book', requireLogin, asyncHandler(async (req, res) => {
   const hasTitleImage = req.body?.titleImage !== undefined;
   const hasTheme = req.body?.theme !== undefined;
   const hasCustomA = req.body?.customA !== undefined;
@@ -108,6 +109,6 @@ router.patch('/private-book', requireLogin, async (req, res) => {
     statusDesc: user.privateStatusDesc || '',
     reviewEnabled: Boolean(user.privateReviewEnabled)
   });
-});
+}));
 
 module.exports = router;

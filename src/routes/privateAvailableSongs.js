@@ -1,4 +1,5 @@
 const express = require('express');
+const { asyncHandler } = require('../middleware/asyncHandler');
 const Song = require('../models/Song');
 const User = require('../models/User');
 const { requireLogin } = require('../middleware/auth');
@@ -14,7 +15,7 @@ const MAX_ROWS = 500;
 // Private(로그인): 개인 노래책 "가능곡 편집"에서 악보 없음/외부링크 placeholder 곡을 벌크로 추가.
 // :userId 파라미터를 받지 않고 항상 req.session.user 기준으로만 동작한다 —
 // 다른 사람의 개인 노래책에 잘못 추가되는 사고를 원천 차단하기 위함.
-router.post('/private-book/available-songs/bulk', requireLogin, async (req, res) => {
+router.post('/private-book/available-songs/bulk', requireLogin, asyncHandler(async (req, res) => {
   const user = await User.findById(req.session.user.id);
   if (!user) return res.status(401).json({ ok: false, error: 'UNAUTHORIZED' });
   if (!hasPublicBook(user)) return res.status(403).json({ ok: false, error: 'FORBIDDEN' });
@@ -83,6 +84,6 @@ router.post('/private-book/available-songs/bulk', requireLogin, async (req, res)
   }
 
   res.json({ ok: true, created, failed });
-});
+}));
 
 module.exports = router;

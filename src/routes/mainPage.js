@@ -1,6 +1,7 @@
 const express = require('express');
 const Setting = require('../models/Setting');
 const { requireAdmin } = require('../middleware/auth');
+const { asyncHandler } = require('../middleware/asyncHandler');
 
 const router = express.Router();
 
@@ -38,7 +39,7 @@ async function getMany(keys) {
   return map;
 }
 
-router.get('/main', async (req, res) => {
+router.get('/main', asyncHandler(async (req, res) => {
   const m = await getMany(Object.values(KEYS));
   res.json({
     ok: true,
@@ -51,9 +52,9 @@ router.get('/main', async (req, res) => {
       chzzkUrl: m[KEYS.chzzkUrl] || ''
     }
   });
-});
+}));
 
-router.patch('/main', requireAdmin, async (req, res) => {
+router.patch('/main', requireAdmin, asyncHandler(async (req, res) => {
   const { field, value } = req.body || {};
   if (!Object.values(KEYS).includes(field)) {
     return res.status(400).json({ ok: false, error: 'BAD_FIELD' });
@@ -64,6 +65,6 @@ router.patch('/main', requireAdmin, async (req, res) => {
   if (field === KEYS.titleImage) v = driveToThumb(v, 800);
   await Setting.findOneAndUpdate({ key: field }, { $set: { key: field, value: v } }, { upsert: true });
   res.json({ ok: true });
-});
+}));
 
 module.exports = router;

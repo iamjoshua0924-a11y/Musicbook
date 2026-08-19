@@ -1,4 +1,5 @@
 const express = require('express');
+const { asyncHandler } = require('../middleware/asyncHandler');
 const { getFileMetadata, getReadonlyAccessToken, buildPreviewUrl, buildViewUrl } = require('../services/drive');
 const { requireSessionOrAdmin } = require('../middleware/auth');
 const { issueDriveGrantToken, consumeDriveGrantToken } = require('../services/publicPdfSign');
@@ -40,19 +41,19 @@ function isPublicReadable(meta) {
 }
 
 // Public: preview URL builder does not access Drive API; safe for anonymous viewer mode.
-router.get('/drive/preview/:fileId', async (req, res) => {
+router.get('/drive/preview/:fileId', asyncHandler(async (req, res) => {
   const { fileId } = req.params;
   res.json({ ok: true, previewUrl: buildPreviewUrl(fileId), viewUrl: buildViewUrl(fileId) });
-});
+}));
 
 // New-tab helper: /view 는 iframe 임베드가 안 되는 경우가 많아(Drive X-Frame-Options),
 // "새 탭으로 열기" 용으로만 제공한다.
-router.get('/drive/view/:fileId', async (req, res) => {
+router.get('/drive/view/:fileId', asyncHandler(async (req, res) => {
   const { fileId } = req.params;
   res.redirect(buildViewUrl(fileId));
-});
+}));
 
-router.get('/drive/meta/:fileId', requireSessionOrAdmin, async (req, res) => {
+router.get('/drive/meta/:fileId', requireSessionOrAdmin, asyncHandler(async (req, res) => {
   const { fileId } = req.params;
   try {
     const meta = await getFileMetadata(fileId);
@@ -60,10 +61,10 @@ router.get('/drive/meta/:fileId', requireSessionOrAdmin, async (req, res) => {
   } catch (err) {
     res.status(404).json({ ok: false, error: 'NOT_FOUND' });
   }
-});
+}));
 
 // Public viewer용 short-lived internal grant. 실제 Google access token은 별도 교환 단계에서만 발급.
-router.post('/drive/token-grants', express.json(), async (req, res) => {
+router.post('/drive/token-grants', express.json(), asyncHandler(async (req, res) => {
   const fileId = String(req.body?.fileId || '').trim();
   if (!fileId) return res.status(400).json({ ok: false, error: 'FILE_ID_REQUIRED' });
   try {
@@ -95,9 +96,9 @@ router.post('/drive/token-grants', express.json(), async (req, res) => {
     logDriveFail('token-grants', 'NOT_FOUND', { fileId, detail: err?.message || String(err) });
     return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
   }
-});
+}));
 
-router.post('/drive/access-token', express.json(), async (req, res) => {
+router.post('/drive/access-token', express.json(), asyncHandler(async (req, res) => {
   const grantToken = String(req.body?.grantToken || '').trim();
   if (!grantToken) return res.status(400).json({ ok: false, error: 'GRANT_REQUIRED' });
   const consumed = consumeDriveGrantToken(grantToken);
@@ -126,7 +127,7 @@ router.post('/drive/access-token', express.json(), async (req, res) => {
     logDriveFail('access-token', 'TOKEN_EXCHANGE_FAILED', { fileId: consumed.fileId, detail: err?.message || String(err) });
     return res.status(500).json({ ok: false, error: 'TOKEN_EXCHANGE_FAILED' });
   }
-});
+}));
 
 // 뷰어(브라우저)에서 서버를 거치지 않고 googleapis.com으로 직접 fetch하는 마지막 단계는
 // 서버가 원래 볼 수 없는 실패(CORS/네트워크/컨텐츠타입 불일치 등)라서, 클라이언트가 실패 사유를

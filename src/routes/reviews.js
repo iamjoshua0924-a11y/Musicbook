@@ -2,6 +2,7 @@ const express = require('express');
 const User = require('../models/User');
 const { requireLogin } = require('../middleware/auth');
 const { buildPublicBookUserQuery } = require('../services/bookAccess');
+const { asyncHandler } = require('../middleware/asyncHandler');
 
 const router = express.Router();
 
@@ -17,7 +18,7 @@ function normalizeCardId(v) {
 }
 
 // Public: 합주후기 설정/목록 조회 (private 또는 공개 노래책 활성 유저)
-router.get('/reviews/:userId', async (req, res) => {
+router.get('/reviews/:userId', asyncHandler(async (req, res) => {
   const userId = String(req.params?.userId || '').trim();
   if (!userId) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
   const user = await User.findOne(buildPublicBookUserQuery(userId)).lean();
@@ -27,10 +28,10 @@ router.get('/reviews/:userId', async (req, res) => {
     enabled: Boolean(user.privateReviewEnabled),
     threads: Array.isArray(user.privateReviewThreads) ? user.privateReviewThreads : []
   });
-});
+}));
 
 // Public: 합주후기 코멘트 작성 (private 또는 공개 노래책 활성 유저 + enabled=true 인 경우만)
-router.post('/reviews/:userId', async (req, res) => {
+router.post('/reviews/:userId', asyncHandler(async (req, res) => {
   const userId = String(req.params?.userId || '').trim();
   if (!userId) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
   const user = await User.findOne(buildPublicBookUserQuery(userId));
@@ -66,10 +67,10 @@ router.post('/reviews/:userId', async (req, res) => {
   await user.save();
 
   res.json({ ok: true });
-});
+}));
 
 // Private: 오너(또는 admin)만 코멘트 삭제
-router.delete('/reviews/:userId/:cardId/:commentId', requireLogin, async (req, res) => {
+router.delete('/reviews/:userId/:cardId/:commentId', requireLogin, asyncHandler(async (req, res) => {
   const userId = String(req.params?.userId || '').trim();
   const cardId = normalizeCardId(req.params?.cardId);
   const commentId = String(req.params?.commentId || '').trim();
@@ -100,6 +101,6 @@ router.delete('/reviews/:userId/:cardId/:commentId', requireLogin, async (req, r
   user.updatedAt = new Date();
   await user.save();
   res.json({ ok: true });
-});
+}));
 
 module.exports = router;

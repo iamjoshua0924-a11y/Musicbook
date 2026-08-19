@@ -1,6 +1,7 @@
 const express = require('express');
 const { z } = require('zod');
 
+const { asyncHandler } = require('../middleware/asyncHandler');
 const { requireDev } = require('../middleware/devAuth');
 const { getJson, KEYS } = require('../services/syncStatus');
 const { getTrafficMetrics, resetTrafficMetrics } = require('../services/trafficMetrics');
@@ -18,11 +19,6 @@ const { getFileMetadata, renameFile } = require('../services/drive');
 const { getNowCount, getSeries } = require('../services/connectionHistory');
 
 const router = express.Router();
-
-const asyncHandler =
-  (fn) =>
-  (req, res, next) =>
-    Promise.resolve(fn(req, res, next)).catch((err) => next(err));
 
 // DEV_TOKEN is optional in env.js (we read raw process.env here as well)
 function getDevToken() {

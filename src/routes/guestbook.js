@@ -2,6 +2,7 @@ const express = require('express');
 const GuestbookEntry = require('../models/GuestbookEntry');
 const User = require('../models/User');
 const { buildPublicBookUserQuery } = require('../services/bookAccess');
+const { asyncHandler } = require('../middleware/asyncHandler');
 
 const router = express.Router();
 
@@ -18,15 +19,15 @@ async function resolvePrivateBook(bookUserId) {
   return User.findOne(buildPublicBookUserQuery(uid)).lean();
 }
 
-router.get('/guestbook/:bookUserId', async (req, res) => {
+router.get('/guestbook/:bookUserId', asyncHandler(async (req, res) => {
   const bookUserId = String(req.params.bookUserId || '').trim();
   const owner = await resolvePrivateBook(bookUserId);
   if (!owner) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
   const items = await GuestbookEntry.find({ bookUserId }).sort({ createdAt: -1 }).limit(120).lean();
   res.json({ ok: true, items });
-});
+}));
 
-router.post('/guestbook/:bookUserId', async (req, res) => {
+router.post('/guestbook/:bookUserId', asyncHandler(async (req, res) => {
   const bookUserId = String(req.params.bookUserId || '').trim();
   const owner = await resolvePrivateBook(bookUserId);
   if (!owner) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
@@ -42,9 +43,9 @@ router.post('/guestbook/:bookUserId', async (req, res) => {
     authorUserId: String(req.session?.user?.userId || '').trim()
   });
   res.json({ ok: true, item: doc.toObject() });
-});
+}));
 
-router.delete('/guestbook/:entryId', async (req, res) => {
+router.delete('/guestbook/:entryId', asyncHandler(async (req, res) => {
   const role = String(req.session?.user?.role || '');
   const userId = String(req.session?.user?.userId || '').trim();
   const entryId = String(req.params.entryId || '').trim();
@@ -59,6 +60,6 @@ router.delete('/guestbook/:entryId', async (req, res) => {
 
   await GuestbookEntry.deleteOne({ _id: entry._id });
   res.json({ ok: true });
-});
+}));
 
 module.exports = router;

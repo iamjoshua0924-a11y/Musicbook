@@ -1,5 +1,6 @@
 const path = require('node:path');
 const express = require('express');
+const { asyncHandler } = require('../middleware/asyncHandler');
 const Song = require('../models/Song');
 const Availability = require('../models/Availability');
 const { requireLogin, requireSessionOrAdmin } = require('../middleware/auth');
@@ -38,7 +39,7 @@ router.post('/songs/parse-filenames', requireLogin, (req, res) => {
 });
 
 // 단일 파일 업로드: Drive 루트 폴더에 파싱규칙대로 리네임되어 올라가고 곡 카드가 생성된다.
-router.post('/songs/upload', requireSessionOrAdmin, uploadSingle('file'), async (req, res) => {
+router.post('/songs/upload', requireSessionOrAdmin, uploadSingle('file'), asyncHandler(async (req, res) => {
   const title = String(req.body?.title || '').trim();
   const artist = String(req.body?.artist || '').trim();
   const key = String(req.body?.key || '').trim();
@@ -83,11 +84,11 @@ router.post('/songs/upload', requireSessionOrAdmin, uploadSingle('file'), async 
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e?.message || 'UPLOAD_FAILED') });
   }
-});
+}));
 
 // 다중 파일 업로드: 프론트의 벌크 그리드(Phase 3 재사용)에서 파일별 메타데이터(title/artist/key/genre)를
 // meta(JSON 배열, files[]와 같은 순서)로 함께 보낸다. 부분 실패를 허용한다(Phase 3와 동일 패턴).
-router.post('/songs/upload/bulk', requireSessionOrAdmin, uploadArray('files', MAX_BULK_FILES), async (req, res) => {
+router.post('/songs/upload/bulk', requireSessionOrAdmin, uploadArray('files', MAX_BULK_FILES), asyncHandler(async (req, res) => {
   const files = req.files || [];
   if (!files.length) return res.status(400).json({ ok: false, error: 'FILES_REQUIRED' });
 
@@ -170,11 +171,11 @@ router.post('/songs/upload/bulk', requireSessionOrAdmin, uploadArray('files', MA
   }
 
   res.json({ ok: true, created, failed });
-});
+}));
 
 // 악보 없음/코드위키 placeholder 곡 승격 + 코드위키 링크 추가/교체를 한 엔드포인트로 처리한다.
 // file, externalLink 중 최소 하나는 있어야 하고, 둘 다 와도 둘 다 처리한다.
-router.post('/songs/:id/attach-file', requireLogin, uploadSingle('file'), async (req, res) => {
+router.post('/songs/:id/attach-file', requireLogin, uploadSingle('file'), asyncHandler(async (req, res) => {
   const id = String(req.params.id || '').trim();
   const hasExternalLinkField = req.body?.externalLink !== undefined;
   const externalLink = hasExternalLinkField ? String(req.body.externalLink || '').trim() : undefined;
@@ -242,6 +243,6 @@ router.post('/songs/:id/attach-file', requireLogin, uploadSingle('file'), async 
       driveUrl: doc.driveUrl || ''
     }
   });
-});
+}));
 
 module.exports = router;

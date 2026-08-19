@@ -3,22 +3,23 @@ const Availability = require('../models/Availability');
 const { requireSessionOrAdmin } = require('../middleware/auth');
 const User = require('../models/User');
 const { bulkUpsertAvailability } = require('../services/availabilityBulk');
+const { asyncHandler } = require('../middleware/asyncHandler');
 
 const router = express.Router();
 const clampProficiency = (v) => Math.max(0, Math.min(3, Number(v || 0) || 0));
 
 // Public read (used by viewer filters later)
-router.get('/availability', async (req, res) => {
+router.get('/availability', asyncHandler(async (req, res) => {
   const userId = String(req.query.userId || '').trim();
   if (!userId) return res.status(400).json({ ok: false, error: 'USER_REQUIRED' });
   const items = await Availability.find({ userId }).lean();
   res.json({ ok: true, items });
-});
+}));
 
 // Public: list users selectable in "가능보컬" filter.
 // - Only users who have at least one available=true are included.
 // - Do NOT filter out admin; role 구분 없이 모두 선택 가능하게 유지.
-router.get('/availability/users', async (_req, res) => {
+router.get('/availability/users', asyncHandler(async (_req, res) => {
   const rows = await Availability.aggregate([
     { $match: { available: true } },
     { $group: { _id: '$userId', c: { $sum: 1 } } },
@@ -43,10 +44,10 @@ router.get('/availability/users', async (_req, res) => {
     })
     .filter(Boolean);
   res.json({ ok: true, items });
-});
+}));
 
 // Upsert single (session/admin)
-router.put('/availability', requireSessionOrAdmin, async (req, res) => {
+router.put('/availability', requireSessionOrAdmin, asyncHandler(async (req, res) => {
   const userId = String(req.body?.userId || '').trim();
   const googleFileId = String(req.body?.googleFileId || '').trim();
   const hasAvailable = req.body?.available !== undefined;
@@ -66,10 +67,10 @@ router.put('/availability', requireSessionOrAdmin, async (req, res) => {
     { upsert: true }
   );
   res.json({ ok: true });
-});
+}));
 
 // Bulk upsert (session/admin)
-router.post('/availability/bulk', requireSessionOrAdmin, async (req, res) => {
+router.post('/availability/bulk', requireSessionOrAdmin, asyncHandler(async (req, res) => {
   const userId = String(req.body?.userId || '').trim();
   const items = Array.isArray(req.body?.items) ? req.body.items : [];
   if (!userId || !items.length) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
@@ -77,6 +78,6 @@ router.post('/availability/bulk', requireSessionOrAdmin, async (req, res) => {
   const { count } = await bulkUpsertAvailability(userId, items);
   if (!count) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
   res.json({ ok: true, count });
-});
+}));
 
 module.exports = router;

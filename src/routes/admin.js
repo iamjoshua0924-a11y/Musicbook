@@ -1,4 +1,5 @@
 const express = require('express');
+const { asyncHandler } = require('../middleware/asyncHandler');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const User = require('../models/User');
@@ -20,7 +21,7 @@ const { buildSongFileName } = require('../services/songNameNormalizer');
 
 const router = express.Router();
 
-router.get('/admin/me', requireLogin, async (req, res) => {
+router.get('/admin/me', requireLogin, asyncHandler(async (req, res) => {
   const user = await User.findById(req.session.user.id).lean();
   if (!user) return res.status(401).json({ ok: false, error: 'UNAUTHORIZED' });
   // keep session user in sync (private flag might be added later)
@@ -52,9 +53,9 @@ router.get('/admin/me', requireLogin, async (req, res) => {
       privateArchivePath
     }
   });
-});
+}));
 
-router.post('/admin/login', async (req, res) => {
+router.post('/admin/login', asyncHandler(async (req, res) => {
   const userId = String(req.body?.userId || '').trim();
   const password = String(req.body?.password || '');
   if (!userId || !password) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
@@ -105,9 +106,9 @@ router.post('/admin/login', async (req, res) => {
   } catch {}
   const privateArchivePath = hasPublicBook(user) ? await buildPrivateArchivePath(user.userId) : '';
   res.json({ ok: true, user: { ...req.session.user, privateArchivePath, hasPublicBook: hasPublicBook(user) } });
-});
+}));
 
-router.patch('/admin/profile', requireLogin, async (req, res) => {
+router.patch('/admin/profile', requireLogin, asyncHandler(async (req, res) => {
   const hasDisplayName = req.body?.displayName !== undefined;
   const hasProfilePhoto = req.body?.profilePhoto !== undefined;
   const displayName = String(req.body?.displayName || '').trim();
@@ -125,9 +126,9 @@ router.patch('/admin/profile', requireLogin, async (req, res) => {
   req.session.user.displayName = user.displayName || user.userId;
   req.session.user.profilePhoto = user.profilePhoto || '';
   res.json({ ok: true, profilePhoto: user.profilePhoto || '', displayName: req.session.user.displayName });
-});
+}));
 
-router.post('/admin/password/change', requireLogin, async (req, res) => {
+router.post('/admin/password/change', requireLogin, asyncHandler(async (req, res) => {
   const currentPassword = String(req.body?.currentPassword || '');
   const newPassword = String(req.body?.newPassword || '');
   if (!currentPassword || !newPassword || newPassword.length < 4) {
@@ -155,15 +156,15 @@ router.post('/admin/password/change', requireLogin, async (req, res) => {
 
   req.session.user.mustChangePassword = false;
   res.json({ ok: true });
-});
+}));
 
-router.post('/admin/logout', requireLogin, async (req, res) => {
+router.post('/admin/logout', requireLogin, asyncHandler(async (req, res) => {
   req.session.destroy(() => {
     res.json({ ok: true });
   });
-});
+}));
 
-router.post('/admin/users', requireAdmin, async (req, res) => {
+router.post('/admin/users', requireAdmin, asyncHandler(async (req, res) => {
   const userId = String(req.body?.userId || '').trim();
   const passwordInput = String(req.body?.password || '');
   const role = String(req.body?.role || '').trim();
@@ -182,9 +183,9 @@ router.post('/admin/users', requireAdmin, async (req, res) => {
     { upsert: true, new: true }
   );
   res.json({ ok: true, item: doc.toObject(), password });
-});
+}));
 
-router.get('/admin/users', requireAdmin, async (req, res) => {
+router.get('/admin/users', requireAdmin, asyncHandler(async (req, res) => {
   // 요구사항: 스텔스(private) 유저는 admin에서 보이지 않아야 한다.
   const items = await User.find({ isPrivate: { $ne: true } }).sort({ role: 1, userId: 1 }).lean();
   const safe = items.map((u) => ({
@@ -198,10 +199,10 @@ router.get('/admin/users', requireAdmin, async (req, res) => {
     currentPasswordText: u.currentPasswordText || ''
   }));
   res.json({ ok: true, items: safe });
-});
+}));
 
 // Admin only: update user fields / reset password / deactivate
-router.patch('/admin/users/:userId', requireAdmin, async (req, res) => {
+router.patch('/admin/users/:userId', requireAdmin, asyncHandler(async (req, res) => {
   const userId = String(req.params?.userId || '').trim();
   if (!userId) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
   const existed = await User.findOne({ userId }).lean();
@@ -245,10 +246,10 @@ router.patch('/admin/users/:userId', requireAdmin, async (req, res) => {
       currentPasswordText: doc.currentPasswordText || ''
     }
   });
-});
+}));
 
 // Admin only: delete user (hard delete; also removes related availability docs)
-router.delete('/admin/users/:userId', requireAdmin, async (req, res) => {
+router.delete('/admin/users/:userId', requireAdmin, asyncHandler(async (req, res) => {
   const userId = String(req.params?.userId || '').trim();
   if (!userId) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
   // Safety: don't let admin delete self by mistake
@@ -263,15 +264,15 @@ router.delete('/admin/users/:userId', requireAdmin, async (req, res) => {
   await Availability.deleteMany({ userId });
   await User.deleteOne({ userId });
   res.json({ ok: true });
-});
+}));
 
 // Drive sync (admin/session only; for now admin only)
-router.get('/admin/sync/status', requireSessionOrAdmin, async (req, res) => {
+router.get('/admin/sync/status', requireSessionOrAdmin, asyncHandler(async (req, res) => {
   const status = await getJson(KEYS.driveSyncStatus, null);
   res.json({ ok: true, status });
-});
+}));
 
-router.post('/admin/sync/drive', requireAdmin, async (req, res) => {
+router.post('/admin/sync/drive', requireAdmin, asyncHandler(async (req, res) => {
   try {
     const latestDays = Number(req.body?.latestDays || 1);
     const limit = Number(req.body?.limit || 7000);
@@ -285,37 +286,37 @@ router.post('/admin/sync/drive', requireAdmin, async (req, res) => {
   } catch (e) {
     res.status(400).json({ ok: false, error: String(e.message || 'SYNC_FAILED') });
   }
-});
+}));
 
 // Drive sync stop (best-effort)
-router.post('/admin/sync/stop', requireAdmin, async (_req, res) => {
+router.post('/admin/sync/stop', requireAdmin, asyncHandler(async (_req, res) => {
   const r = stopDriveSync();
   res.json({ ok: true, ...r });
-});
+}));
 
 // ---- Traffic metrics (admin diagnostics) ------------------------------------------
-router.get('/admin/metrics/traffic', requireAdmin, async (_req, res) => {
+router.get('/admin/metrics/traffic', requireAdmin, asyncHandler(async (_req, res) => {
   res.json({ ok: true, data: getTrafficMetrics() });
-});
+}));
 
-router.post('/admin/metrics/traffic/reset', requireAdmin, async (_req, res) => {
+router.post('/admin/metrics/traffic/reset', requireAdmin, asyncHandler(async (_req, res) => {
   res.json({ ok: true, data: resetTrafficMetrics() });
-});
+}));
 
 // Drive sync root folder config (stored in DB)
-router.get('/admin/drive-root', requireAdmin, async (_req, res) => {
+router.get('/admin/drive-root', requireAdmin, asyncHandler(async (_req, res) => {
   const value = await getDriveRootFolderId();
   res.json({ ok: true, rootFolderId: value });
-});
+}));
 
-router.patch('/admin/drive-root', requireAdmin, async (req, res) => {
+router.patch('/admin/drive-root', requireAdmin, asyncHandler(async (req, res) => {
   const value = String(req.body?.rootFolderId || '').trim();
   await Setting.findOneAndUpdate({ key: 'driveRootFolderId' }, { $set: { key: 'driveRootFolderId', value } }, { upsert: true });
   res.json({ ok: true, rootFolderId: value });
-});
+}));
 
 // Parse error fixing (filename parse 실패 보정용)
-router.get('/admin/songs/parse-errors', requireAdmin, async (req, res) => {
+router.get('/admin/songs/parse-errors', requireAdmin, asyncHandler(async (req, res) => {
   const limit = Math.max(1, Math.min(500, Number(req.query?.limit || 100)));
   const items = await Song.find({ parseError: { $ne: '' } })
     .sort({ updatedAt: -1 })
@@ -356,9 +357,9 @@ router.get('/admin/songs/parse-errors', requireAdmin, async (req, res) => {
       parseError: s.parseError
     }))
   });
-});
+}));
 
-router.patch('/admin/songs/:id', requireAdmin, async (req, res) => {
+router.patch('/admin/songs/:id', requireAdmin, asyncHandler(async (req, res) => {
   const id = String(req.params.id || '').trim();
   const title = req.body?.title !== undefined ? String(req.body.title || '').trim() : undefined;
   const displayTitle = req.body?.displayTitle !== undefined ? String(req.body.displayTitle || '').trim() : undefined;
@@ -442,10 +443,10 @@ router.patch('/admin/songs/:id', requireAdmin, async (req, res) => {
       parseError: doc.parseError
     }
   });
-});
+}));
 
 // 카드(=title+artist 묶음) 단위 태그 편집: 조성/장르/분위기/보컬은 키 변형별로 동일하게 유지
-router.patch('/admin/song-cards', requireAdmin, async (req, res) => {
+router.patch('/admin/song-cards', requireAdmin, asyncHandler(async (req, res) => {
   const title = String(req.body?.title || '').trim();
   const artist = String(req.body?.artist || '').trim();
   if (!title) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
@@ -472,53 +473,53 @@ router.patch('/admin/song-cards', requireAdmin, async (req, res) => {
     { $set }
   );
   res.json({ ok: true, matched: r.matchedCount ?? r.n ?? 0, modified: r.modifiedCount ?? r.nModified ?? 0 });
-});
+}));
 
 // CSV 업로드(곡) 임포트: 동일값은 스킵, 변경/비일치 항목만 CSV 값으로 덮어쓰기
-router.post('/admin/import/songs-csv', requireAdmin, async (req, res) => {
+router.post('/admin/import/songs-csv', requireAdmin, asyncHandler(async (req, res) => {
   const csvText = String(req.body?.csvText || '');
   if (!csvText.trim()) return res.status(400).json({ ok: false, error: 'CSV_REQUIRED' });
   const r = await startCsvImport('songs', csvText);
   if (!r.ok) return res.status(400).json({ ok: false, error: r.error || 'IMPORT_FAILED' });
   res.json({ ok: true, ...r });
-});
+}));
 
-router.post('/admin/import/users-csv', requireAdmin, async (req, res) => {
+router.post('/admin/import/users-csv', requireAdmin, asyncHandler(async (req, res) => {
   const csvText = String(req.body?.csvText || '');
   const updatePasswordExisting = Boolean(req.body?.updatePasswordExisting);
   if (!csvText.trim()) return res.status(400).json({ ok: false, error: 'CSV_REQUIRED' });
   const r = await startCsvImport('users', csvText, { updatePasswordExisting });
   if (!r.ok) return res.status(400).json({ ok: false, error: r.error || 'IMPORT_FAILED' });
   res.json({ ok: true, ...r });
-});
+}));
 
-router.post('/admin/import/availability-csv', requireAdmin, async (req, res) => {
+router.post('/admin/import/availability-csv', requireAdmin, asyncHandler(async (req, res) => {
   const csvText = String(req.body?.csvText || '');
   if (!csvText.trim()) return res.status(400).json({ ok: false, error: 'CSV_REQUIRED' });
   const r = await startCsvImport('availability', csvText);
   if (!r.ok) return res.status(400).json({ ok: false, error: r.error || 'IMPORT_FAILED' });
   res.json({ ok: true, ...r });
-});
+}));
 
-router.get('/admin/import/status', requireAdmin, async (req, res) => {
+router.get('/admin/import/status', requireAdmin, asyncHandler(async (req, res) => {
   const kind = String(req.query?.kind || '').trim().toLowerCase();
   const status = await getCsvImportStatus(kind);
   res.json({ ok: true, status });
-});
+}));
 
 // ---- CHZZK Chat Ingestor (PoC) ----------------------------------------------------
-router.get('/admin/chzzk/status', requireAdmin, async (_req, res) => {
+router.get('/admin/chzzk/status', requireAdmin, asyncHandler(async (_req, res) => {
   res.json(chzzkIngestor.getStatus());
-});
+}));
 
-router.post('/admin/chzzk/start', requireAdmin, async (_req, res) => {
+router.post('/admin/chzzk/start', requireAdmin, asyncHandler(async (_req, res) => {
   const r = await chzzkIngestor.start();
   res.json(r);
-});
+}));
 
-router.post('/admin/chzzk/stop', requireAdmin, async (_req, res) => {
+router.post('/admin/chzzk/stop', requireAdmin, asyncHandler(async (_req, res) => {
   const r = await chzzkIngestor.stop();
   res.json(r);
-});
+}));
 
 module.exports = router;

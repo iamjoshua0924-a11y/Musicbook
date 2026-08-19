@@ -3,6 +3,7 @@ const User = require('../models/User');
 const Availability = require('../models/Availability');
 const { requireLogin } = require('../middleware/auth');
 const { buildPublicBookUserQuery } = require('../services/bookAccess');
+const { asyncHandler } = require('../middleware/asyncHandler');
 
 const router = express.Router();
 
@@ -33,16 +34,16 @@ function isOwnerOrAdmin(req, user) {
 }
 
 // Public: 신청곡 목록 조회(개인 노래책)
-router.get('/private-requests/:userId', async (req, res) => {
+router.get('/private-requests/:userId', asyncHandler(async (req, res) => {
   const userId = String(req.params?.userId || '').trim();
   if (!userId) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
   const user = await User.findOne(buildPublicBookUserQuery(userId)).lean();
   if (!user) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
   res.json({ ok: true, items: Array.isArray(user.privateSongRequests) ? user.privateSongRequests : [] });
-});
+}));
 
 // Public: 신청곡 생성(뷰어 포함)
-router.post('/private-requests/:userId', async (req, res) => {
+router.post('/private-requests/:userId', asyncHandler(async (req, res) => {
   const userId = String(req.params?.userId || '').trim();
   if (!userId) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
   const user = await User.findOne(buildPublicBookUserQuery(userId));
@@ -62,10 +63,10 @@ router.post('/private-requests/:userId', async (req, res) => {
   await user.save();
 
   res.json({ ok: true, items: user.privateSongRequests });
-});
+}));
 
 // Private: 상태 변경/삭제/승격 (오너 or admin)
-router.patch('/private-requests/:userId/:googleFileId', requireLogin, async (req, res) => {
+router.patch('/private-requests/:userId/:googleFileId', requireLogin, asyncHandler(async (req, res) => {
   const userId = String(req.params?.userId || '').trim();
   const googleFileId = String(req.params?.googleFileId || '').trim();
   if (!userId || !googleFileId) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
@@ -95,6 +96,6 @@ router.patch('/private-requests/:userId/:googleFileId', requireLogin, async (req
   await user.save();
 
   res.json({ ok: true, items: user.privateSongRequests });
-});
+}));
 
 module.exports = router;

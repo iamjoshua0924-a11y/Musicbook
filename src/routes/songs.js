@@ -1,4 +1,5 @@
 const express = require('express');
+const { asyncHandler } = require('../middleware/asyncHandler');
 const Song = require('../models/Song');
 const { requireSessionOrAdmin } = require('../middleware/auth');
 const Availability = require('../models/Availability');
@@ -74,7 +75,7 @@ function normalizeKeySuffix(s) {
 }
 
 // Public read: viewer/main can list songs
-router.get('/songs', async (req, res) => {
+router.get('/songs', asyncHandler(async (req, res) => {
   const q = String(req.query.q || '').trim();
   const genre = String(req.query.genre || '').trim();
   const mood = String(req.query.mood || '').trim();
@@ -135,7 +136,7 @@ router.get('/songs', async (req, res) => {
   if (ops.length) Song.bulkWrite(ops, { ordered: false }).catch(() => {});
 
   res.json({ ok: true, items, total, page, limit });
-});
+}));
 
 /**
  * 카드 응답(조성 통합):
@@ -143,7 +144,7 @@ router.get('/songs', async (req, res) => {
  * - key만 다른 악보는 variants로 합침
  * - (title,artist,key)가 동일한 중복은 googleFileId 기준으로 "항상 동일하게" 1개만 남김
  */
-router.get('/songs/cards', async (req, res) => {
+router.get('/songs/cards', asyncHandler(async (req, res) => {
   const q = String(req.query.q || '').trim();
   const genre = String(req.query.genre || '').trim();
   const mood = String(req.query.mood || '').trim();
@@ -349,10 +350,10 @@ router.get('/songs/cards', async (req, res) => {
     total: totalCards,
     truncated: Number(totalDocs || 0) > MAX_DOCS_FOR_CARDS
   });
-});
+}));
 
 // session/admin: 태그가 비어있는 곡은 "최초 1회" 입력을 유도(빈 값만 채움)
-router.patch('/songs/tags', requireSessionOrAdmin, async (req, res) => {
+router.patch('/songs/tags', requireSessionOrAdmin, asyncHandler(async (req, res) => {
   const googleFileId = String(req.body?.googleFileId || '').trim();
   const genre = String(req.body?.genre || '').trim();
   const mood = String(req.body?.mood || '').trim();
@@ -417,10 +418,10 @@ router.patch('/songs/tags', requireSessionOrAdmin, async (req, res) => {
       );
 
   return res.json({ ok: true, matched: r.matchedCount ?? r.n ?? 0, modified: r.modifiedCount ?? r.nModified ?? 0 });
-});
+}));
 
 // session/admin: 카드(title+artist) 단위로 태그(장르/분위기/보컬) 수정 가능하게 제공
-router.patch('/songs/card-tags', requireSessionOrAdmin, async (req, res) => {
+router.patch('/songs/card-tags', requireSessionOrAdmin, asyncHandler(async (req, res) => {
   const title = String(req.body?.title || '').trim();
   const artist = String(req.body?.artist || '').trim();
   const genre = req.body?.genre !== undefined ? String(req.body.genre || '').trim() : undefined;
@@ -468,10 +469,10 @@ router.patch('/songs/card-tags', requireSessionOrAdmin, async (req, res) => {
   );
 
   res.json({ ok: true, matched: r.matchedCount ?? r.n ?? 0, modified: r.modifiedCount ?? r.nModified ?? 0 });
-});
+}));
 
 // Admin/session write (for later: sync or manual edits)
-router.post('/songs', requireSessionOrAdmin, async (req, res) => {
+router.post('/songs', requireSessionOrAdmin, asyncHandler(async (req, res) => {
   const body = req.body || {};
   const googleFileId = String(body.googleFileId || '').trim();
   const title = String(body.title || '').trim();
@@ -500,6 +501,6 @@ router.post('/songs', requireSessionOrAdmin, async (req, res) => {
   );
 
   res.json({ ok: true, item: doc.toObject() });
-});
+}));
 
 module.exports = router;

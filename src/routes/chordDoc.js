@@ -1,17 +1,13 @@
 const express = require('express');
 const { z } = require('zod');
 
+const { asyncHandler } = require('../middleware/asyncHandler');
 const ChordDoc = require('../models/ChordDoc');
 const ChordDocHistory = require('../models/ChordDocHistory');
 const { getTempDoc } = require('../services/chordDocTempStore');
 const { parseRawTextToBlocks } = require('../services/chordParser');
 
 const router = express.Router();
-
-const asyncHandler =
-  (fn) =>
-  (req, res, next) =>
-    Promise.resolve(fn(req, res, next)).catch((err) => next(err));
 
 // GET /api/chord-doc?docId=...
 router.get(

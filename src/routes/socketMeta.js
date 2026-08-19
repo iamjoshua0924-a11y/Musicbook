@@ -1,10 +1,11 @@
 const express = require('express');
+const { asyncHandler } = require('../middleware/asyncHandler');
 const { createSocketMetaToken } = require('../services/socketMeta');
 
 const router = express.Router();
 
 // No-auth endpoint: returns viewer meta if not logged in.
-router.get('/socket/meta', async (req, res) => {
+router.get('/socket/meta', asyncHandler(async (req, res) => {
   const u = req.session?.user;
   const meta = u
     ? {
@@ -18,6 +19,6 @@ router.get('/socket/meta', async (req, res) => {
 
   const token = createSocketMetaToken(meta);
   res.json({ ok: true, meta, token });
-});
+}));
 
 module.exports = router;

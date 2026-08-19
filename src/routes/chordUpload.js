@@ -2,16 +2,12 @@ const express = require('express');
 const { z } = require('zod');
 const { nanoid } = require('nanoid');
 
+const { asyncHandler } = require('../middleware/asyncHandler');
 const { parseRawTextToBlocks } = require('../services/chordParser');
 const { setTempDoc } = require('../services/chordDocTempStore');
 const ChordDoc = require('../models/ChordDoc');
 
 const router = express.Router();
-
-const asyncHandler =
-  (fn) =>
-  (req, res, next) =>
-    Promise.resolve(fn(req, res, next)).catch((err) => next(err));
 
 function shouldCompactBlocks(blocks) {
   // Object-per-cell blocks는 Mongo 16MB 제한을 쉽게 초과한다.

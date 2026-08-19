@@ -1605,6 +1605,37 @@ async function chzzkStop() {
   }
 }
 
+// UX-3(2차 감사): 곡 목록 로드 실패 시 스켈레톤+"로딩 중"이 영구 고착되고 1.4초
+// 토스트 외 피드백/복구 수단이 없었다 — 에러 상태와 재시도 버튼을 렌더한다.
+function renderSongsLoadError() {
+  const wrap = $('songCardList');
+  if (wrap) {
+    wrap.innerHTML = `
+      <div class="song-card" style="grid-column:1/-1; text-align:center; padding:26px 16px;">
+        <div style="font-weight:700; margin-bottom:6px;">곡 목록을 불러오지 못했습니다</div>
+        <div class="muted" style="font-size:13px; margin-bottom:14px;">네트워크 상태를 확인한 뒤 다시 시도해 주세요.</div>
+        <button type="button" id="retrySongsBtn" class="floating-btn black-btn">다시 시도</button>
+      </div>`;
+    const btn = wrap.querySelector('#retrySongsBtn');
+    if (btn) {
+      btn.onclick = async () => {
+        btn.disabled = true;
+        try {
+          await loadSongs(true);
+          await loadSongFiles(true);
+          applySongFilters();
+        } catch (e) {
+          console.error(e);
+          toast('다시 시도했지만 실패했습니다');
+        } finally {
+          btn.disabled = false;
+        }
+      };
+    }
+  }
+  if ($('resultCount')) $('resultCount').textContent = '불러오기 실패';
+}
+
 async function loadSongs(force = false) {
   if (!force && state.songCardsAll.length) return;
   const firstLoad = !state.songCardsAll.length;
@@ -1642,7 +1673,10 @@ async function loadSongs(force = false) {
     }
     const url = `/api/songs/cards${params.toString() ? `?${params.toString()}` : ''}`;
     const data = await apiGet(url);
-    if (!data.ok) throw new Error('songs load failed');
+    if (!data.ok) {
+      renderSongsLoadError(); // UX-3: 스켈레톤 고착 대신 에러+재시도 UI
+      throw new Error('songs load failed');
+    }
     state.songCardsTotal = Number(data.totalCards || 0) || Number(data.total || 0) || 0;
     state.songCardsAll = (data.items || []).map((c) => ({
       ...c,
@@ -1750,6 +1784,26 @@ async function loadAvailableVocalSet(userId) {
     if (a.available) set.add(a.googleFileId);
   });
   state.filterAvailableVocalSet = set;
+}
+
+// MB-5(2차 감사): 가능보컬 세트 로딩이 한 번 실패하면 목록이 '로딩 중' dim으로
+// 영구 고착됐다(재시도 트리거 없음). 누락 세트가 있는 동안 4초 간격으로 자동
+// 재시도해 네트워크 회복 시 스스로 풀리게 한다.
+let _vocalSetRetryTimer = null;
+function scheduleVocalSetRetry() {
+  if (_vocalSetRetryTimer) return;
+  _vocalSetRetryTimer = setTimeout(async () => {
+    _vocalSetRetryTimer = null;
+    const ids = getSelectedAvailableVocalUserIds();
+    const missing = ids.filter((uid) => !state.filterAvailableVocalSetsByUserId.get(uid));
+    if (!missing.length) return;
+    try {
+      await loadAvailableVocalSets(ids);
+    } catch (e) {
+      console.error(e);
+    }
+    applySongFilters();
+  }, 4000);
 }
 
 async function loadAvailableVocalSets(userIds) {
@@ -1928,7 +1982,8 @@ function applySongFilters() {
       const hasMissing = ids.some((uid) => !state.filterAvailableVocalSetsByUserId.get(uid));
       if (hasMissing) {
         setListDimLoading(true);
-        $('resultCount').textContent = '로딩 중...(가능보컬 필터)';
+        $('resultCount').textContent = '로딩 중...(가능보컬 필터, 자동 재시도 중)';
+        scheduleVocalSetRetry(); // MB-5: 실패 시 영구 고착 방지
         return;
       }
       list = list.filter((s) => {
@@ -2012,7 +2067,8 @@ function applySongFilters() {
     const hasMissing = ids.some((uid) => !state.filterAvailableVocalSetsByUserId.get(uid));
     if (hasMissing) {
       setListDimLoading(true);
-      $('resultCount').textContent = '로딩 중...(가능보컬 필터)';
+      $('resultCount').textContent = '로딩 중...(가능보컬 필터, 자동 재시도 중)';
+      scheduleVocalSetRetry(); // MB-5: 실패 시 영구 고착 방지
       return;
     }
     list = list.filter((c) => {

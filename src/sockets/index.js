@@ -187,8 +187,9 @@ function attachSockets(io) {
       const nickname = String(payload?.nickname || socket.data.nickname || '익명').slice(0, 20);
       const role = socket.data.role || 'viewer';
       // displayName은 UI 식별용이므로 payload 우선(특히 익명 사용자 닉네임 변경 케이스)
-      const displayName = String(payload?.displayName || '').trim() || nickname;
-      const profilePhoto = String(payload?.profilePhoto || '');
+      // 길이 상한: 클라이언트가 escape하더라도 초대형 payload로 UI를 밀어내는 것을 서버에서 차단 (2차 감사 VC-03)
+      const displayName = (String(payload?.displayName || '').trim() || nickname).slice(0, 40);
+      const profilePhoto = String(payload?.profilePhoto || '').slice(0, 300);
       const memberId = String(payload?.memberId || '').trim().slice(0, 64);
       if (!roomCode) return ack?.({ ok: false, error: 'ROOM_REQUIRED' });
 

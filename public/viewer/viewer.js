@@ -5764,14 +5764,15 @@ socket.on('session:participants', (p) => {
     const photo = normalizeProfilePhotoUrl(m.profilePhoto || '', 80);
     const bg = window.mbAvatar?.color ? window.mbAvatar.color(labelName) : 'rgba(0,0,0,0.18)';
     const initial = window.mbAvatar?.initial ? window.mbAvatar.initial(labelName) : (String(labelName || '').trim().slice(0, 1) || '?');
+    // labelName/photo는 게스트가 임의 입력하는 값(닉네임/프로필URL) — 반드시 escape (2차 감사 VC-03)
     row.innerHTML = `
       <span class="participant-left">
         ${
           photo
-            ? `<span class="participant-avatar"><img src="${String(photo)}" alt="" /></span>`
-            : `<span class="participant-avatar" style="background:${String(bg)}">${initial}</span>`
+            ? `<span class="participant-avatar"><img src="${escapeHtml(photo)}" alt="" /></span>`
+            : `<span class="participant-avatar" style="background:${escapeHtml(bg)}">${escapeHtml(initial)}</span>`
         }
-        <span class="participant-name" title="${String(labelName)}">${labelName}</span>
+        <span class="participant-name" title="${escapeHtml(labelName)}">${escapeHtml(labelName)}</span>
       </span>
       <span class="participant-actions"></span>
     `;

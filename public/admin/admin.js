@@ -205,11 +205,19 @@ async function loadSyncStatus() {
     if (btn) btn.textContent = '동기화 실행';
     return;
   }
+  // 곡 누락 진단: 폴더 조회 실패 / PDF 아님으로 건너뜀 / 숨김처리 보류 사유를 함께 표시
+  const warn = [];
+  if (Number(s.listFailureCount || 0) > 0) warn.push(`폴더조회실패=${s.listFailureCount}`);
+  if (Number(s.skippedNonPdfCount || 0) > 0) warn.push(`PDF아님=${s.skippedNonPdfCount}`);
+  if (s.pruneSkippedReason) warn.push(`숨김보류(${s.pruneSkippedReason})`);
+  if (s.reachedLimit) warn.push('limit도달');
+  const warnMsg = warn.length ? ` · ⚠ ${warn.join(' · ')}` : '';
+
   const msg = s.running
     ? `RUNNING · processed=${s.processed ?? 0} skipped=${s.skipped ?? 0}${s.currentPath ? ` · path=${s.currentPath}` : ''}${s.currentFile ? ` · file=${s.currentFile}` : ''}`
     : `endedAt=${s.endedAt || '-'} · processed=${s.processed ?? '-'} · skipped=${s.skipped ?? '-'} · hidden=${s.hiddenCount ?? '-'}${
         s.diff ? ` · +${s.diff.addedCount ?? 0} ~${s.diff.changedCount ?? 0} -${s.diff.removedCount ?? 0}` : ''
-      }`;
+      }${warnMsg}`;
   if ($('syncStatusLine')) $('syncStatusLine').textContent = msg;
   syncRunning = Boolean(s.running);
   const btn = $('syncBtn');

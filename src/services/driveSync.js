@@ -40,11 +40,48 @@ async function buildArtistFreqMap() {
 async function listChildren(drive, folderId, pageToken) {
   const res = await drive.files.list({
     q: `'${folderId}' in parents and trashed=false`,
-    fields: 'nextPageToken, files(id,name,mimeType,modifiedTime,size)',
+    // shortcutDetails: 폴더에 원본 대신 바로가기가 들어있는 경우를 감지/해석하기 위해 필요
+    fields: 'nextPageToken, files(id,name,mimeType,modifiedTime,size,shortcutDetails(targetId,targetMimeType))',
     pageSize: 1000,
-    pageToken
+    pageToken,
+    // IMPORTANT: orderBy가 없으면 Drive는 결과 순서를 보장하지 않는다.
+    // pageToken 기반 페이지네이션 도중 순서가 흔들리면 특정 파일이 통째로 누락될 수 있다.
+    // (동기화를 여러 번 돌리면 들어오기도 하고 안 들어오기도 하는 증상의 유력한 원인)
+    orderBy: 'name',
+    // 현재 루트는 "공유된 일반 폴더"라 필수는 아니지만,
+    // 나중에 공유 드라이브로 옮겨가도 조용히 누락되지 않도록 방어적으로 둔다.
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true
   });
   return res.data;
+}
+
+const TRANSIENT_DRIVE_ERROR_RE = /rateLimitExceeded|userRateLimitExceeded|backendError|internalError|quotaExceeded|ECONNRESET|ETIMEDOUT|socket hang up/i;
+
+function isTransientDriveError(err) {
+  const status = Number(err?.code || err?.response?.status || 0);
+  if (status === 429 || (status >= 500 && status <= 599)) return true;
+  const reason = `${err?.errors?.[0]?.reason || ''} ${err?.message || ''}`;
+  return TRANSIENT_DRIVE_ERROR_RE.test(reason);
+}
+
+// 일시적 오류(429/5xx/네트워크)로 폴더 조회가 실패하면 지수 백오프로 재시도한다.
+// 예전에는 listChildren이 try/catch 밖에 있어서 이런 오류 한 번에 동기화 전체가 죽었다.
+async function listChildrenWithRetry(drive, folderId, pageToken, { retries = 4 } = {}) {
+  let lastErr = null;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      return await listChildren(drive, folderId, pageToken);
+    } catch (err) {
+      lastErr = err;
+      if (!isTransientDriveError(err) || attempt === retries) throw err;
+      const backoffMs = Math.min(8000, 500 * 2 ** attempt) + Math.floor(Math.random() * 250);
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((r) => setTimeout(r, backoffMs));
+    }
+  }
+  throw lastErr;
 }
 
 async function syncDriveFolderTree({
@@ -94,10 +131,30 @@ async function syncDriveFolderTree({
   const latestThreshold = now - latestDays * 24 * 60 * 60 * 1000;
   const incSinceDate = incrementalSince ? new Date(incrementalSince) : null;
 
-  while (queue.length) {
-    if (typeof shouldAbort === 'function' && shouldAbort()) {
-      return { processed, skipped, hiddenCount: 0, reachedLimit: false, aborted: true, startedAt, diff };
-    }
+  // 순회 완전성 추적: 하나라도 불완전하면 pruneMissing(누락 숨김)을 돌리면 안 된다.
+  let reachedLimit = false;
+  let listFailureCount = 0;
+  const listFailures = []; // { path, error } 샘플
+  // 진단용: PDF가 아니라 건너뛴 항목(왜 노래책에 안 들어오는지 추적)
+  let skippedNonPdfCount = 0;
+  const skippedNonPdf = []; // { name, mimeType } 샘플
+
+  const abortResult = () => ({
+    processed,
+    skipped,
+    hiddenCount: 0,
+    reachedLimit,
+    aborted: true,
+    startedAt,
+    diff,
+    listFailureCount,
+    listFailures,
+    skippedNonPdfCount,
+    skippedNonPdf
+  });
+
+  outer: while (queue.length) {
+    if (typeof shouldAbort === 'function' && shouldAbort()) return abortResult();
     const { folderId, path } = queue.shift();
     try {
       onProgress?.({ phase: 'folder', processed, skipped, currentPath: path, queueLength: queue.length });
@@ -105,25 +162,50 @@ async function syncDriveFolderTree({
     let pageToken = undefined;
 
     do {
-      if (typeof shouldAbort === 'function' && shouldAbort()) {
-        return { processed, skipped, hiddenCount: 0, reachedLimit: false, aborted: true, startedAt, diff };
+      if (typeof shouldAbort === 'function' && shouldAbort()) return abortResult();
+
+      let data;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        data = await listChildrenWithRetry(drive, folderId, pageToken);
+      } catch (err) {
+        // 재시도까지 실패한 폴더는 건너뛰되, "불완전 순회"로 기록해서 prune을 막는다.
+        listFailureCount += 1;
+        if (listFailures.length < 20) listFailures.push({ path, error: String(err?.message || err) });
+        break;
       }
-      const data = await listChildren(drive, folderId, pageToken);
       const files = data.files || [];
 
       for (const f of files) {
-        if (typeof shouldAbort === 'function' && shouldAbort()) {
-          return { processed, skipped, hiddenCount: 0, reachedLimit: false, aborted: true, startedAt, diff };
+        if (typeof shouldAbort === 'function' && shouldAbort()) return abortResult();
+        if (processed >= limit) {
+          reachedLimit = true;
+          break outer;
         }
-        if (processed >= limit) return { processed, reachedLimit: true, diff };
         const mime = f.mimeType || '';
         if (mime === 'application/vnd.google-apps.folder') {
           queue.push({ folderId: f.id, path: path ? `${path}/${f.name}` : f.name });
           continue;
         }
 
-        const isPdf = mime === 'application/pdf' || String(f.name || '').toLowerCase().endsWith('.pdf');
-        if (!isPdf) continue;
+        // 바로가기(shortcut)는 mimeType이 PDF가 아니라 그냥 건너뛰어졌다.
+        // 대상이 PDF면 원본 fileId로 해석해서 정상 처리한다(뷰어는 원본 id로만 열 수 있다).
+        let fileId = f.id;
+        let effectiveMime = mime;
+        if (mime === 'application/vnd.google-apps.shortcut') {
+          const targetId = String(f.shortcutDetails?.targetId || '').trim();
+          const targetMime = String(f.shortcutDetails?.targetMimeType || '').trim();
+          if (!targetId) continue;
+          fileId = targetId;
+          effectiveMime = targetMime;
+        }
+
+        const isPdf = effectiveMime === 'application/pdf' || String(f.name || '').toLowerCase().endsWith('.pdf');
+        if (!isPdf) {
+          skippedNonPdfCount += 1;
+          if (skippedNonPdf.length < 30) skippedNonPdf.push({ name: String(f.name || ''), mimeType: effectiveMime, folderPath: path });
+          continue;
+        }
 
         const nameNoExt = stripExt(f.name);
         const norm = normalizeSongFileName({ filenameNoExt: nameNoExt, artistFreqMap });
@@ -136,13 +218,13 @@ async function syncDriveFolderTree({
         const displayTitle = title;
         const driveModifiedTime = f.modifiedTime ? new Date(f.modifiedTime) : null;
         const isLatest = driveModifiedTime ? driveModifiedTime.getTime() >= latestThreshold : false;
-        const prevMs = prevMap.has(String(f.id)) ? prevMap.get(String(f.id)) : null;
+        const prevMs = prevMap.has(String(fileId)) ? prevMap.get(String(fileId)) : null;
         const nextMs = driveModifiedTime ? driveModifiedTime.getTime() : 0;
 
         if (incSinceDate && driveModifiedTime && driveModifiedTime.getTime() <= incSinceDate.getTime()) {
           // still mark as seen to avoid pruning when scanning the same root repeatedly
           await Song.updateOne(
-            { googleFileId: f.id },
+            { googleFileId: fileId },
             [
               {
                 $set: {
@@ -150,7 +232,7 @@ async function syncDriveFolderTree({
                   lastSeenAt: startedAt,
                   driveModifiedTime,
                   // 최소 정보는 항상 채워서 "제목없음" 스텁 데이터가 쌓이지 않게 한다.
-                  driveUrl: buildViewUrl(f.id),
+                  driveUrl: buildViewUrl(fileId),
                   folderPath: path,
                   // IMPORTANT:
                   // pruneMissing(누락 파일 숨김)으로 hidden=true가 된 곡도,
@@ -191,14 +273,14 @@ async function syncDriveFolderTree({
         // IMPORTANT: 관리자 수동 태그 입력을 보존하기 위해, key/genre/mood/vocal은 "비어있을 때만" 채움.
         // 이를 위해 update pipeline을 사용(표현식 기반).
         await Song.updateOne(
-          { googleFileId: f.id },
+          { googleFileId: fileId },
           [
             {
               $set: {
                 title,
                 displayTitle,
                 artist,
-                driveUrl: buildViewUrl(f.id),
+                driveUrl: buildViewUrl(fileId),
                 folderPath: path,
                 parseError,
                 isLatest,
@@ -255,10 +337,10 @@ async function syncDriveFolderTree({
         try {
           if (prevMs === null) {
             diff.addedCount += 1;
-            if (diff.added.length < 20) diff.added.push({ googleFileId: f.id, name: f.name || '', folderPath: path });
+            if (diff.added.length < 20) diff.added.push({ googleFileId: fileId, name: f.name || '', folderPath: path });
           } else if (Number.isFinite(prevMs) && Number.isFinite(nextMs) && nextMs && prevMs && nextMs !== prevMs) {
             diff.changedCount += 1;
-            if (diff.changed.length < 20) diff.changed.push({ googleFileId: f.id, name: f.name || '', folderPath: path });
+            if (diff.changed.length < 20) diff.changed.push({ googleFileId: fileId, name: f.name || '', folderPath: path });
           }
         } catch {}
 
@@ -273,20 +355,50 @@ async function syncDriveFolderTree({
   }
 
   let hiddenCount = 0;
+  // pruneMissing은 "이번 순회에서 못 본 곡"을 전부 hidden 처리한다.
+  // 따라서 순회가 조금이라도 불완전했다면 절대 돌리면 안 된다.
+  // (돌리면 멀쩡한 곡이 무더기로 사라졌다가 다음 회차에 복구되는 현상이 생긴다)
+  let pruneSkippedReason = '';
   if (pruneMissing) {
-    if (typeof shouldAbort === 'function' && shouldAbort()) {
-      return { processed, skipped, hiddenCount: 0, reachedLimit: false, aborted: true, startedAt, diff };
+    if (typeof shouldAbort === 'function' && shouldAbort()) return abortResult();
+
+    const seenCount = processed + skipped;
+    const prevCount = prevMap.size;
+
+    if (listFailureCount > 0) {
+      pruneSkippedReason = `LIST_FAILURES:${listFailureCount}`;
+    } else if (reachedLimit) {
+      pruneSkippedReason = `REACHED_LIMIT:${limit}`;
+    } else if (prevCount >= 50 && seenCount < Math.floor(prevCount * 0.9)) {
+      // 이전 동기화보다 10% 이상 적게 봤다면 순회가 불완전했을 가능성이 높다.
+      pruneSkippedReason = `SEEN_DROP:${seenCount}/${prevCount}`;
+    } else {
+      const r = await Song.updateMany(
+        { syncRootId: rootFolderId, lastSeenAt: { $lt: startedAt }, hidden: { $ne: true } },
+        { $set: { hidden: true } }
+      );
+      hiddenCount = r.modifiedCount || r.nModified || 0;
+      diff.removedCount = hiddenCount;
+      // removed list is expensive; skip for now (could be derived from query if needed)
     }
-    const r = await Song.updateMany(
-      { syncRootId: rootFolderId, lastSeenAt: { $lt: startedAt }, hidden: { $ne: true } },
-      { $set: { hidden: true } }
-    );
-    hiddenCount = r.modifiedCount || r.nModified || 0;
-    diff.removedCount = hiddenCount;
-    // removed list is expensive; skip for now (could be derived from query if needed)
   }
 
-  return { processed, skipped, hiddenCount, reachedLimit: false, startedAt, diff };
+  return {
+    processed,
+    skipped,
+    hiddenCount,
+    reachedLimit,
+    startedAt,
+    diff,
+    // 진단 정보: 곡이 왜 안 들어왔는지 추적용
+    listFailureCount,
+    listFailures,
+    skippedNonPdfCount,
+    skippedNonPdf,
+    pruneSkippedReason,
+    seenCount: processed + skipped,
+    prevCount: prevMap.size
+  };
 }
 
 module.exports = { syncDriveFolderTree };

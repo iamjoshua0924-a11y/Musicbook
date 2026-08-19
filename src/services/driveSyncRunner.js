@@ -34,7 +34,11 @@ async function runDriveSync({ latestDays = 1, limit = 7000, pruneMissing = true,
     if (!finalRoot) return { ok: false, error: 'ROOT_FOLDER_ID_REQUIRED' };
 
     const prev = await getJson(KEYS.driveSyncStatus, null);
-    const incrementalSince = incremental ? prev?.endedAt || prev?.startedAt || null : null;
+    // IMPORTANT: 실패/중단된 회차의 endedAt을 기준으로 삼으면 안 된다.
+    // 그 회차가 실제로는 못 본 파일까지 "그 시각 이후로 변경 없음"으로 취급되어
+    // 갱신이 계속 밀린다. 정상 완료된 회차의 종료시각만 기준으로 쓴다.
+    const prevCompletedOk = Boolean(prev?.ok) && !prev?.aborted && !prev?.reachedLimit && !prev?.pruneSkippedReason;
+    const incrementalSince = incremental && prevCompletedOk ? prev?.endedAt || null : null;
 
     const startedAt = new Date().toISOString();
     await setJson(KEYS.driveSyncStatus, {
@@ -96,7 +100,11 @@ async function runDriveSync({ latestDays = 1, limit = 7000, pruneMissing = true,
         processed: result.processed ?? 0,
         skipped: result.skipped ?? 0,
         hiddenCount: result.hiddenCount ?? 0,
-        diff: result.diff || null
+        diff: result.diff || null,
+        listFailureCount: result.listFailureCount ?? 0,
+        listFailures: result.listFailures || [],
+        skippedNonPdfCount: result.skippedNonPdfCount ?? 0,
+        skippedNonPdf: result.skippedNonPdf || []
       };
       await setJson(KEYS.driveSyncStatus, status);
       return status;
@@ -116,7 +124,15 @@ async function runDriveSync({ latestDays = 1, limit = 7000, pruneMissing = true,
       skipped: result.skipped,
       hiddenCount: result.hiddenCount,
       reachedLimit: result.reachedLimit,
-      diff: result.diff || null
+      diff: result.diff || null,
+      // 진단: 곡 누락 추적용 (폴더 조회 실패 / PDF 아님으로 건너뜀 / 숨김처리 보류 사유)
+      listFailureCount: result.listFailureCount ?? 0,
+      listFailures: result.listFailures || [],
+      skippedNonPdfCount: result.skippedNonPdfCount ?? 0,
+      skippedNonPdf: result.skippedNonPdf || [],
+      pruneSkippedReason: result.pruneSkippedReason || '',
+      seenCount: result.seenCount ?? 0,
+      prevCount: result.prevCount ?? 0
     };
     await setJson(KEYS.driveSyncStatus, status);
     await setJson(KEYS.driveSyncLastAt, { endedAt });

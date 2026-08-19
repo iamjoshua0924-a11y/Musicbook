@@ -87,25 +87,42 @@ function createApp() {
   // Health (no session)
   app.use(require('./routes/health'));
 
+  // UX-6(2차 감사): 편의 라우트(/, /viewer, /requests, /musicbook/u/<id>)는 index.html만
+  // 내려줬는데, 페이지의 상대 asset(musicbook.css 등)이 그 경로 기준으로 해석되어
+  // 404 또는 index.html(HTML)이 CSS/JS로 응답돼 페이지가 통째로 깨졌다.
+  // → 페이지 요청은 캐노니컬 /public/... 로 리다이렉트(쿼리 보존)하고,
+  //   SPA 딥링크(/public/musicbook/u/<id>)에서는 asset처럼 보이는 요청(확장자 있음)만
+  //   실제 파일 위치로 되돌린다.
+  const withQuery = (req, target) => {
+    const i = String(req.originalUrl || '').indexOf('?');
+    return i >= 0 ? target + req.originalUrl.slice(i) : target;
+  };
+
   // Pages
   app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, '..', 'public', 'musicbook', 'index.html'));
+    res.redirect(302, withQuery(req, '/public/musicbook/'));
   });
 
-  // 개인 아카이브: /public/musicbook/:userId (기본 경로) / 또는 /musicbook/:userId (prefix 변경 대비)
+  // 개인 아카이브: /public/musicbook/u/:userId (기본 경로) / 또는 /musicbook/... (prefix 변경 대비)
   // - 정적 호스팅 환경에서 "존재하지 않는 폴더"로 접근 시에도 동일한 index.html을 내려줘야 한다.
   app.get(['/public/musicbook', '/public/musicbook/*', '/musicbook', '/musicbook/*'], (req, res) => {
+    const last = String(req.path.split('/').pop() || '');
+    // 딥링크 하위 경로에서 상대 참조된 asset(확장자 포함)은 실제 파일 위치로 리다이렉트
+    if (last.includes('.')) return res.redirect(302, withQuery(req, `/public/musicbook/${last}`));
     res.sendFile(path.join(__dirname, '..', 'public', 'musicbook', 'index.html'));
   });
 
   // Viewer is public (supports anonymous nickname). Member-only features are gated client/server-side.
   app.get('/viewer/:fileId', (req, res) => {
-    res.sendFile(path.join(__dirname, '..', 'public', 'viewer', 'index.html'));
+    const fileId = encodeURIComponent(String(req.params.fileId || ''));
+    const i = String(req.originalUrl || '').indexOf('?');
+    const rest = i >= 0 ? `&${req.originalUrl.slice(i + 1)}` : '';
+    res.redirect(302, `/public/viewer/?fileId=${fileId}${rest}`);
   });
 
   // Allow /viewer entry without fileId (personal mode: open via drive link).
   app.get('/viewer', (req, res) => {
-    res.sendFile(path.join(__dirname, '..', 'public', 'viewer', 'index.html'));
+    res.redirect(302, withQuery(req, '/public/viewer/'));
   });
 
   app.get('/admin', (req, res) => {
@@ -122,7 +139,7 @@ function createApp() {
 
   // Public request board (pop-out)
   app.get('/requests', (req, res) => {
-    res.sendFile(path.join(__dirname, '..', 'public', 'requests', 'index.html'));
+    res.redirect(302, withQuery(req, '/public/requests/'));
   });
 
   // API routes

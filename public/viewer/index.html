@@ -24,6 +24,13 @@
             <button id="openBtn" type="button" class="primary">열기</button>
             <button id="closeBtn" type="button">악보 닫기</button>
             <button id="songBookPickBtn" type="button" class="primary hidden">노래책에서 고르기</button>
+            <!-- 곡 컨텍스트(노래책/셋리스트에서 인계): 곡 제목 + 이전/다음 곡 + 목록 복귀 -->
+            <span id="songCtxBar" class="songCtxBar hidden">
+              <button id="ctxPrevBtn" type="button" title="이전 곡">◀</button>
+              <span id="ctxSongLabel" class="ctxSongLabel" title=""></span>
+              <button id="ctxNextBtn" type="button" title="다음 곡">▶</button>
+              <button id="ctxBackBtn" type="button" title="노래책 목록으로">목록</button>
+            </span>
           </div>
         </div>
         <div class="right">

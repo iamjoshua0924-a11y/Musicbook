@@ -1128,6 +1128,31 @@ body.drawing-active #tapZoneLeft,
 body.drawing-active #tapZoneRight,
 body.drawing-active #tapZoneCenter{ pointer-events:none !important; }
 
+/* ===== 곡 컨텍스트 바 (노래책/셋리스트 → 뷰어 인계: 곡 제목 + 이전/다음 + 목록) ===== */
+.songCtxBar{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  min-width:0;
+}
+.songCtxBar.hidden{ display:none; }
+.songCtxBar button{
+  height:28px;
+  padding:4px 8px;
+  border-radius:10px;
+  font-size:12px;
+}
+.songCtxBar button:disabled{ opacity:0.35; cursor:not-allowed; }
+.ctxSongLabel{
+  max-width: 240px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-weight:800;
+  font-size:12px;
+  color:var(--text);
+}
+
 /* ============================================================
    모바일 오버라이드는 반드시 파일 "최하단"에 둔다 (UX-4, 790df57과 동일 규약).
    같은 특이도의 기본 규칙이 뒤에 오면 캐스케이드에서 전부 패배한다.
@@ -1141,4 +1166,5 @@ body.drawing-active #tapZoneCenter{ pointer-events:none !important; }
   .toolbarShell{ padding: 8px 10px; }
   .toolbarRow{ gap: 6px; }
   #canvas-stack{ padding: 8px; gap: 8px; }
+  .ctxSongLabel{ max-width: 34vw; }
 }

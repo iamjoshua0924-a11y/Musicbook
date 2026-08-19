@@ -88,10 +88,18 @@ function getViewerBaseUrl() {
   return u.toString();
 }
 
-function buildViewerUrl({ fileId = '', roomCode = '' } = {}) {
+function buildViewerUrl({ fileId = '', roomCode = '', bookUserId = '' } = {}) {
   const u = new URL(getViewerBaseUrl());
   if (fileId) u.searchParams.set('fileId', String(fileId));
   if (roomCode) u.searchParams.set('room', safeRoomCode(roomCode));
+  // 개인 노래책(스텔스) 컨텍스트 보존 — 곡 전환 시 book-context가 풀리지 않게 한다.
+  let bu = String(bookUserId || '').trim();
+  if (!bu) {
+    try {
+      bu = String(state.bookUserId || '').trim();
+    } catch {}
+  }
+  if (bu) u.searchParams.set('bookUserId', bu);
   return u.toString();
 }
 
@@ -4264,7 +4272,78 @@ function getSpreadPages(leftPageNo) {
   return pages;
 }
 
+// ---- 곡 컨텍스트 (노래책/셋리스트 → 뷰어 인계) -------------------------------------
+// 노래책이 뷰어 진입 직전 sessionStorage('mb_viewer_ctx_v1')에 현재 목록(필터/정렬 반영)을
+// 남긴다. 뷰어는 이것으로 곡 제목 표시·이전/다음 곡 이동·목록 복귀를 제공한다.
+// 컨텍스트가 없거나 현재 fileId가 목록에 없으면 UI를 숨긴다(직접 링크 진입 등).
+function readSongCtx() {
+  try {
+    const raw = sessionStorage.getItem('mb_viewer_ctx_v1');
+    if (!raw) return null;
+    const ctx = JSON.parse(raw);
+    if (!ctx || ctx.v !== 1 || !Array.isArray(ctx.items) || !ctx.items.length) return null;
+    return ctx;
+  } catch {
+    return null;
+  }
+}
+
+function updateSongCtxUI() {
+  const bar = document.getElementById('songCtxBar');
+  if (!bar) return;
+  const ctx = readSongCtx();
+  const fid = String(state.fileId || '');
+  const idx = ctx && fid ? ctx.items.findIndex((it) => String(it?.fileId || '') === fid) : -1;
+  if (!ctx || idx < 0) {
+    bar.classList.add('hidden');
+    return;
+  }
+  bar.classList.remove('hidden');
+  const it = ctx.items[idx];
+  const name = [String(it.title || ''), String(it.artist || '')].filter(Boolean).join(' — ');
+  const label = `${name || '(제목 없음)'}${it.key ? ` [${it.key}]` : ''}  ${idx + 1}/${ctx.items.length}`;
+  const labelEl = document.getElementById('ctxSongLabel');
+  if (labelEl) {
+    labelEl.textContent = label;
+    labelEl.title = label;
+  }
+  const prev = document.getElementById('ctxPrevBtn');
+  const next = document.getElementById('ctxNextBtn');
+  if (prev) prev.disabled = idx <= 0;
+  if (next) next.disabled = idx >= ctx.items.length - 1;
+}
+
+function gotoCtxSong(delta) {
+  const ctx = readSongCtx();
+  if (!ctx) return;
+  const fid = String(state.fileId || '');
+  let idx = ctx.items.findIndex((it) => String(it?.fileId || '') === fid);
+  if (idx < 0) idx = Math.min(Math.max(0, Number(ctx.index) || 0), ctx.items.length - 1);
+  const target = ctx.items[idx + delta];
+  if (!target?.fileId) return flashHud(delta > 0 ? '마지막 곡입니다' : '첫 곡입니다', 900);
+  try {
+    ctx.index = idx + delta;
+    sessionStorage.setItem('mb_viewer_ctx_v1', JSON.stringify(ctx));
+  } catch {}
+  // 세션 페이지터너면 follow:file 브로드캐스트(리로드 없음), 아니면 URL 이동 — 기존 경로 재사용
+  openFileInRoom(String(target.fileId));
+}
+
+function goBackToSongList() {
+  const ctx = readSongCtx();
+  const url = String(ctx?.returnUrl || '').trim();
+  if (url) window.location.href = url;
+  else window.history.back();
+}
+
+(function wireSongCtxBar() {
+  document.getElementById('ctxPrevBtn')?.addEventListener('click', () => gotoCtxSong(-1));
+  document.getElementById('ctxNextBtn')?.addEventListener('click', () => gotoCtxSong(1));
+  document.getElementById('ctxBackBtn')?.addEventListener('click', () => goBackToSongList());
+})();
+
 function updatePageLabels() {
+  updateSongCtxUI(); // 곡 전환/로드 경로 어디서든 최종적으로 여길 지나므로 여기서 갱신
   const pages = getSpreadPages(state.pageNo);
   const range = pages.length > 1 ? `${pages[0]}-${pages[pages.length - 1]}` : `${pages[0] || 1}`;
   setText('pageLabel', range);

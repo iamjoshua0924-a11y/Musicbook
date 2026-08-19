@@ -37,7 +37,9 @@ function render(items) {
   const list = $('list');
   list.innerHTML = '';
   const arr = Array.isArray(items) ? items : [];
-  $('empty').style.display = arr.length ? 'none' : 'block';
+  const empty = $('empty');
+  empty.textContent = '신청곡이 없습니다.'; // 상태 문구(로딩/에러)로 바뀌었을 수 있어 원복
+  empty.style.display = arr.length ? 'none' : 'block';
 
   arr.forEach((r) => {
     const el = document.createElement('div');
@@ -63,9 +65,32 @@ function render(items) {
   });
 }
 
+// UX-12(2차 감사): 로딩/에러 상태가 전무해 실패 시 영구 백지였다(방송 송출 위험).
+// 로딩 문구 → 실패 시 에러+재시도 버튼 → 30초 자동 재시도.
+function setStatus(html) {
+  const empty = $('empty');
+  if (!empty) return;
+  empty.style.display = 'block';
+  empty.innerHTML = html;
+}
+
+let _retryTimer = null;
 async function loadOnce() {
-  const r = await apiGet('/api/requests');
-  if (r?.ok) render(r.items || []);
+  setStatus('신청곡을 불러오는 중...');
+  let ok = false;
+  try {
+    const r = await apiGet('/api/requests');
+    if (r?.ok) {
+      render(r.items || []);
+      ok = true;
+    }
+  } catch {}
+  if (!ok) {
+    setStatus('신청곡을 불러오지 못했습니다. <button id="retryBtn" type="button">다시 시도</button>');
+    document.getElementById('retryBtn')?.addEventListener('click', () => loadOnce());
+    clearTimeout(_retryTimer);
+    _retryTimer = setTimeout(() => loadOnce(), 30000);
+  }
 }
 
 function boot() {
@@ -76,6 +101,8 @@ function boot() {
     socket.on('requests:updated', (p) => {
       if (Array.isArray(p?.items)) render(p.items);
     });
+    // 소켓이 재연결되면(서버 재기동 등) 최신 목록을 다시 당겨온다.
+    socket.on('connect', () => loadOnce().catch(() => {}));
   } catch {}
 }
 

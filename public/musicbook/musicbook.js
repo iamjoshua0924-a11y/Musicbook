@@ -763,16 +763,34 @@ function renderSetlistPanel() {
               <button class="setlist-mini-btn" type="button" data-action="toggleDone">${it.done ? '미완료' : '완료'}</button>
               <button class="setlist-mini-btn" type="button" data-action="remove">삭제</button>
             `
-            : ''
+            : `<button class="setlist-mini-btn" type="button" data-action="copyLink" title="구글드라이브 링크 복사">링크</button>`
         }
       </div>
       <div class="setlist-copied-label" aria-hidden="true">링크 복사됨!</div>
     `;
 
-    row.querySelector('[data-action="open"]')?.addEventListener('click', async (e) => {
+    // UX Evolution: 예전에는 항목 클릭이 "드라이브 링크 복사"뿐이라 뷰어로 갈 수 없었다.
+    // 이제 클릭하면 셋리스트 전체를 곡 컨텍스트로 넘기고 뷰어를 바로 연다(복사는 '링크' 버튼).
+    row.querySelector('[data-action="open"]')?.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
       if (owner && state.setlistEditMode) return;
+      const fileId = String(it.googleFileId || '').trim();
+      if (!fileId) return toast('연결된 악보 파일이 없습니다.');
+      const ctxItems = (state.setlistItems || [])
+        .filter((s) => String(s?.googleFileId || '').trim())
+        .map((s) => ({ fileId: String(s.googleFileId), title: String(s.title || ''), artist: String(s.artist || ''), key: '' }));
+      const ctxIndex = Math.max(0, ctxItems.findIndex((s) => s.fileId === fileId));
+      writeViewerContext({ source: 'setlist', items: ctxItems, index: ctxIndex });
+      window.location.href = viewerUrl({
+        fileId,
+        roomCode: state.sessionRoomCode,
+        bookUserId: state.archiveTargetUserId || ''
+      });
+    });
+    row.querySelector('[data-action="copyLink"]')?.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
       if (!driveUrl) return toast('링크가 없습니다.');
       try {
         await navigator.clipboard.writeText(driveUrl);
@@ -1085,6 +1103,7 @@ function getSortValue(item, field) {
     return Number(item?.createdAtMs ?? item?.driveModifiedMs ?? item?.createdAt ?? 0) || 0;
   }
   if (f === 'proficiency') return Number(item?.proficiencyLevel ?? item?.proficiency ?? 0) || 0;
+  if (f === 'recent') return Number(item?._recentAt || 0) || 0; // 최근 본 순(applySongFilters에서 주입)
   if (f === 'key') return String(item?.keyLabel ?? item?.key ?? '').trim();
   return String(item?.[f] ?? '').trim();
 }
@@ -1438,6 +1457,9 @@ function initGuestbookDrag() {
   });
 }
 
+// UX-13(2차 감사): 메인↔곡목록 전환이 클래스 토글뿐이라 뒤로가기=사이트 이탈,
+// 검색/필터 상태를 담은 공유 가능한 URL도 없었다. history + URL 쿼리로 반영한다.
+let _suppressPageHistory = false;
 function switchPage(page) {
   $('mainPage').classList.toggle('active', page === 'main');
   $('songsPage').classList.toggle('active', page === 'songs');
@@ -1448,6 +1470,14 @@ function switchPage(page) {
   } else {
     $('songsTitleRow').style.display = 'none';
   }
+  if (!_suppressPageHistory && !state.isArchiveMode) {
+    try {
+      const u = new URL(window.location.href);
+      if (page === 'songs') u.searchParams.set('view', 'songs');
+      else u.searchParams.delete('view');
+      window.history.pushState({ mbPage: page }, '', u.toString());
+    } catch {}
+  }
   const target = page === 'songs' ? $('songsPage') : $('mainPage');
   if (target) {
     target.classList.remove('page-enter');
@@ -1455,6 +1485,66 @@ function switchPage(page) {
     target.classList.add('page-enter');
     clearTimeout(state._pageAnimTimer);
     state._pageAnimTimer = setTimeout(() => target.classList.remove('page-enter'), 360);
+  }
+}
+
+window.addEventListener('popstate', () => {
+  if (state.isArchiveMode) return;
+  let page = 'main';
+  try {
+    page = new URLSearchParams(window.location.search).get('view') === 'songs' ? 'songs' : 'main';
+  } catch {}
+  _suppressPageHistory = true;
+  try {
+    switchPage(page);
+  } finally {
+    _suppressPageHistory = false;
+  }
+});
+
+// 검색/필터/정렬 상태 → URL 쿼리 (replaceState, 디바운스). 새로고침/공유 시 복원 가능.
+let _urlStateTimer = null;
+function syncUrlState() {
+  if (state.isArchiveMode) return;
+  clearTimeout(_urlStateTimer);
+  _urlStateTimer = setTimeout(() => {
+    try {
+      const u = new URL(window.location.href);
+      const setOrDel = (k, v, def = '') => {
+        const s = String(v ?? '').trim();
+        if (s && s !== def) u.searchParams.set(k, s);
+        else u.searchParams.delete(k);
+      };
+      setOrDel('q', $('searchInput')?.value || '');
+      setOrDel('genre', $('genreFilter')?.value || '');
+      setOrDel('mood', $('moodFilter')?.value || '');
+      setOrDel('vocal', $('vocalFilter')?.value || '');
+      setOrDel('prof', Number($('proficiencyFilter')?.value || 0) || '');
+      setOrDel('sort', state.sortField, 'createdAt');
+      setOrDel('dir', state.sortDir, 'desc');
+      window.history.replaceState(window.history.state, '', u.toString());
+    } catch {}
+  }, 300);
+}
+
+// 부트 시 URL 쿼리 → 검색/필터/정렬/뷰 복원. songs 뷰 여부를 반환.
+function restoreUiStateFromUrl() {
+  if (state.isArchiveMode) return false;
+  try {
+    const p = new URLSearchParams(window.location.search);
+    if (p.get('q') && $('searchInput')) $('searchInput').value = p.get('q');
+    if (p.get('genre') && $('genreFilter')) $('genreFilter').value = p.get('genre');
+    if (p.get('mood') && $('moodFilter')) $('moodFilter').value = p.get('mood');
+    if (p.get('vocal') && $('vocalFilter')) $('vocalFilter').value = p.get('vocal');
+    if (p.get('prof') && $('proficiencyFilter')) $('proficiencyFilter').value = p.get('prof');
+    const sort = String(p.get('sort') || '').trim();
+    if (sort) state.sortField = sort;
+    const dir = String(p.get('dir') || '').trim();
+    if (dir === 'asc' || dir === 'desc') state.sortDir = dir;
+    if (sort || dir) updateSortControls();
+    return p.get('view') === 'songs';
+  } catch {
+    return false;
   }
 }
 
@@ -1636,6 +1726,21 @@ function renderSongsLoadError() {
   if ($('resultCount')) $('resultCount').textContent = '불러오기 실패';
 }
 
+// MB-1(2차 감사): loadSongs와 loadSongFiles가 완전히 같은 /api/songs/cards 요청을
+// 각각 보냈다(부트에서 동일 페이로드 2회 수신·파싱). 같은 URL의 직전 요청을
+// 3초 동안 공유해 1회만 받는다. 실패 응답은 캐시하지 않는다.
+let _cardsCache = { url: '', ts: 0, promise: null };
+function fetchSongCards(url) {
+  const now = Date.now();
+  if (_cardsCache.promise && _cardsCache.url === url && now - _cardsCache.ts < 3000) return _cardsCache.promise;
+  const promise = apiGet(url).then((data) => {
+    if (!data?.ok && _cardsCache.promise === promise) _cardsCache = { url: '', ts: 0, promise: null };
+    return data;
+  });
+  _cardsCache = { url, ts: now, promise };
+  return promise;
+}
+
 async function loadSongs(force = false) {
   if (!force && state.songCardsAll.length) return;
   const firstLoad = !state.songCardsAll.length;
@@ -1672,7 +1777,7 @@ async function loadSongs(force = false) {
       params.set('availableUserId', String(state.archiveTargetUserId));
     }
     const url = `/api/songs/cards${params.toString() ? `?${params.toString()}` : ''}`;
-    const data = await apiGet(url);
+    const data = await fetchSongCards(url);
     if (!data.ok) {
       renderSongsLoadError(); // UX-3: 스켈레톤 고착 대신 에러+재시도 UI
       throw new Error('songs load failed');
@@ -1722,8 +1827,12 @@ async function loadSongFiles(force = false) {
     params.set('availableUserId', String(state.archiveTargetUserId));
   }
   const url = `/api/songs/cards${params.toString() ? `?${params.toString()}` : ''}`;
-  const data = await apiGet(url);
-  if (!data.ok) throw new Error('songs load failed');
+  const data = await fetchSongCards(url);
+  if (!data.ok) {
+    // MB-4: 생 throw만 하면 호출부에서 unhandled rejection이 된다. 사용자에게도 알린다.
+    toast('곡 파일 목록을 불러오지 못했습니다. 네트워크 확인 후 다시 시도해 주세요.');
+    throw new Error('songs load failed');
+  }
   state.songFilesTotal = Number(data.totalDocs || 0) || 0;
   const files = [];
   (data.items || []).forEach((c) => {
@@ -2083,6 +2192,13 @@ function applySongFilters() {
 
   const f = state.sortField;
   const dir = state.sortDir === 'asc' ? 1 : -1;
+  if (f === 'recent') {
+    // 최근 본 곡(localStorage) 타임스탬프 주입 — 본 적 없는 곡은 0이라 뒤로 밀린다.
+    const rm = getRecentSongMap();
+    list.forEach((c) => {
+      c._recentAt = rm.get(String(c.cardId || '')) || 0;
+    });
+  }
   list.sort((a, b) => {
     const aReq = Boolean(a?._privateRequest);
     const bReq = Boolean(b?._privateRequest);
@@ -2108,6 +2224,7 @@ function applySongFilters() {
   renderSongCards(hideTags);
   renderPager();
   updateArchiveStatusCard();
+  syncUrlState(); // UX-13: 검색/필터/정렬을 URL에 반영(공유·새로고침 복원)
 }
 
 function renderSongCards(hideTags) {
@@ -3387,6 +3504,51 @@ async function copyDriveLink() {
   }
 }
 
+// ---- 뷰어 곡 컨텍스트 인계 (UX Evolution) ---------------------------------------
+// 뷰어는 fileId만 알고 곡 제목/목록 위치를 모른다 → "이전/다음 곡" 자체가 불가능했다.
+// 뷰어 진입 직전에 현재 목록(필터/정렬 반영)을 sessionStorage로 넘겨,
+// 뷰어가 곡 제목 표시·이전/다음 곡 이동·목록 복귀를 할 수 있게 한다.
+function writeViewerContext({ source, items, index }) {
+  try {
+    sessionStorage.setItem(
+      'mb_viewer_ctx_v1',
+      JSON.stringify({
+        v: 1,
+        source: String(source || 'songs'),
+        bookUserId: state.isArchiveMode && state.archiveTargetUserId ? String(state.archiveTargetUserId) : '',
+        returnUrl: window.location.href,
+        index: Math.max(0, Number(index) || 0),
+        items: (items || []).slice(0, 300)
+      })
+    );
+  } catch {}
+}
+
+// 최근 본 곡 기록 (localStorage, 최대 30곡) — "최근 본 순" 정렬의 데이터 소스
+function pushRecentSong(card) {
+  try {
+    const cardId = String(card?.cardId || '').trim();
+    if (!cardId) return;
+    const key = 'mb_recent_songs_v1';
+    const list = JSON.parse(localStorage.getItem(key) || '[]');
+    const rest = Array.isArray(list) ? list.filter((r) => String(r?.cardId || '') !== cardId) : [];
+    rest.unshift({ cardId, title: String(card.title || ''), artist: String(card.artist || ''), at: Date.now() });
+    localStorage.setItem(key, JSON.stringify(rest.slice(0, 30)));
+  } catch {}
+}
+function getRecentSongMap() {
+  try {
+    const list = JSON.parse(localStorage.getItem('mb_recent_songs_v1') || '[]');
+    const m = new Map();
+    (Array.isArray(list) ? list : []).forEach((r) => {
+      if (r?.cardId) m.set(String(r.cardId), Number(r.at) || 0);
+    });
+    return m;
+  } catch {
+    return new Map();
+  }
+}
+
 async function openInViewer() {
   const v = state._pendingVariant;
   if (!v?.googleFileId) return;
@@ -3396,6 +3558,22 @@ async function openInViewer() {
     roomCode,
     bookUserId: state.isArchiveMode && state.archiveTargetUserId ? state.archiveTargetUserId : ''
   });
+  // 곡 컨텍스트 인계: 현재 필터/정렬이 반영된 카드 목록 순서로 이전/다음 곡을 정의한다.
+  try {
+    const card = state._pendingCard;
+    const ctxItems = [];
+    let ctxIndex = 0;
+    (state.songCardsFiltered || []).forEach((c) => {
+      if (c?._privateRequest) return; // 신청곡 fake 카드 제외
+      const isCurrent = card && String(c.cardId || '') === String(card.cardId || '');
+      const vv = isCurrent ? v : (c.variants || []).find((x) => x?.googleFileId && x.hasScoreFile !== false);
+      if (!vv?.googleFileId || vv.hasScoreFile === false) return;
+      if (isCurrent) ctxIndex = ctxItems.length;
+      ctxItems.push({ fileId: vv.googleFileId, title: String(c.title || ''), artist: String(c.artist || ''), key: String(vv.key || '') });
+    });
+    if (ctxItems.length) writeViewerContext({ source: 'songs', items: ctxItems, index: ctxIndex });
+    if (card) pushRecentSong(card);
+  } catch {}
   if (roomCode && state.isPageTurner) {
     state._socket?.emit?.('session:follow:file', { roomCode, fileId: v.googleFileId, originalLink: v.driveUrl || '' }, () => {
       window.location.href = targetUrl;
@@ -3740,6 +3918,35 @@ function renderRequests() {
   });
 }
 
+// MB-2(2차 감사): 편집 모드가 강제한 최신순 정렬을 종료(취소/저장) 시 원래대로 복원.
+function restoreSortAfterEdit() {
+  if (!state._sortBackup) return;
+  state.sortField = state._sortBackup.field;
+  state.sortDir = state._sortBackup.dir;
+  state._sortBackup = null;
+  updateSortControls();
+}
+
+// MB-7(2차 감사): 제출류 버튼 연타 → 중복 POST 방지 공통 가드.
+// 실행 중이면 재진입을 무시하고, 버튼이 있으면 시각적으로도 비활성화한다.
+function withSubmitGuard(btnId, fn) {
+  let busy = false;
+  return async (...args) => {
+    if (busy) return;
+    busy = true;
+    const btn = btnId ? $(btnId) : null;
+    if (btn) btn.disabled = true;
+    try {
+      return await fn(...args);
+    } catch (e) {
+      toast('요청 처리 중 오류가 발생했습니다.');
+    } finally {
+      busy = false;
+      if (btn) btn.disabled = false;
+    }
+  };
+}
+
 async function submitSongRequest() {
   const payload = {
     requesterName: $('requesterInput').value.trim() || '익명',
@@ -3995,12 +4202,49 @@ async function saveEditModal() {
 }
 
 async function syncDrive(isFast) {
-  // NEW! 배지는 "최근 1일"만 표시(도배 방지)
-  const res = await apiJson('/api/admin/sync/drive', 'POST', { latestDays: 1 });
-  if (!res.ok) return toast(`동기화 실패: ${res.error || ''}`);
-  toast(`동기화 완료: ${res.processed}개`);
-  await loadSongs(true);
-  applySongFilters();
+  // MB-6(2차 감사): 예전에는 두 버튼이 완전히 동일한 full sync였고(isFast 미사용),
+  // 실행 중 다시 누르면 진행 중이던 동기화를 중단하고 처음부터 재시작했다.
+  // - "최신곡 추가"(isFast)는 incremental sync로 연결 (DS-04/05 수정으로 안전)
+  // - 실행 중에는 두 버튼을 잠그고, status 폴링으로 진행 상황을 버튼에 표시한다.
+  if (state._syncInFlight) return toast('동기화가 이미 진행 중입니다.');
+  state._syncInFlight = true;
+  const btnAll = $('syncAllBtn');
+  const btnFast = $('syncFastBtn');
+  const labels = [btnAll?.textContent || '', btnFast?.textContent || ''];
+  const activeBtn = isFast ? btnFast : btnAll;
+  if (btnAll) btnAll.disabled = true;
+  if (btnFast) btnFast.disabled = true;
+  const poll = setInterval(async () => {
+    try {
+      const r = await apiGet('/api/admin/sync/status');
+      const st = r?.status;
+      if (r?.ok && st?.running && activeBtn) {
+        const cur = String(st.currentFile || st.currentPath || '').slice(0, 18);
+        activeBtn.textContent = `동기화 중 ${Number(st.processed || 0) + Number(st.skipped || 0)}곡${cur ? ` · ${cur}` : ''}`;
+      }
+    } catch {}
+  }, 1500);
+  try {
+    // NEW! 배지는 "최근 1일"만 표시(도배 방지)
+    const res = await apiJson('/api/admin/sync/drive', 'POST', { latestDays: 1, incremental: Boolean(isFast) });
+    if (!res.ok) return toast(`동기화 실패: ${res.error || ''}`);
+    const extra = res.pruneSkippedReason ? ` · 숨김 정리 보류(${res.pruneSkippedReason})` : '';
+    toast(`동기화 완료: 처리 ${res.processed ?? 0} · 건너뜀 ${res.skipped ?? 0}${extra}`);
+    _cardsCache = { url: '', ts: 0, promise: null };
+    await loadSongs(true);
+    applySongFilters();
+  } finally {
+    clearInterval(poll);
+    state._syncInFlight = false;
+    if (btnAll) {
+      btnAll.disabled = false;
+      btnAll.textContent = labels[0];
+    }
+    if (btnFast) {
+      btnFast.disabled = false;
+      btnFast.textContent = labels[1];
+    }
+  }
 }
 
 function openProfileModal() {
@@ -4256,11 +4500,11 @@ function wireEvents() {
   $('createUserSubmitBtn').onclick = () => submitCreateUser().catch(() => {});
 
   $('loginCloseBtn').onclick = () => closeModal('loginModal');
-  $('loginSubmitBtn').onclick = () => doLogin().catch(() => {});
+  $('loginSubmitBtn').onclick = withSubmitGuard('loginSubmitBtn', doLogin);
 
   $('requestOpenBtn').onclick = () => openModal('requestModal');
   $('requestCancelBtn').onclick = () => closeModal('requestModal');
-  $('requestSubmitBtn').onclick = () => submitSongRequest().catch(() => {});
+  $('requestSubmitBtn').onclick = withSubmitGuard('requestSubmitBtn', submitSongRequest);
 
   $('requestPopoutBtn').onclick = () => {
     try {
@@ -4381,7 +4625,8 @@ function wireEvents() {
       try {
         $('availabilityHideExistingToggle').checked = false;
       } catch {}
-      // 선택모드는 "최신곡" 정렬이 기본
+      // 선택모드는 "최신곡" 정렬이 기본 (MB-2: 이전 정렬은 백업해 두고 종료 시 복원)
+      if (!state._sortBackup) state._sortBackup = { field: state.sortField, dir: state.sortDir };
       state.sortField = 'createdAt';
       state.sortDir = 'desc';
       updateSortControls();
@@ -4400,7 +4645,10 @@ function wireEvents() {
     }
   };
 
-  $('availabilityEditCancelBtn').onclick = async () => {
+  // MB-4(2차 감사): async onclick에 catch가 없어 재조회 실패가 unhandled rejection이 되고,
+  // 편집 플래그만 꺼진 채 남은 체크박스가 "취소했는데 즉시 저장"으로 역전됐다.
+  // withSubmitGuard가 예외를 삼키고 연타도 막는다. 정렬 복원은 MB-2.
+  $('availabilityEditCancelBtn').onclick = withSubmitGuard('availabilityEditCancelBtn', async () => {
     state.availabilityEditMode = false;
     state.availabilityDraftSet = null;
     state.availabilityHideExisting = false;
@@ -4410,6 +4658,7 @@ function wireEvents() {
     applyRoleUI();
     updateAvailabilityEditCount();
     updateCatalogEditCount();
+    restoreSortAfterEdit();
     if (state.isArchiveMode) {
       // 기본 화면은 "내 가능곡만"이므로, 편집 취소 시에도 목록을 재조회해 복구한다.
       state.songCardsAll = [];
@@ -4417,9 +4666,9 @@ function wireEvents() {
     }
     applySongFilters();
     toast('취소됨');
-  };
+  });
 
-  $('availabilityEditSaveBtn').onclick = async () => {
+  $('availabilityEditSaveBtn').onclick = withSubmitGuard('availabilityEditSaveBtn', async () => {
     const userId = state.isArchiveMode && state.archiveTargetUserId ? state.archiveTargetUserId : state.userId || '';
     if (!userId) return;
     const before = state.availabilityOriginalSet || new Set();
@@ -4444,6 +4693,7 @@ function wireEvents() {
     applyRoleUI();
     updateAvailabilityEditCount();
     updateCatalogEditCount();
+    restoreSortAfterEdit();
     if (state.isArchiveMode) {
       // 저장 후 "내 가능곡만" 목록으로 자동 복귀
       state.songCardsAll = [];
@@ -4451,7 +4701,7 @@ function wireEvents() {
     }
     applySongFilters();
     toast('저장 완료');
-  };
+  });
 
   // 가능곡 편집모드 안에서 곡 메타데이터(제목/가수/조성/장르 등) 인라인 편집 일괄저장(관리자 전용).
   // 위 availabilityEditSaveBtn(가능곡 체크 저장)과는 완전히 별개 데이터/버튼이다.
@@ -4492,6 +4742,8 @@ function wireEvents() {
     state.proficiencyOriginalMap = new Map(Array.from(state.myAvailabilityProficiencyMap || new Map()));
     state.proficiencyDraftMap = new Map(Array.from(state.myAvailabilityProficiencyMap || new Map()));
     state.proficiencyEditMode = true;
+    // MB-2: 이전 정렬 백업 후 최신순 강제, 종료 시 복원
+    if (!state._sortBackup) state._sortBackup = { field: state.sortField, dir: state.sortDir };
     state.sortField = 'createdAt';
     state.sortDir = 'desc';
     updateSortControls();
@@ -4501,7 +4753,7 @@ function wireEvents() {
     applySongFilters();
   };
 
-  $('proficiencyEditCancelBtn').onclick = async () => {
+  $('proficiencyEditCancelBtn').onclick = withSubmitGuard('proficiencyEditCancelBtn', async () => {
     state.proficiencyEditMode = false;
     state.proficiencyDraftMap = null;
     state.myAvailabilityProficiencyMap = state.proficiencyOriginalMap
@@ -4511,15 +4763,16 @@ function wireEvents() {
     $('proficiencyEditBar').style.display = 'none';
     applyRoleUI();
     updateProficiencyEditCount();
+    restoreSortAfterEdit();
     if (state.isArchiveMode) {
       state.songCardsAll = [];
       await loadSongs(true);
     }
     applySongFilters();
     toast('취소됨');
-  };
+  });
 
-  $('proficiencyEditSaveBtn').onclick = async () => {
+  $('proficiencyEditSaveBtn').onclick = withSubmitGuard('proficiencyEditSaveBtn', async () => {
     const userId = state.isArchiveMode && state.archiveTargetUserId ? state.archiveTargetUserId : state.userId || '';
     if (!userId) return;
     const before = state.proficiencyOriginalMap || new Map();
@@ -4542,13 +4795,14 @@ function wireEvents() {
     $('proficiencyEditBar').style.display = 'none';
     applyRoleUI();
     updateProficiencyEditCount();
+    restoreSortAfterEdit();
     if (state.isArchiveMode) {
       state.songCardsAll = [];
       await loadSongs(true);
     }
     applySongFilters();
     toast('저장 완료');
-  };
+  });
 
   $('availabilityHideExistingToggle').onchange = () => {
     state.availabilityHideExisting = Boolean($('availabilityHideExistingToggle')?.checked);
@@ -4641,7 +4895,7 @@ function wireEvents() {
 
   // review (viewer comment)
   $('reviewComposerCancelBtn').onclick = () => closeReviewComposer();
-  $('reviewComposerSaveBtn').onclick = () => submitReviewComment().catch(() => {});
+  $('reviewComposerSaveBtn').onclick = withSubmitGuard('reviewComposerSaveBtn', submitReviewComment);
   $('reviewListCloseBtn').onclick = () => {
     const p = $('reviewListPanel');
     if (p) p.style.display = 'none';
@@ -4654,7 +4908,7 @@ function wireEvents() {
   $('privateRequestSearchInput')?.addEventListener?.('keydown', (e) => {
     if (e.key === 'Enter') searchPrivateRequestSongs().catch(() => {});
   });
-  $('privateRequestSubmitBtn').onclick = () => submitPrivateRequest().catch(() => {});
+  $('privateRequestSubmitBtn').onclick = withSubmitGuard('privateRequestSubmitBtn', submitPrivateRequest);
   $('privateRequestManageCancelBtn').onclick = () => {
     const m = $('privateRequestManageModal');
     if (m) m.style.display = 'none';
@@ -4877,7 +5131,7 @@ function wireEvents() {
     ensureGuestbookPosition();
     renderGuestbook();
   };
-  $('guestbookWriteBtn').onclick = async () => {
+  $('guestbookWriteBtn').onclick = withSubmitGuard('guestbookWriteBtn', async () => {
     if (!state.isArchiveMode || !state.archiveTargetUserId) return;
     const compose = $('guestbookCompose');
     const btn = $('guestbookWriteBtn');
@@ -4908,7 +5162,7 @@ function wireEvents() {
     btn.textContent = '방명록 쓰기';
     await loadGuestbook(true);
     toast('방명록을 남겼습니다.');
-  };
+  });
 
   // action modals
   $('keySelectCancelBtn').onclick = () => closeModal('keySelectModal');
@@ -5275,6 +5529,16 @@ async function bootstrap() {
 
     wireEvents();
     updateViewModeControls();
+    // UX-13: URL 쿼리(q/genre/mood/vocal/prof/sort/dir/view)에서 UI 상태 복원
+    const wantSongsView = restoreUiStateFromUrl();
+    if (wantSongsView) {
+      _suppressPageHistory = true;
+      try {
+        switchPage('songs');
+      } finally {
+        _suppressPageHistory = false;
+      }
+    }
     // archive public profile (for header/loading animation)
     if (state.isArchiveMode && state.archiveTargetUserId) {
       try {
@@ -5322,20 +5586,24 @@ async function bootstrap() {
     } catch {}
     attachSockets();
     await refreshSession();
-    if (!state.isArchiveMode) await loadMainPage();
-    if (!state.isArchiveMode || state.archiveAuthorized) await loadSongs(true);
-    // 파일 단위 목록은 무거우므로 필요 시(가능곡 편집 진입 시) 로드
-    if (!state.isArchiveMode) await loadSongFiles(true);
-    await loadAvailabilityUsersIfNeeded();
+    // MB-1(2차 감사): 이후 로드는 서로 독립이므로 병렬화한다(직렬 워터폴 제거).
+    // loadSongFiles는 loadSongs와 같은 cards 응답을 fetchSongCards 캐시로 공유한다.
+    // 실패는 각 로더가 자체 에러 UI/토스트로 처리하므로 allSettled로 계속 진행한다.
+    const boots = [];
+    if (!state.isArchiveMode) boots.push(loadMainPage());
+    if (!state.isArchiveMode || state.archiveAuthorized) boots.push(loadSongs(true));
+    if (!state.isArchiveMode) boots.push(loadSongFiles(true));
+    boots.push(loadAvailabilityUsersIfNeeded());
     if (state.isArchiveMode) {
       ensureGuestbookPosition();
       initGuestbookDrag();
-      await loadGuestbook(true);
+      boots.push(loadGuestbook(true));
+      boots.push(loadReviews());
+      boots.push(loadSetlist());
     }
-    if (state.isArchiveMode) await loadReviews();
-    if (state.isArchiveMode) await loadSetlist();
+    if (!state.isArchiveMode) boots.push(loadRequests(true));
+    await Promise.allSettled(boots);
     applySongFilters();
-    if (!state.isArchiveMode) await loadRequests(true);
 
     // Auto-join live session if ?room exists (main-page convenience)
     const roomFromUrl = getRoomFromUrl().trim().toUpperCase();
@@ -5351,6 +5619,30 @@ bootstrap().catch((e) => {
   toast('초기화 실패');
   showLoading(false);
 });
+
+// UX-15(부분, 2차 감사): 모달에 ESC/백드롭 닫기가 없어 취소 버튼으로만 닫혔다.
+// 각 모달의 취소/닫기 버튼을 "그대로 클릭"하는 방식이라 await 기반 플로우(태그 게이트 등)의
+// resolve/원복 경로를 깨지 않는다. 취소 버튼이 없는 모달은 건드리지 않는다.
+(function initModalDismiss() {
+  const findCancelBtn = (overlay) => overlay.querySelector('button[id$="CancelBtn"], button[id$="CloseBtn"]');
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const overlays = Array.from(document.querySelectorAll('.modal-overlay.active'));
+    const top = overlays[overlays.length - 1];
+    if (!top) return;
+    const btn = findCancelBtn(top);
+    if (btn) {
+      e.preventDefault();
+      btn.click();
+    }
+  });
+  document.querySelectorAll('.modal-overlay').forEach((ov) => {
+    ov.addEventListener('click', (e) => {
+      if (e.target !== ov) return;
+      findCancelBtn(ov)?.click();
+    });
+  });
+})();
 
 // ---- Mobile bottom sheet (<=720px) -----------------------------------------------
 // 좁은 화면에서 떠있는 패널(셋리스트/방명록/신청곡/접속자/세션)이 서로 겹치는 문제를
@@ -5376,6 +5668,10 @@ bootstrap().catch((e) => {
   let tabsEl = null;
   let activeId = '';
   let applying = false; // MutationObserver 재진입 방지
+  // UX-5(2차 감사): teardown이 display를 일괄 ''로 밀면 앱이 인라인 display로 관리하던
+  // "숨김" 상태(빈 셋리스트, 닫은 방명록 등)가 사라져 720px 경계를 되넘을 때 빈 패널이 떴다.
+  // 시트 진입 시점의 인라인 display를 보관했다가 해제 시 그대로 복원한다.
+  const savedDisplay = new Map();
 
   // 현재 모드에서 의미 있는 패널만 고른다.
   function availableIds() {
@@ -5443,17 +5739,31 @@ bootstrap().catch((e) => {
         const el = document.getElementById(id);
         if (!el) return;
         el.classList.remove('mb-sheet-panel');
-        el.style.display = '';
+        // 시트 진입 전(또는 시트 중 앱이 갱신한) 앱 관리 상태로 복원
+        el.style.display = savedDisplay.has(id) ? savedDisplay.get(id) : '';
       });
     } finally {
       applying = false;
     }
+    savedDisplay.clear();
+    // 시트 중 데이터가 바뀌었을 수 있으니 자체 렌더러가 있는 패널은 재계산시킨다.
+    try {
+      if (typeof renderSetlistPanel === 'function') renderSetlistPanel();
+    } catch {}
   }
 
   function refresh() {
     if (!MQ.matches) {
       if (document.body.classList.contains('mb-sheet')) teardown();
       return;
+    }
+    if (!document.body.classList.contains('mb-sheet')) {
+      // 시트 진입 순간의 인라인 display 백업 (UX-5)
+      savedDisplay.clear();
+      Object.keys(PANELS).forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) savedDisplay.set(id, el.style.display);
+      });
     }
     document.body.classList.add('mb-sheet');
     const ids = availableIds();
@@ -5463,8 +5773,17 @@ bootstrap().catch((e) => {
   }
 
   // 앱 로직이 패널 display를 다시 건드리면 시트 상태를 복구한다.
-  const observer = new MutationObserver(() => {
+  const observer = new MutationObserver((mutations) => {
     if (applying || !MQ.matches) return;
+    // 앱이 시트 모드 중에 갱신한 display는 "진짜 상태"이므로 백업에 반영해 두고(UX-5),
+    // 그 다음 시트 표시 규칙을 다시 덮는다.
+    try {
+      for (const m of mutations || []) {
+        const el = m?.target;
+        const id = el?.id;
+        if (id && Object.prototype.hasOwnProperty.call(PANELS, id)) savedDisplay.set(id, el.style.display);
+      }
+    } catch {}
     refresh();
   });
   Object.keys(PANELS).forEach((id) => {

@@ -611,15 +611,6 @@ body.archive-mode .floating-btn.black-btn:hover{
 @media (max-width: 720px){
   .book-theme-grid{ grid-template-columns: minmax(0, 1fr); }
   .book-theme-row{ flex-direction: column; }
-  .setlist-panel{
-    right: 12px;
-    left: 12px;
-    bottom: 72px;
-    width: auto !important;
-    min-width: 0;
-    min-height: 320px;
-  }
-  .setlist-item{ min-width: 0; }
   .song-card-list.view-list{ grid-template-columns: 1fr; }
   .song-card-list.view-list .song-list-row{
     grid-template-columns: minmax(0, 1fr);
@@ -1496,7 +1487,7 @@ body.archive-mode .song-card.clickable:hover{
   inset: 0;
   pointer-events: none;
   overflow: hidden;
-  z-index: 5000;
+  z-index: 2950; /* UX-8: 파티클 연출은 모달 아래 */
 }
 .card-particle{
   position: fixed;
@@ -1958,7 +1949,7 @@ body.hide-tags .song-chips{ display:none; }
   display: none;
   align-items: center;
   justify-content: center;
-  z-index: 2000;
+  z-index: 3100; /* UX-8: 모달은 패널(2500~2600)·모바일 시트(2900/3000) 위 */
   padding: 20px;
 }
 .modal-overlay.active {
@@ -2348,7 +2339,7 @@ body.archive-mode[data-private-theme="midnight"] .book-theme-swatches span{
   padding: 10px 14px;
   border-radius: 999px;
   font-weight: 900;
-  z-index: 2100;
+  z-index: 3200; /* UX-8: 토스트는 모달 위 */
   opacity: 0;
   pointer-events: none;
   transition: 0.2s ease;
@@ -2365,7 +2356,7 @@ body.archive-mode[data-private-theme="midnight"] .book-theme-swatches span{
   place-items: center;
   background: rgba(255, 255, 255, 0.72);
   backdrop-filter: blur(12px);
-  z-index: 2200;
+  z-index: 3300; /* UX-8: 로딩 스크린 최상단 */
   font-weight: 1000;
   font-size: 18px;
 }
@@ -2650,4 +2641,25 @@ body.mb-sheet #requestDock .request-list{
 /* 본문이 탭 바에 가리지 않도록 여백 확보 */
 body.mb-sheet .app-container{
   padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+}
+
+/* UX-11: setlist 모바일 오버라이드 — 기본 규칙(.setlist-panel, 684행 부근)이 위에 있으므로
+   반드시 파일 끝에 있어야 캐스케이드에서 이긴다. (앞쪽 720px 블록에 있던 사문 규칙을 이동) */
+@media (max-width: 720px){
+  .setlist-panel{
+    right: 12px;
+    left: 12px;
+    bottom: 72px;
+    width: auto !important;
+    min-width: 0;
+    min-height: 320px;
+  }
+  .setlist-item{ min-width: 0; }
+}
+
+/* UX-10: 좁은 화면에서는 .app-container의 대형 하단 패딩(46vh+120px)이
+   order:2로 내려간 내비게이션을 "46vh 공백 아래"로 밀어냈다. 축소한다.
+   (mb-sheet 모드는 위의 calc(64px+safe-area) 규칙이 !important 없이도 뒤에 있어 우선) */
+@media (max-width: 980px){
+  .app-container{ padding-bottom: 140px; }
 }

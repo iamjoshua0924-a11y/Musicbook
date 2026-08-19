@@ -7,6 +7,12 @@
 //
 // NOTE: 끝의 '/'는 있어도 자동으로 제거됩니다.
 // 커스텀 도메인(프론트: songbook.kro.kr / 백: api.songbook.kro.kr) 사용 시 기본값
-window.API_URL = window.API_URL || 'https://api.songbook.kro.kr';
+// UX-7(2차 감사): 로컬 개발(localhost/127.0.0.1)에서는 현재 origin을 쓴다.
+// 예전에는 무조건 프로덕션 API로 고정되어 로컬 개발이 프로덕션 DB를 때렸다.
+(function () {
+  const h = String(window.location.hostname || '');
+  const isLocal = h === 'localhost' || h === '127.0.0.1' || h === '[::1]';
+  window.API_URL = window.API_URL || (isLocal ? window.location.origin : 'https://api.songbook.kro.kr');
+})();
 // 작업지시서 호환(alias)
 window.MB_API = window.MB_API || window.API_URL;

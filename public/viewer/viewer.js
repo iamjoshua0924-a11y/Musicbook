@@ -1500,10 +1500,38 @@ async function getSocketMetaToken() {
 }
 
 // ---- Socket -----------------------------------------------------------------------
-const socket = io(API_URL, {
-  withCredentials: true,
-  auth: { nickname: state.nickname || '익명', metaToken: '' }
-});
+// UX-2(2차 감사): socket.io CDN 로드 실패 시 여기서 top-level ReferenceError가 나
+// 이후 ~4800줄(이벤트 와이어링·PDF 로딩·오프라인 캐시 열람 포함)이 전부 죽었다.
+// io가 없으면 세션 기능만 비활성화하는 no-op 스텁으로 대체해 단독 열람을 살린다.
+function makeOfflineSocketStub() {
+  const stub = {
+    id: undefined,
+    auth: {},
+    data: {},
+    connected: false,
+    on() { return stub; },
+    off() { return stub; },
+    emit(...args) {
+      const cb = args[args.length - 1];
+      if (typeof cb === 'function') {
+        try { cb({ ok: false, error: 'SOCKET_OFFLINE' }); } catch {}
+      }
+      return stub;
+    },
+    connect() { return stub; },
+    disconnect() { return stub; }
+  };
+  return stub;
+}
+const socket = (typeof io === 'function')
+  ? io(API_URL, {
+      withCredentials: true,
+      auth: { nickname: state.nickname || '익명', metaToken: '' }
+    })
+  : makeOfflineSocketStub();
+if (typeof io !== 'function') {
+  console.warn('[viewer] socket.io 로드 실패 — 세션 기능 비활성(단독 열람만 가능)');
+}
 
 function setRoomToUrl(roomCode) {
   const u = new URL(window.location.href);
@@ -4124,8 +4152,13 @@ function pageTurnStep() {
 }
 
 // ---- PDF.js rendering + Fabric overlay (multi-page spread) -------------------------
+// UX-2(2차 감사): pdf.js CDN 미로드 시 여기서 스크립트 전체가 죽지 않도록 가드.
+// (미로드 상태는 init()에서 사용자에게 명시적으로 안내한다)
 // eslint-disable-next-line no-undef
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+if (typeof pdfjsLib !== 'undefined') {
+  // eslint-disable-next-line no-undef
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
 
 const els = {
   pdfPreview: document.getElementById('pdf-preview'),
@@ -6184,6 +6217,11 @@ socket.on('wb:page:update', async (p) => {
 
 // ---- Init -------------------------------------------------------------------------
 async function init() {
+  // UX-2(2차 감사): 필수 CDN(pdf.js/fabric) 미로드 시 조용히 죽는 대신 명시 안내.
+  // (socket.io 미로드는 위의 no-op 스텁으로 세션 기능만 비활성)
+  if (typeof pdfjsLib === 'undefined' || typeof fabric === 'undefined') {
+    flashHud('필수 리소스(pdf.js/fabric) 로드에 실패했습니다 — 네트워크/차단 프로그램 확인 후 새로고침해 주세요', 60000);
+  }
   const metaToken = await getSocketMetaToken();
   if (metaToken) {
     try {

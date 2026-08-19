@@ -4926,6 +4926,13 @@ function wireEvents() {
 }
 
 function attachSockets() {
+  // UX-2(2차 감사): socket.io CDN 로드 실패 시 여기의 ReferenceError가 bootstrap
+  // 전체를 중단시켜 곡 목록조차 안 떴다 — 실시간 기능만 끄고 부팅은 계속한다.
+  // (_socket 사용부는 전부 `if (!socket) return` / `?.` 가드가 이미 있다)
+  if (typeof io !== 'function') {
+    console.warn('[musicbook] socket.io 로드 실패 — 실시간 기능(신청곡 갱신/접속자/세션) 비활성');
+    return;
+  }
   const nickname = getOrCreatePresenceNickname();
   const metaToken = state.metaToken || '';
   const socket = io(API_URL, { withCredentials: true, auth: { nickname, metaToken } });

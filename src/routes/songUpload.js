@@ -3,10 +3,11 @@ const express = require('express');
 const { asyncHandler } = require('../middleware/asyncHandler');
 const Song = require('../models/Song');
 const Availability = require('../models/Availability');
+const User = require('../models/User');
 const { requireLogin, requireSessionOrAdmin } = require('../middleware/auth');
 const { uploadSingle, uploadArray } = require('../middleware/upload');
 const { getDriveRootFolderId } = require('../services/driveSyncRunner');
-const { createFile, buildViewUrl } = require('../services/drive');
+const { createFile, buildViewUrl, trashFile } = require('../services/drive');
 const { buildSongFileName, normalizeSongFileName } = require('../services/songNameNormalizer');
 const { isPlaceholderGoogleFileId } = require('../services/placeholderSong');
 const { bulkUpsertAvailability } = require('../services/availabilityBulk');
@@ -215,6 +216,29 @@ router.post('/songs/:id/attach-file', requireLogin, uploadSingle('file'), asyncH
       // 이걸 빼먹으면 오너의 "가능곡" 표시가 조용히 사라진다.
       if (oldGoogleFileId && oldGoogleFileId !== newGoogleFileId) {
         await Availability.updateMany({ googleFileId: oldGoogleFileId }, { $set: { googleFileId: newGoogleFileId } });
+        // PB-4: 셋리스트/개인 신청곡도 googleFileId로 곡을 참조한다. Availability만 이관하면
+        // 승격 이후 셋리스트 항목 클릭이 영원히 옛(사라진) 파일을 가리킨다. driveUrl도 함께 갱신.
+        const newDriveUrl = buildViewUrl(newGoogleFileId);
+        await User.updateMany(
+          { 'privateSetlistItems.googleFileId': oldGoogleFileId },
+          { $set: { 'privateSetlistItems.$[it].googleFileId': newGoogleFileId, 'privateSetlistItems.$[it].driveUrl': newDriveUrl } },
+          { arrayFilters: [{ 'it.googleFileId': oldGoogleFileId }] }
+        );
+        await User.updateMany(
+          { 'privateSongRequests.googleFileId': oldGoogleFileId },
+          { $set: { 'privateSongRequests.$[it].googleFileId': newGoogleFileId, 'privateSongRequests.$[it].driveUrl': newDriveUrl } },
+          { arrayFilters: [{ 'it.googleFileId': oldGoogleFileId }] }
+        );
+        // PB-3: 실제 Drive 파일을 교체한 경우 옛 파일을 휴지통으로 보낸다(복구 가능).
+        // 남겨두면 다음 full sync가 옛 파일을 별개 곡으로 되살려 중복이 생긴다.
+        // placeholder(local-...)는 Drive 파일이 아니므로 대상 아님. 실패해도 승격은 유효하므로 non-fatal.
+        if (!isPlaceholderGoogleFileId(oldGoogleFileId)) {
+          try {
+            await trashFile(oldGoogleFileId);
+          } catch (trashErr) {
+            console.warn('[attach-file] old drive file trash failed:', String(trashErr?.message || trashErr));
+          }
+        }
       }
 
       update.googleFileId = newGoogleFileId;

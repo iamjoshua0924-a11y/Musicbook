@@ -382,7 +382,12 @@ router.patch('/admin/songs/:id', requireAdmin, asyncHandler(async (req, res) => 
   if (genre !== undefined) update.genre = genre;
   if (mood !== undefined) update.mood = mood;
   if (vocal !== undefined) update.vocal = vocal;
-  if (hidden !== undefined) update.hidden = hidden;
+  if (hidden !== undefined) {
+    update.hidden = hidden;
+    // DS-07: 관리자가 직접 숨김/노출을 지정하면 이후 driveSync의 패턴 재계산이
+    // 이 값을 덮지 않도록 표시한다. body에 hiddenManual:false를 명시하면 다시 sync에 맡긴다.
+    update.hiddenManual = req.body?.hiddenManual === false ? false : true;
+  }
   if (externalLink !== undefined) update.externalLink = externalLink;
   update.parseError = '';
   update.updatedAt = new Date();

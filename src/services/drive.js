@@ -56,13 +56,17 @@ async function getReadonlyAccessToken() {
   return { accessToken, expiresAt };
 }
 
+// DS-12: Drive API 호출이 응답 없이 매달리면 호출부(요청 핸들러/동기화 루프)가
+// 무기한 정지한다. 모든 단건 호출에 동일한 상한을 둔다.
+const DRIVE_CALL_TIMEOUT_MS = 30_000;
+
 async function getFileMetadata(fileId) {
   const drive = getDriveClient();
   const res = await drive.files.get({
     fileId,
     supportsAllDrives: true,
     fields: 'id,name,mimeType,size,modifiedTime,capabilities/canDownload,permissions(type,role)'
-  });
+  }, { timeout: DRIVE_CALL_TIMEOUT_MS });
   return res.data;
 }
 
@@ -83,6 +87,9 @@ async function createFile(parentFolderId, name, mimeType, buffer) {
     },
     supportsAllDrives: true,
     fields: 'id,name,webViewLink'
+  }, {
+    // 업로드는 파일 크기에 따라 오래 걸릴 수 있어 단건 호출보다 넉넉히 둔다.
+    timeout: 120_000
   });
   return res.data;
 }
@@ -92,8 +99,22 @@ async function renameFile(fileId, name) {
   const res = await drive.files.update({
     fileId,
     requestBody: { name: String(name || '').trim() },
+    supportsAllDrives: true,
     fields: 'id,name'
-  });
+  }, { timeout: DRIVE_CALL_TIMEOUT_MS });
+  return res.data;
+}
+
+// PB-3: attach-file로 실제 파일을 교체했을 때 옛 파일을 휴지통으로 보낸다(영구 삭제 아님 — 복구 가능).
+// 옛 파일이 루트 폴더에 남아 있으면 다음 full sync가 별개의 곡으로 되살려 중복이 생긴다.
+async function trashFile(fileId) {
+  const drive = getDriveClient();
+  const res = await drive.files.update({
+    fileId,
+    requestBody: { trashed: true },
+    supportsAllDrives: true,
+    fields: 'id,trashed'
+  }, { timeout: DRIVE_CALL_TIMEOUT_MS });
   return res.data;
 }
 
@@ -112,6 +133,7 @@ module.exports = {
   getFileMetadata,
   createFile,
   renameFile,
+  trashFile,
   buildPreviewUrl,
   buildViewUrl
 };

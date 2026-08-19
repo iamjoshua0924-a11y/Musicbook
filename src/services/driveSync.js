@@ -52,6 +52,10 @@ async function listChildren(drive, folderId, pageToken) {
     // 나중에 공유 드라이브로 옮겨가도 조용히 누락되지 않도록 방어적으로 둔다.
     supportsAllDrives: true,
     includeItemsFromAllDrives: true
+  }, {
+    // DS-12: 소켓이 응답 없이 매달리면 동기화 루프 전체가 무기한 정지하고
+    // /sync/stop도 shouldAbort 검사 지점에 도달하지 못한다. 상한을 둔다.
+    timeout: 30_000
   });
   return res.data;
 }
@@ -100,8 +104,12 @@ async function syncDriveFolderTree({
   // T-07: diff summary (added/changed/removed)
   // NOTE: "removed" is derived from pruneMissing step (hiddenCount).
   const prevMap = new Map(); // googleFileId -> driveModifiedTimeMs
+  // DS-06: SEEN_DROP 가드의 기준(prevCount)은 "이번 순회에서 다시 볼 수 있는 곡"이어야 한다.
+  // Drive에서 이미 사라져 hidden 처리된 누적 문서까지 포함하면 seenCount가 영원히
+  // 기준의 90%에 못 미쳐 prune이 영구 중단된다(자가 치유 불가). visible만 센다.
+  let prevVisibleCount = 0;
   try {
-    const prevRows = await Song.find({ syncRootId: rootFolderId }, { googleFileId: 1, driveModifiedTime: 1 })
+    const prevRows = await Song.find({ syncRootId: rootFolderId }, { googleFileId: 1, driveModifiedTime: 1, hidden: 1 })
       .limit(30_000)
       .lean();
     (prevRows || []).forEach((r) => {
@@ -109,6 +117,7 @@ async function syncDriveFolderTree({
       if (!id) return;
       const ms = r.driveModifiedTime ? new Date(r.driveModifiedTime).getTime() : 0;
       prevMap.set(id, Number.isFinite(ms) ? ms : 0);
+      if (r.hidden !== true) prevVisibleCount += 1;
     });
   } catch {
     // best-effort only
@@ -138,6 +147,10 @@ async function syncDriveFolderTree({
   // 진단용: PDF가 아니라 건너뛴 항목(왜 노래책에 안 들어오는지 추적)
   let skippedNonPdfCount = 0;
   const skippedNonPdf = []; // { name, mimeType } 샘플
+  // DS-12: DB 쓰기 1건 실패가 회차 전체를 죽이지 않도록 곡별로 격리해 집계한다.
+  // 실패한 곡은 lastSeenAt이 안 찍히므로, 실패가 있으면 prune을 보류한다(오숨김 방지).
+  let updateErrorCount = 0;
+  const updateErrors = []; // { name, error } 샘플
 
   const abortResult = () => ({
     processed,
@@ -150,7 +163,9 @@ async function syncDriveFolderTree({
     listFailureCount,
     listFailures,
     skippedNonPdfCount,
-    skippedNonPdf
+    skippedNonPdf,
+    updateErrorCount,
+    updateErrors
   });
 
   outer: while (queue.length) {
@@ -229,45 +244,59 @@ async function syncDriveFolderTree({
 
         if (incSinceDate && driveModifiedTime && driveModifiedTime.getTime() <= incSinceDate.getTime()) {
           // still mark as seen to avoid pruning when scanning the same root repeatedly
-          await Song.updateOne(
-            { googleFileId: fileId },
-            [
-              {
-                $set: {
-                  syncRootId: rootFolderId,
-                  lastSeenAt: startedAt,
-                  driveModifiedTime,
-                  // 최소 정보는 항상 채워서 "제목없음" 스텁 데이터가 쌓이지 않게 한다.
-                  driveUrl: buildViewUrl(fileId),
-                  folderPath: path,
-                  // IMPORTANT:
-                  // pruneMissing(누락 파일 숨김)으로 hidden=true가 된 곡도,
-                  // 실제로 Drive에서 "존재하는 파일"임이 확인되면 즉시 hidden=false로 복구되어야 한다.
-                  // incremental 모드에서 변경이 없다고 skip 처리되면 hidden이 그대로 남아
-                  // UI에서 "전체 곡 수가 600/1200처럼 줄어드는" 현상이 생길 수 있다.
-                  hidden: hiddenByPattern ? true : false,
-                  // 최신 배지(기존 값이 남아 있을 수 있어 갱신)
-                  isLatest
-                }
-              },
-              {
-                // title/displayTitle/artist는 비어있을 때만 채운다(수동 편집 보존)
-                $set: {
-                  title: { $cond: [{ $eq: [{ $ifNull: ['$title', ''] }, ''] }, title, '$title'] },
-                  displayTitle: {
-                    $cond: [{ $eq: [{ $ifNull: ['$displayTitle', ''] }, ''] }, displayTitle, '$displayTitle']
-                  },
-                  artist: { $cond: [{ $eq: [{ $ifNull: ['$artist', ''] }, ''] }, artist, '$artist'] }
-                }
-              }
-            ],
-            { upsert: true }
-          );
-          skipped += 1;
+          // DS-05: upsert 금지 — skip 브랜치는 "기존 문서의 최소 갱신"만 담당한다.
+          // 문서가 없으면(과거에 동기화된 적 없는 파일이 이동 등으로 나타난 경우)
+          // 아래 full 파싱 경로로 내려보내 searchText/key/태그가 완전한 문서를 만든다.
+          // 예전에는 여기서 upsert되어 검색/필터에서 빠지는 스텁 문서가 생겼다.
+          let matchedExisting = false;
           try {
-            Promise.resolve(onProgress?.({ phase: 'skip', processed, skipped, currentPath: path, fileName: f.name || '' })).catch(() => {});
-          } catch {}
-          continue;
+            const r = await Song.updateOne(
+              { googleFileId: fileId },
+              [
+                {
+                  $set: {
+                    syncRootId: rootFolderId,
+                    lastSeenAt: startedAt,
+                    driveModifiedTime,
+                    // 최소 정보는 항상 채워서 "제목없음" 스텁 데이터가 쌓이지 않게 한다.
+                    driveUrl: buildViewUrl(fileId),
+                    folderPath: path,
+                    // IMPORTANT:
+                    // pruneMissing(누락 파일 숨김)으로 hidden=true가 된 곡도,
+                    // 실제로 Drive에서 "존재하는 파일"임이 확인되면 즉시 hidden=false로 복구되어야 한다.
+                    // 단, 관리자가 수동으로 지정한 숨김/노출(hiddenManual)은 보존한다(DS-07).
+                    hidden: { $cond: [{ $eq: ['$hiddenManual', true] }, '$hidden', hiddenByPattern] },
+                    // 최신 배지(기존 값이 남아 있을 수 있어 갱신)
+                    isLatest
+                  }
+                },
+                {
+                  // title/displayTitle/artist는 비어있을 때만 채운다(수동 편집 보존)
+                  $set: {
+                    title: { $cond: [{ $eq: [{ $ifNull: ['$title', ''] }, ''] }, title, '$title'] },
+                    displayTitle: {
+                      $cond: [{ $eq: [{ $ifNull: ['$displayTitle', ''] }, ''] }, displayTitle, '$displayTitle']
+                    },
+                    artist: { $cond: [{ $eq: [{ $ifNull: ['$artist', ''] }, ''] }, artist, '$artist'] }
+                  }
+                }
+              ],
+              { upsert: false }
+            );
+            matchedExisting = Boolean(r?.matchedCount);
+          } catch (err) {
+            updateErrorCount += 1;
+            if (updateErrors.length < 10) updateErrors.push({ name: String(f.name || ''), error: String(err?.message || err) });
+            continue;
+          }
+          if (matchedExisting) {
+            skipped += 1;
+            try {
+              Promise.resolve(onProgress?.({ phase: 'skip', processed, skipped, currentPath: path, fileName: f.name || '' })).catch(() => {});
+            } catch {}
+            continue;
+          }
+          // 문서 없음 → full 파싱 경로로 계속 진행
         }
 
         const tags = extractBracketTags(nameNoExt);
@@ -278,6 +307,7 @@ async function syncDriveFolderTree({
 
         // IMPORTANT: 관리자 수동 태그 입력을 보존하기 위해, key/genre/mood/vocal은 "비어있을 때만" 채움.
         // 이를 위해 update pipeline을 사용(표현식 기반).
+        try {
         await Song.updateOne(
           { googleFileId: fileId },
           [
@@ -292,7 +322,8 @@ async function syncDriveFolderTree({
                 parseError: fileUnchanged ? { $ifNull: ['$parseError', parseError] } : parseError,
                 isLatest,
                 driveModifiedTime,
-                hidden: hiddenByPattern ? true : false,
+                // DS-07: 수동 숨김/노출(hiddenManual=true)은 파일명 패턴 재계산으로 덮지 않는다.
+                hidden: { $cond: [{ $eq: ['$hiddenManual', true] }, '$hidden', hiddenByPattern] },
                 syncRootId: rootFolderId,
                 lastSeenAt: startedAt
               }
@@ -339,6 +370,12 @@ async function syncDriveFolderTree({
           ],
           { upsert: true }
         );
+        } catch (err) {
+          // DS-12: 곡 1건 쓰기 실패(unique 충돌·일시적 Mongo 오류)로 회차 전체를 죽이지 않는다.
+          updateErrorCount += 1;
+          if (updateErrors.length < 10) updateErrors.push({ name: String(f.name || ''), error: String(err?.message || err) });
+          continue;
+        }
 
         // diff counting (best-effort)
         try {
@@ -370,10 +407,13 @@ async function syncDriveFolderTree({
     if (typeof shouldAbort === 'function' && shouldAbort()) return abortResult();
 
     const seenCount = processed + skipped;
-    const prevCount = prevMap.size;
+    const prevCount = prevVisibleCount;
 
     if (listFailureCount > 0) {
       pruneSkippedReason = `LIST_FAILURES:${listFailureCount}`;
+    } else if (updateErrorCount > 0) {
+      // 쓰기 실패한 곡은 lastSeenAt이 안 찍혀 prune이 오숨김할 수 있다.
+      pruneSkippedReason = `UPDATE_ERRORS:${updateErrorCount}`;
     } else if (reachedLimit) {
       pruneSkippedReason = `REACHED_LIMIT:${limit}`;
     } else if (prevCount >= 50 && seenCount < Math.floor(prevCount * 0.9)) {
@@ -404,7 +444,9 @@ async function syncDriveFolderTree({
     skippedNonPdf,
     pruneSkippedReason,
     seenCount: processed + skipped,
-    prevCount: prevMap.size
+    prevCount: prevVisibleCount,
+    updateErrorCount,
+    updateErrors
   };
 }
 

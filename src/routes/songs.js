@@ -245,7 +245,14 @@ router.get('/songs/cards', async (req, res) => {
         googleFileId: s.googleFileId,
         driveUrl: s.driveUrl || '',
         driveModifiedMs: s.driveModifiedTime ? new Date(s.driveModifiedTime).getTime() : 0,
-        proficiency: Number(myAvail?.proficiency || 0) || 0
+        proficiency: Number(myAvail?.proficiency || 0) || 0,
+        // title/artist는 위에서 이미 self-heal(조성 접미사 흡수 등)까지 적용된 값을 그대로 쓴다
+        // (카드에 보이는 값과 일치시켜 관리자 인라인 편집 UI가 혼동을 주지 않게 함).
+        // displayTitle만은 문서 원본 값을 그대로 노출한다 — card.title은 그룹핑용 정규화 값이라
+        // 실제 문서의 displayTitle과 다를 수 있고, 관리자가 "진짜 저장된 표시제목"을 봐야 한다.
+        title,
+        artist,
+        displayTitle: String(s.displayTitle || '').trim()
       });
     }
     fileIdToCardKey.set(String(s.googleFileId), cardKey);

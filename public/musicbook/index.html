@@ -521,12 +521,15 @@
     <div class="availability-edit-bar" id="availabilityEditBar" style="display:none;">
       <div class="availability-edit-title" id="availabilityEditTitle">
         가능곡 선택모드 <span id="availabilityEditCount" class="muted" style="margin-left:8px;"></span>
+        <span id="catalogEditCount" class="muted" style="margin-left:8px;"></span>
       </div>
       <label class="muted" style="display:flex; align-items:center; gap:8px; font-weight:900;">
         <input id="availabilityHideExistingToggle" type="checkbox" />
         기존 가능곡 안보기
       </label>
       <div class="availability-edit-actions">
+        <!-- 곡정보(제목/가수/조성/장르 등) 인라인 편집 저장 - 관리자 전용, 가능곡 체크 저장과는 별개 -->
+        <button class="floating-btn compact-btn" id="catalogEditSaveBtn" type="button" style="display:none;" disabled>곡정보 저장</button>
         <button class="floating-btn compact-btn" id="availabilityEditCancelBtn" type="button">취소</button>
         <button class="floating-btn black-btn" id="availabilityEditSaveBtn" type="button">저장</button>
       </div>

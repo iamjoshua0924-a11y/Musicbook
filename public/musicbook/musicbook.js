@@ -91,6 +91,10 @@ const state = {
   proficiencyDraftMap: null, // Map<googleFileId, proficiency>
   _forceAllSongsForEdit: false,
 
+  // 가능곡 편집모드(관리자) - 곡 메타데이터(title/displayTitle/artist/key/genre/mood/vocal) 인라인 편집
+  // songId(Mongo _id) -> 변경된 필드만 담은 draft. 원본과 동일해지면 항목을 지운다(= 변경사항 없음).
+  catalogEditDraftMap: new Map(),
+
   sessionRoomCode: '',
   isPageTurner: false,
   sessionCurrentFileId: '',
@@ -1661,18 +1665,24 @@ async function loadSongFiles(force = false) {
   state.songFilesTotal = Number(data.totalDocs || 0) || 0;
   const files = [];
   (data.items || []).forEach((c) => {
-    const title = String(c.title || '').trim();
-    const displayTitle = String(c.title || '').trim(); // cards는 title을 기준으로 노출
-    const artist = String(c.artist || '').trim();
+    const cardTitle = String(c.title || '').trim();
+    const cardArtist = String(c.artist || '').trim();
     const genre = String(c.genre || '').trim();
     const mood = String(c.mood || '').trim();
     const vocal = String(c.vocal || '').trim();
-    const baseSearch = String(c.searchText || `${title} ${artist} ${genre} ${mood} ${vocal}` || '').trim();
+    const baseSearch = String(c.searchText || `${cardTitle} ${cardArtist} ${genre} ${mood} ${vocal}` || '').trim();
     (c.variants || []).forEach((v) => {
       if (!v?.googleFileId) return;
       const key = String(v.key || '').trim();
       const driveModifiedMs = Number(v.driveModifiedMs || 0) || 0;
+      // 문서(variant) 자체의 title/artist가 있으면 그걸 쓴다(카드는 여러 variant를 묶기 위한
+      // 정규화 값이라 개별 문서와 다를 수 있음). displayTitle은 비어있으면 title로 대체 표시.
+      const title = String(v.title || '').trim() || cardTitle;
+      const artist = String(v.artist || '').trim() || cardArtist;
+      const displayTitle = String(v.displayTitle || '').trim() || title;
       files.push({
+        // Song 문서(Mongo _id). 가능곡 편집모드(관리자)의 인라인 메타데이터 저장(PATCH /api/admin/songs/:id)에 필요.
+        songId: String(v.songId || ''),
         googleFileId: v.googleFileId,
         driveUrl: v.driveUrl || '',
         driveModifiedTime: driveModifiedMs ? new Date(driveModifiedMs).toISOString() : '',
@@ -2270,6 +2280,191 @@ function updateProficiencyEditCount() {
   el.textContent = `변경됨: ${changed}곡`;
 }
 
+// ---- 가능곡 편집모드(관리자): 곡 메타데이터 인라인 편집 ----------------------------
+const CATALOG_EDIT_FIELDS = ['title', 'displayTitle', 'artist', 'key', 'genre', 'mood', 'vocal'];
+
+function getCatalogEditOriginal(songId) {
+  const id = String(songId || '').trim();
+  if (!id) return null;
+  return (state.songFilesAll || []).find((s) => String(s.songId || '') === id) || null;
+}
+
+// draft가 있으면 draft, 없으면 원본값
+function getCatalogEditValue(songId, field) {
+  const draft = state.catalogEditDraftMap.get(String(songId || ''));
+  if (draft && Object.prototype.hasOwnProperty.call(draft, field)) return draft[field];
+  return getCatalogEditOriginal(songId)?.[field] || '';
+}
+
+function setCatalogEditField(songId, field, value) {
+  const id = String(songId || '').trim();
+  if (!id || !CATALOG_EDIT_FIELDS.includes(field)) return;
+  const original = getCatalogEditOriginal(id);
+  if (!original) return;
+  const draft = state.catalogEditDraftMap.get(id) || {};
+  draft[field] = String(value ?? '').trim();
+  // 원본과 완전히 같아지면 draft에서 지운다(= 저장할 변경사항 없음으로 취급)
+  const stillDiffers = CATALOG_EDIT_FIELDS.some((f) => {
+    const v = Object.prototype.hasOwnProperty.call(draft, f) ? draft[f] : original[f] || '';
+    return String(v || '') !== String(original[f] || '');
+  });
+  if (stillDiffers) state.catalogEditDraftMap.set(id, draft);
+  else state.catalogEditDraftMap.delete(id);
+  updateCatalogEditCount();
+}
+
+function updateCatalogEditCount() {
+  const el = $('catalogEditCount');
+  const btn = $('catalogEditSaveBtn');
+  const n = state.catalogEditDraftMap.size;
+  if (el) el.textContent = state.availabilityEditMode && state.role === 'admin' && n ? `곡정보 변경: ${n}곡` : '';
+  if (btn) btn.disabled = n === 0;
+}
+
+// 제목/가수가 뒤바뀐 곡을 바로잡는 스왑. "promote"는 신청곡 승격(musicbook.js 3906번 줄 부근)에서
+// 이미 다른 의미로 쓰이고 있어 혼동을 피하려고 이름을 다르게 둔다.
+function computeSwapTitleArtist(original, draft) {
+  const cur = { ...original, ...(draft || {}) };
+  const oldTitle = String(cur.title || '').trim();
+  const oldDisplay = String(cur.displayTitle || '').trim();
+  const oldArtist = String(cur.artist || '').trim();
+  return {
+    title: oldArtist,
+    displayTitle: oldArtist,
+    // displayTitle이 실제로 입력돼 있었다면 그게 "진짜" 제목이므로 그걸 가수 자리로 보낸다.
+    // 비어있었다면(=title과 같다고 취급) title 값을 그대로 사용한다.
+    artist: oldDisplay || oldTitle
+  };
+}
+
+async function swapTitleArtist(songId) {
+  if (state.role !== 'admin') return; // 서버도 requireAdmin으로 막지만, 클라이언트에서도 조용히 막는다
+  const id = String(songId || '').trim();
+  const original = getCatalogEditOriginal(id);
+  if (!id || !original) return;
+  const draft = state.catalogEditDraftMap.get(id);
+  const next = computeSwapTitleArtist(original, draft);
+  const oldTitle = draft?.title ?? original.title ?? '';
+  const oldArtist = draft?.artist ?? original.artist ?? '';
+  if (!confirm(`제목/가수를 바꿀까요?\n제목: ${oldTitle || '(비어있음)'} → ${next.title || '(비어있음)'}\n가수: ${oldArtist || '(비어있음)'} → ${next.artist || '(비어있음)'}\n\nDrive 파일명도 함께 바뀝니다.`))
+    return;
+  const res = await apiJson(`/api/admin/songs/${encodeURIComponent(id)}`, 'PATCH', { ...next, renameDriveName: true });
+  if (!res.ok) return toast('저장 실패');
+  toast(res.renameError ? `저장됨 (파일명 변경 실패: ${res.renameError})` : '제목/가수를 바꿨습니다');
+  state.catalogEditDraftMap.delete(id);
+  updateCatalogEditCount();
+  await loadSongFiles(true);
+  applySongFilters();
+}
+
+async function saveCatalogEdits() {
+  if (state.role !== 'admin') return;
+  if (!state.catalogEditDraftMap.size) return;
+  const btn = $('catalogEditSaveBtn');
+  const entries = Array.from(state.catalogEditDraftMap.entries());
+  try {
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '저장 중...';
+    }
+    const results = await Promise.allSettled(
+      entries.map(([songId, patch]) => apiJson(`/api/admin/songs/${encodeURIComponent(songId)}`, 'PATCH', patch))
+    );
+    let okCount = 0;
+    let failCount = 0;
+    const renameErrors = [];
+    results.forEach((r, i) => {
+      const ok = r.status === 'fulfilled' && r.value?.ok;
+      if (ok) {
+        okCount += 1;
+        state.catalogEditDraftMap.delete(entries[i][0]);
+        if (r.value?.renameError) renameErrors.push(r.value.renameError);
+      } else {
+        failCount += 1;
+      }
+    });
+    updateCatalogEditCount();
+    await loadSongFiles(true);
+    applySongFilters();
+    if (failCount) toast(`저장 완료 ${okCount}곡 · 실패 ${failCount}곡`);
+    else if (renameErrors.length) toast(`저장 완료(${okCount}곡) · 파일명 변경 실패 ${renameErrors.length}건`);
+    else toast(`저장 완료(${okCount}곡)`);
+  } finally {
+    if (btn) {
+      btn.disabled = state.catalogEditDraftMap.size === 0;
+      btn.textContent = '곡정보 저장';
+    }
+  }
+}
+
+const CATALOG_EDIT_GENRE_OPTIONS = ['KPOP', 'JPOP', 'POP', 'OST', '기타'];
+const CATALOG_EDIT_MOOD_OPTIONS = ['발라드', '락발라드', '밴드송', '댄스', '뮤지컬', '힙합', '동요'];
+const CATALOG_EDIT_VOCAL_OPTIONS = ['남솔로', '여솔로', '듀엣', '그룹곡'];
+
+function buildCatalogEditSelectHtml(field, placeholder, options, selected) {
+  const opts = options
+    .map((o) => `<option value="${esc(o)}" ${selected === o ? 'selected' : ''}>${esc(o)}</option>`)
+    .join('');
+  return `
+    <select class="catalog-edit-field" data-field="${field}">
+      <option value="" ${selected ? '' : 'selected'}>${esc(placeholder)}</option>
+      ${opts}
+    </select>
+  `;
+}
+
+function buildCatalogEditFieldsHtml(s) {
+  if (!s.songId) return ''; // songId 없으면 PATCH 대상 자체가 없음(구 데이터 방어)
+  const v = (field) => getCatalogEditValue(s.songId, field);
+  return `
+    <div class="catalog-edit-fields" data-song-id="${esc(s.songId)}">
+      <div class="catalog-edit-row">
+        <input class="catalog-edit-field" data-field="title" placeholder="제목" value="${esc(v('title'))}" />
+        <input class="catalog-edit-field" data-field="artist" placeholder="가수" value="${esc(v('artist'))}" />
+        <button type="button" class="catalog-edit-swap-btn" title="제목/가수 순서 바꾸기">⇄</button>
+      </div>
+      <div class="catalog-edit-row">
+        <input class="catalog-edit-field" data-field="displayTitle" placeholder="표시제목(옵션)" value="${esc(v('displayTitle'))}" />
+        <input class="catalog-edit-field catalog-edit-field-key" data-field="key" placeholder="조성(옵션)" value="${esc(v('key'))}" />
+      </div>
+      <div class="catalog-edit-row">
+        ${buildCatalogEditSelectHtml('genre', '장르(비움)', CATALOG_EDIT_GENRE_OPTIONS, v('genre'))}
+        ${buildCatalogEditSelectHtml('mood', '분위기(비움)', CATALOG_EDIT_MOOD_OPTIONS, v('mood'))}
+        ${buildCatalogEditSelectHtml('vocal', '보컬(비움)', CATALOG_EDIT_VOCAL_OPTIONS, v('vocal'))}
+      </div>
+      <label class="inline-check catalog-edit-rename-check">
+        <input type="checkbox" data-field="renameDriveName" />
+        Drive 파일명도 함께 변경
+      </label>
+    </div>
+  `;
+}
+
+function wireCatalogEditFields(el, s) {
+  if (!s.songId) return;
+  const fieldsEl = el.querySelector('.catalog-edit-fields');
+  if (!fieldsEl) return;
+  fieldsEl.querySelectorAll('[data-field]').forEach((input) => {
+    const field = input.dataset.field;
+    const eventName = input.tagName === 'SELECT' || input.type === 'checkbox' ? 'change' : 'input';
+    input.addEventListener(eventName, () => {
+      if (field === 'renameDriveName') {
+        const id = String(s.songId || '').trim();
+        const draft = state.catalogEditDraftMap.get(id) || {};
+        draft.renameDriveName = input.checked;
+        state.catalogEditDraftMap.set(id, draft);
+        return;
+      }
+      setCatalogEditField(s.songId, field, input.value);
+    });
+  });
+  fieldsEl.querySelector('.catalog-edit-swap-btn')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    swapTitleArtist(s.songId);
+  });
+}
+
 function renderAvailabilityEditCards(hideTags) {
   const wrap = $('songCardList');
   wrap.innerHTML = '';
@@ -2282,6 +2477,7 @@ function renderAvailabilityEditCards(hideTags) {
 
   const userId = state.userId || '';
   const set = state.availabilityDraftSet || state.myAvailabilitySet;
+  const isAdmin = state.role === 'admin';
 
   items.forEach((s) => {
     const el = document.createElement('div');
@@ -2310,6 +2506,7 @@ function renderAvailabilityEditCards(hideTags) {
           <span class="chip">${esc(s.vocal || '-')}</span>
         </div>
       `}
+      ${isAdmin ? buildCatalogEditFieldsHtml(s) : ''}
     `;
     const chk = el.querySelector('input[type="checkbox"]');
     chk.onchange = async () => {
@@ -2324,6 +2521,7 @@ function renderAvailabilityEditCards(hideTags) {
       }
       await toggleAvailabilityForFile(userId, s.googleFileId, next);
     };
+    if (isAdmin) wireCatalogEditFields(el, s);
     wrap.appendChild(el);
   });
   triggerListMotion();
@@ -3040,6 +3238,9 @@ function applyRoleUI() {
   const canEditArchiveAvailability =
     state.isArchiveMode && !state.archiveViewOnly && Boolean(state.hasPublicBook) && String(state.userId || '') === String(state.archiveTargetUserId || '');
   $('availabilityEditToggleBtn').style.display = state.isArchiveMode ? (canEditArchiveAvailability ? 'inline-flex' : 'none') : isPriv ? 'inline-flex' : 'none';
+  // 가능곡 편집모드 안의 곡정보 인라인 편집(관리자 전용) — 버튼 자체는 availabilityEditBar가
+  // 숨겨져 있으면 같이 안 보이므로, 여기서는 role 조건만 반영한다.
+  if ($('catalogEditSaveBtn')) $('catalogEditSaveBtn').style.display = isAdmin ? 'inline-flex' : 'none';
   const profBtn = $('proficiencyEditToggleBtn');
   if (profBtn) profBtn.style.display = canEditArchiveAvailability ? 'inline-flex' : 'none';
   const profFilter = $('proficiencyFilter');
@@ -3618,6 +3819,7 @@ function wireEvents() {
         ? `가능곡 편집 · ${state.archiveTargetUserId}`
         : `가능곡 선택모드 · ${state.displayName || userId}`;
       updateAvailabilityEditCount();
+      updateCatalogEditCount();
       state.page = 1;
       applySongFilters();
     } finally {
@@ -3635,6 +3837,7 @@ function wireEvents() {
     $('availabilityEditBar').style.display = 'none';
     applyRoleUI();
     updateAvailabilityEditCount();
+    updateCatalogEditCount();
     if (state.isArchiveMode) {
       // 기본 화면은 "내 가능곡만"이므로, 편집 취소 시에도 목록을 재조회해 복구한다.
       state.songCardsAll = [];
@@ -3668,6 +3871,7 @@ function wireEvents() {
     $('availabilityEditBar').style.display = 'none';
     applyRoleUI();
     updateAvailabilityEditCount();
+    updateCatalogEditCount();
     if (state.isArchiveMode) {
       // 저장 후 "내 가능곡만" 목록으로 자동 복귀
       state.songCardsAll = [];
@@ -3676,6 +3880,10 @@ function wireEvents() {
     applySongFilters();
     toast('저장 완료');
   };
+
+  // 가능곡 편집모드 안에서 곡 메타데이터(제목/가수/조성/장르 등) 인라인 편집 일괄저장(관리자 전용).
+  // 위 availabilityEditSaveBtn(가능곡 체크 저장)과는 완전히 별개 데이터/버튼이다.
+  if ($('catalogEditSaveBtn')) $('catalogEditSaveBtn').onclick = () => saveCatalogEdits().catch(() => toast('저장 실패'));
 
   $('proficiencyEditToggleBtn').onclick = async () => {
     const userId = state.isArchiveMode && state.archiveTargetUserId ? state.archiveTargetUserId : state.userId || '';

@@ -222,9 +222,17 @@ function attachSockets(io) {
 
       // Lazy-load snapshot for (room,file) when first participant arrives after restart
       // (only when we already know fileId).
+      // VA-04(2차 감사): 라이브 세션 중 재연결(join)한 소켓에 DB의 옛 스냅샷을 밀어
+      // 세션 전체가 과거로 롤백되는 문제 — wb:sync:request와 동일하게 메모리 우선.
+      // (메모리에 항목이 있으면 그것이 현재 라이브 상태 — 비어 있더라도 "지운 상태"가 정답)
       if (room.currentFileId) {
-        const snap = await loadSnapshot(roomCode, room.currentFileId);
-        if (snap) socket.emit('wb:sync', { fileId: room.currentFileId, snapshot: snap });
+        const fileAnno = room.annotationsByFile.get(room.currentFileId);
+        if (fileAnno?.pages) {
+          socket.emit('wb:sync', { fileId: room.currentFileId, snapshot: fileAnno.pages });
+        } else {
+          const snap = await loadSnapshot(roomCode, room.currentFileId);
+          if (snap) socket.emit('wb:sync', { fileId: room.currentFileId, snapshot: snap });
+        }
       }
     });
 
@@ -327,10 +335,11 @@ function attachSockets(io) {
 
         // If empty -> persist minimal snapshot ONCE.
         if (room.members.size === 0) {
-          if (room.currentFileId) {
-            const anno = room.annotationsByFile.get(room.currentFileId);
-            if (anno?.pages) {
-              saveSnapshotOnce(roomCode, room.currentFileId, anno.pages).catch(() => {});
+          // VA-03(2차 감사): currentFileId 한 곡만 백업하면 다곡 세션에서 마지막 곡 외의
+          // 주석이 어떤 경우에도 영속되지 않는다 — 필기된 모든 곡을 백업한다.
+          for (const [fid, anno] of room.annotationsByFile) {
+            if (fid && anno?.pages) {
+              saveSnapshotOnce(roomCode, fid, anno.pages).catch(() => {});
             }
           }
           store.deleteRoom(roomCode);
@@ -573,8 +582,16 @@ function attachSockets(io) {
       });
 
       // Lazy-load stored snapshot if exists (server restart case).
-      const snap = await loadSnapshot(roomCode, fileId);
-      if (snap) io.to(toSessionRoomName(roomCode)).emit('wb:sync', { fileId, snapshot: snap });
+      // VA-04(2차 감사)와 동일 뿌리: 같은 세션에서 이전에 필기한 곡으로 되돌아올 때
+      // 메모리에 라이브 상태가 있으면 그것이 진실 — DB(과거 백업)를 방 전체에 밀면 롤백된다.
+      // wb:sync:request와 동일하게 메모리 우선, 없을 때만 DB(서버 재시작 복구용).
+      const liveAnno = room.annotationsByFile.get(fileId);
+      if (liveAnno?.pages) {
+        io.to(toSessionRoomName(roomCode)).emit('wb:sync', { fileId, snapshot: liveAnno.pages });
+      } else {
+        const snap = await loadSnapshot(roomCode, fileId);
+        if (snap) io.to(toSessionRoomName(roomCode)).emit('wb:sync', { fileId, snapshot: snap });
+      }
 
       ack?.({ ok: true });
     });
@@ -663,10 +680,11 @@ function attachSockets(io) {
         if (room.pageTurnerSocketId === socket.id) room.pageTurnerSocketId = null;
 
         if (room.members.size === 0) {
-          if (room.currentFileId) {
-            const anno = room.annotationsByFile.get(room.currentFileId);
-            if (anno?.pages) {
-              saveSnapshotOnce(roomCode, room.currentFileId, anno.pages).catch(() => {});
+          // VA-03(2차 감사): currentFileId 한 곡만 백업하면 다곡 세션에서 마지막 곡 외의
+          // 주석이 어떤 경우에도 영속되지 않는다 — 필기된 모든 곡을 백업한다.
+          for (const [fid, anno] of room.annotationsByFile) {
+            if (fid && anno?.pages) {
+              saveSnapshotOnce(roomCode, fid, anno.pages).catch(() => {});
             }
           }
           store.deleteRoom(roomCode);

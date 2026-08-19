@@ -5413,12 +5413,27 @@ document.getElementById('clearBtn').addEventListener('click', () => {
   touchedPages.forEach((pageNo) => {
     if (!pageNo) return;
     state.undoStack[pageNo] ||= [];
-    const current = snapshotPage(pageNo);
-    if (current) state.undoStack[pageNo].push(current);
+    // VA-02(2차 감사): 화면 밖 페이지는 캔버스가 없어 snapshotPage가 null —
+    // annoStore의 저장분으로 undo 백업을 남겨 "전체삭제 후 undo 복구"가 가능하게 한다.
+    const current = snapshotPage(pageNo) || state.annoStore[pageNo] || null;
+    if (current && current !== empty) state.undoStack[pageNo].push(current);
     state.redoStack[pageNo] = [];
     state.annoStore[pageNo] = empty;
     if (viewMap.has(pageNo)) applySnapshotToPage(pageNo, empty);
-    broadcastDebouncedByPage.get(pageNo)?.();
+    // VA-02(2차 감사): 화면 밖 페이지는 디바운스 브로드캐스터(makeView에서 생성)가 없어
+    // 서버/타 참가자에게 삭제가 전파되지 않았다 — 재입장/wb:sync 시 "지운 주석 부활".
+    // 브로드캐스터가 없으면 동일 가드 조건으로 빈 스냅샷을 직접 emit한다.
+    const b = broadcastDebouncedByPage.get(pageNo);
+    if (b) {
+      b();
+    } else if (state.isInSession && state.roomCode && state.fileId && canUseToolsNow()) {
+      socket.emit('wb:page:update', {
+        roomCode: state.roomCode,
+        fileId: state.fileId,
+        pageNo: String(pageNo),
+        pageSnapshot: empty
+      });
+    }
   });
 });
 
@@ -6130,6 +6145,11 @@ socket.on('session:follow:file', (p) => {
 // Whiteboard sync
 socket.on('wb:sync', (p) => {
   if (!p?.snapshot) return;
+  // VA-01(2차 감사): 서버는 항상 fileId를 동봉한다. 곡 전환/이탈 타이밍에 늦게 도착한
+  // 다른 곡의 스냅샷이 현재 곡의 annoStore를 통째로 덮지 않도록 검증한다.
+  // (viewer:laser 수신부의 기존 가드와 동일 패턴)
+  if (!state.isInSession) return;
+  if (p.fileId && String(p.fileId) !== String(state.fileId || '')) return;
   state.annoStore = p.snapshot || {};
   // re-apply overlays
   if (state.mode === 'chord') {
@@ -6143,6 +6163,9 @@ socket.on('wb:sync', (p) => {
 
 socket.on('wb:page:update', async (p) => {
   if (!p?.pageNo || !p?.pageSnapshot) return;
+  // VA-01(2차 감사): 다른 곡의 페이지 스냅샷이 현재 곡 annoStore에 합성되지 않도록 검증.
+  if (!state.isInSession) return;
+  if (p.fileId && String(p.fileId) !== String(state.fileId || '')) return;
   // 서버는 같은 방 전체에 브로드캐스트(송신자 포함)하므로,
   // self-echo는 무시해야 Fabric IText 편집 중 loadFromJSON으로 튕기지 않는다.
   try {

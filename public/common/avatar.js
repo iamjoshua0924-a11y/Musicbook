@@ -16,7 +16,9 @@
 
   function initial(name) {
     const n = String(name || '').trim();
-    return (n ? n.slice(0, 1) : '?') || '?';
+    // slice(0,1)은 이모지/보조평면 문자를 반으로 잘라 깨진 글자(�)가 나온다
+    const first = n ? Array.from(n)[0] : '';
+    return first || '?';
   }
 
   function color(name) {

@@ -21,7 +21,11 @@ const statusLabel = (s) => {
 
 async function apiGet(url) {
   const res = await fetch(apiUrl(url), { credentials: 'include' });
-  return res.json();
+  try {
+    return await res.json();
+  } catch {
+    return { ok: false, error: `HTTP_${res.status}` };
+  }
 }
 
 function esc(s) {
@@ -37,7 +41,9 @@ function render(items) {
   const list = $('list');
   list.innerHTML = '';
   const arr = Array.isArray(items) ? items : [];
-  $('empty').style.display = arr.length ? 'none' : 'block';
+  const empty = $('empty');
+  empty.textContent = '신청곡이 없습니다.';
+  empty.style.display = arr.length ? 'none' : 'block';
 
   arr.forEach((r) => {
     const el = document.createElement('div');
@@ -63,20 +69,50 @@ function render(items) {
   });
 }
 
+function showMessage(text) {
+  const el = $('empty');
+  if (!el) return;
+  el.textContent = text;
+  el.style.display = 'block';
+}
+
 async function loadOnce() {
-  const r = await apiGet('/api/requests');
-  if (r?.ok) render(r.items || []);
+  try {
+    const r = await apiGet('/api/requests');
+    if (r?.ok) {
+      render(r.items || []);
+      return true;
+    }
+    showMessage(`불러오기 실패: ${r?.error || ''}`);
+  } catch {
+    showMessage('서버에 연결하지 못했습니다. 잠시 후 자동으로 다시 시도합니다.');
+  }
+  return false;
 }
 
 function boot() {
-  loadOnce().catch(() => {});
+  loadOnce();
 
+  // 실시간 갱신은 socket.io, 실패(CDN 차단/연결 끊김) 시에는 주기적 폴링으로 대체한다.
+  let socketOk = false;
   try {
-    const socket = io(API_URL, { withCredentials: true });
-    socket.on('requests:updated', (p) => {
-      if (Array.isArray(p?.items)) render(p.items);
-    });
+    if (typeof io === 'function') {
+      const socket = io(API_URL, { withCredentials: true });
+      socket.on('connect', () => {
+        socketOk = true;
+        loadOnce();
+      });
+      socket.on('disconnect', () => {
+        socketOk = false;
+      });
+      socket.on('requests:updated', (p) => {
+        if (Array.isArray(p?.items)) render(p.items);
+      });
+    }
   } catch {}
+  setInterval(() => {
+    if (!socketOk) loadOnce();
+  }, 15000);
 }
 
 boot();

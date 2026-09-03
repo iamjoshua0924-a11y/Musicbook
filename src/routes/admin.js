@@ -172,6 +172,10 @@ router.post('/admin/users', requireAdmin, async (req, res) => {
     return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
   }
 
+  // "유저 추가"가 기존 계정을 덮어쓰면(비밀번호 1234로 초기화 + role/표시이름 변경 + private 해제) 안 된다.
+  // 비밀번호 초기화는 별도 버튼(/admin/users/:userId reset)이 담당한다.
+  if (await User.exists({ userId })) return res.status(409).json({ ok: false, error: 'USER_EXISTS' });
+
   // 초기 비밀번호는 기본값 1234로 통일(원하면 요청에서 password로 override 가능)
   const password = passwordInput || '1234';
   const passwordHash = await bcrypt.hash(password, 10);

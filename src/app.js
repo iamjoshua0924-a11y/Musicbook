@@ -107,10 +107,11 @@ function createApp() {
   app.use('/admin', express.static(path.join(__dirname, '..', 'public', 'admin')));
   app.use('/dev', express.static(path.join(__dirname, '..', 'public', 'dev')));
 
-  // Public request board (pop-out)
+  // Public request board (pop-out). 상대 경로(requests.css/js)가 동작하도록 정적 서빙도 같이 건다.
   app.get('/requests', (req, res) => {
-    res.sendFile(path.join(__dirname, '..', 'public', 'requests', 'index.html'));
+    res.redirect('/requests/');
   });
+  app.use('/requests', express.static(path.join(__dirname, '..', 'public', 'requests')));
 
   // API routes
   app.use('/api/dev', devSession, require('./routes/developer'));

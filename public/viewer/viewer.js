@@ -100,11 +100,36 @@ function safeRoomCode(v) {
 }
 
 // NOTE: preview 환경에서 prompt()가 지원되지 않아 모달 기반으로 입력을 받는다.
+// Safari "모든 쿠키 차단"/일부 프라이빗 모드에서는 localStorage 접근 자체가 SecurityError를 던진다.
+// 그 경우에도 뷰어가 통째로 죽지 않도록 모든 접근을 안전 래퍼로 감싼다(값 없음으로 취급).
+const _memStorage = new Map();
+function lsGet(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return _memStorage.has(key) ? _memStorage.get(key) : null;
+  }
+}
+function lsSet(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    _memStorage.set(key, String(value));
+  }
+}
+function lsRemove(key) {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    _memStorage.delete(key);
+  }
+}
+
 function getOrCreateNickname() {
   // 메인(노래책)과 동일한 키를 우선 사용
   const key = 'mb_presence_nick';
-  const shared = String(localStorage.getItem(key) || '').trim();
-  const legacy = String(localStorage.getItem('mb_nickname') || '').trim();
+  const shared = String(lsGet(key) || '').trim();
+  const legacy = String(lsGet('mb_nickname') || '').trim();
   const picked = shared || legacy;
   // NOTE:
   // - 기존에는 '게스트-xxxx' 임시 닉네임을 자동 생성/저장했는데,
@@ -116,7 +141,7 @@ function getOrCreateNickname() {
 
 function getOrCreateMemberId() {
   const key = 'mb_member_id';
-  const saved = localStorage.getItem(key);
+  const saved = lsGet(key);
   if (saved) return saved;
   let id = '';
   try {
@@ -126,7 +151,7 @@ function getOrCreateMemberId() {
     id = `m_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
   }
   try {
-    localStorage.setItem(key, id);
+    lsSet(key, id);
   } catch {}
   return id;
 }
@@ -155,7 +180,7 @@ function isMobileViewer() {
 // 구버전에서 auto/on/off로 저장해둔 값이 남아 있으면 정리한다.
 // (토글 UI가 사라졌으므로 'on'이 남아 있으면 되돌릴 방법이 없다)
 try {
-  localStorage.removeItem('mb_viewer_mobile_mode');
+  lsRemove('mb_viewer_mobile_mode');
 } catch {}
 
 // T-20: 세션 참여자 수 파비콘 배지
@@ -241,7 +266,7 @@ function openJoinModal({ nickname = '', roomCode = '' } = {}) {
   // T-17: 게스트 닉네임 기억(localStorage)
   // - 로그인 유저(role !== viewer)에는 적용하지 않음
   const isGuest = String(authState?.role || '') === 'viewer';
-  const savedGuestNick = isGuest ? String(localStorage.getItem('mb_guest_nickname') || '').trim() : '';
+  const savedGuestNick = isGuest ? String(lsGet('mb_guest_nickname') || '').trim() : '';
   nickField.value = String(nickname || savedGuestNick || '').trim();
   nickField.placeholder = '닉네임(필수)';
   roomField.value = String(roomCode || '');
@@ -263,7 +288,7 @@ function openJoinModal({ nickname = '', roomCode = '' } = {}) {
       const room = safeRoomCode(roomField.value);
       // 게스트일 때만 저장 (T-17)
       try {
-        if (String(authState?.role || '') === 'viewer') localStorage.setItem('mb_guest_nickname', nick);
+        if (String(authState?.role || '') === 'viewer') lsSet('mb_guest_nickname', nick);
       } catch {}
       cleanup({ nick, room });
     };
@@ -294,11 +319,11 @@ async function ensureNickname() {
   const nick = String(input || '').trim();
   // T-17
   try {
-    localStorage.setItem('mb_guest_nickname', nick);
+    lsSet('mb_guest_nickname', nick);
   } catch {}
-  localStorage.setItem('mb_presence_nick', nick);
+  lsSet('mb_presence_nick', nick);
   // legacy 키도 같이 저장(호환)
-  localStorage.setItem('mb_nickname', nick);
+  lsSet('mb_nickname', nick);
   // 닉네임이 UI/세션에 즉시 반영되도록 viewer는 displayName을 덮어쓴다.
   try {
     if (String(authState?.role || '') === 'viewer') authState.displayName = nick;
@@ -314,10 +339,10 @@ async function ensureNicknameForVisitorAlways() {
     const finalNick = String(v?.nick || saved || '').trim() || '익명';
     // T-17
     try {
-      localStorage.setItem('mb_guest_nickname', finalNick);
+      lsSet('mb_guest_nickname', finalNick);
     } catch {}
-    localStorage.setItem('mb_presence_nick', finalNick);
-    localStorage.setItem('mb_nickname', finalNick);
+    lsSet('mb_presence_nick', finalNick);
+    lsSet('mb_nickname', finalNick);
     // room code가 있으면 즉시 join 시도(세션코드가 없으면 닉네임만 저장)
     if (v?.room) {
       // URL에도 반영
@@ -337,37 +362,44 @@ async function ensureNicknameForVisitorAlways() {
   const finalNick = String(nick || '').trim() || '익명';
   // T-17
   try {
-    localStorage.setItem('mb_guest_nickname', finalNick);
+    lsSet('mb_guest_nickname', finalNick);
   } catch {}
-  localStorage.setItem('mb_presence_nick', finalNick);
-  localStorage.setItem('mb_nickname', finalNick);
+  lsSet('mb_presence_nick', finalNick);
+  lsSet('mb_nickname', finalNick);
   return finalNick;
 }
 
 function getRoomMap() {
   try {
-    return JSON.parse(localStorage.getItem('mb_viewer_room_map') || '{}') || {};
+    return JSON.parse(lsGet('mb_viewer_room_map') || '{}') || {};
   } catch {
     return {};
   }
 }
 function setRoomMap(map) {
   try {
-    localStorage.setItem('mb_viewer_room_map', JSON.stringify(map || {}));
+    lsSet('mb_viewer_room_map', JSON.stringify(map || {}));
   } catch {}
 }
+// 자동 재참여는 최근 것만(탭을 닫은 채 며칠 지난 방은 이미 없어서 닉네임 모달+실패 alert만 뜬다)
+const LAST_ROOM_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 function getLastRoomForFile(fileId) {
   const id = String(fileId || '').trim();
   if (!id) return '';
   const map = getRoomMap();
-  return String(map[id] || '').trim().toUpperCase();
+  const entry = map[id];
+  if (!entry) return '';
+  if (typeof entry === 'string') return String(entry || '').trim().toUpperCase();
+  const at = Number(entry?.at || 0) || 0;
+  if (at && Date.now() - at > LAST_ROOM_MAX_AGE_MS) return '';
+  return String(entry?.room || '').trim().toUpperCase();
 }
 function setLastRoomForFile(fileId, roomCode) {
   const id = String(fileId || '').trim();
   const room = safeRoomCode(roomCode);
   if (!id || !room) return;
   const map = getRoomMap();
-  map[id] = room;
+  map[id] = { room, at: Date.now() };
   setRoomMap(map);
 }
 function clearLastRoomForFile(fileId) {
@@ -520,11 +552,11 @@ const PDF_CACHE_MAX_BYTES = 300 * 1024 * 1024;
 const PDF_CACHE_PREF_KEY = 'mb_viewer_pdfCache_on';
 
 function isPdfCacheEnabled() {
-  const v = localStorage.getItem(PDF_CACHE_PREF_KEY);
+  const v = lsGet(PDF_CACHE_PREF_KEY);
   return v == null ? true : v === '1';
 }
 function setPdfCacheEnabled(on) {
-  localStorage.setItem(PDF_CACHE_PREF_KEY, on ? '1' : '0');
+  lsSet(PDF_CACHE_PREF_KEY, on ? '1' : '0');
 }
 
 function idbOpen() {
@@ -854,12 +886,12 @@ function showTopNotice({ title = '', sub = '', actions = [], timeoutMs = 5000 } 
   const safeTitle = String(title || '').trim();
   const safeSub = String(sub || '').trim();
   const btnHtml = (actions || [])
-    .map((a) => `<button type="button" id="${String(a.id)}" class="${a.primary ? 'primary' : ''}">${String(a.label)}</button>`)
+    .map((a) => `<button type="button" id="${escapeHtml(a.id)}" class="${a.primary ? 'primary' : ''}">${escapeHtml(a.label)}</button>`)
     .join('');
   el.innerHTML = `
     <div style="min-width:0;">
-      <div class="msg">${safeTitle}</div>
-      ${safeSub ? `<div class="sub">${safeSub}</div>` : ''}
+      <div class="msg">${escapeHtml(safeTitle)}</div>
+      ${safeSub ? `<div class="sub">${escapeHtml(safeSub)}</div>` : ''}
     </div>
     <div class="actions">${btnHtml}<button type="button" id="topNoticeCloseBtn">×</button></div>
   `;
@@ -1360,7 +1392,7 @@ const state = {
   // compact blocks object(대용량) 보관용
   chordBlocksRaw: null,
   // chord view: 독음(번역) 표시 여부 (기본 ON)
-  cwShowKr: (localStorage.getItem('mb_cw_showKr') ?? '1') !== '0',
+  cwShowKr: (lsGet('mb_cw_showKr') ?? '1') !== '0',
   // 마지막으로 "실제로 렌더 완료"된 fileId (동기화/리커버리 판단용)
   renderedFileId: '',
   // follow 이벤트(곡 전환) 시퀀스
@@ -1390,10 +1422,10 @@ const state = {
   _lastParticipants: [], // latest rendered participants (for delegated actions)
 
   // BPM/metronome (local only)
-  bpm: clamp(Number(localStorage.getItem('mb_viewer_bpm') || '120'), 40, 240),
+  bpm: clamp(Number(lsGet('mb_viewer_bpm') || '120'), 40, 240),
   metronomeOn: false,
   // 커서공유 디폴트: 한줄전체(row)
-  cursorShareMode: String(localStorage.getItem('mb_viewer_cursorMode') || 'row') === 'line' ? 'line' : 'row',
+  cursorShareMode: String(lsGet('mb_viewer_cursorMode') || 'row') === 'line' ? 'line' : 'row',
   nickname: getOrCreateNickname(),
   overlapPx: 0,
 
@@ -1430,7 +1462,7 @@ const state = {
   // 주석 색상 퀵 팔레트 (T-01)
   quickColors: (() => {
     try {
-      const raw = localStorage.getItem('mb_viewer_quick_colors_v1') || '';
+      const raw = lsGet('mb_viewer_quick_colors_v1') || '';
       const arr = raw ? JSON.parse(raw) : null;
       const ok = Array.isArray(arr) && arr.length === 4 && arr.every((x) => typeof x === 'string' && x.trim());
       const v = ok ? arr.map((x) => String(x).trim()) : null;
@@ -1445,7 +1477,7 @@ const state = {
     }
   })(),
   // 텍스트 프리셋(주석 텍스트 빠른 입력)
-  textPreset: String(localStorage.getItem('mb_text_preset') || '').trim() || 'section',
+  textPreset: String(lsGet('mb_text_preset') || '').trim() || 'section',
   // 이모지 리액션(T-04)
   reactionEmoji: '',
   reactionArmed: false,
@@ -1498,10 +1530,26 @@ async function getSocketMetaToken() {
 }
 
 // ---- Socket -----------------------------------------------------------------------
-const socket = io(API_URL, {
+// socket.io CDN이 막힌 환경(사내망/광고차단/오프라인)에서도 악보 보기 자체는 되게 한다.
+// 세션/주석 공유 기능은 꺼진 채로 동작하며, 상단 알림으로 안내한다.
+function createOfflineSocketStub() {
+  const noop = () => stub;
+  const stub = { connected: false, id: '', auth: {}, on: noop, off: noop, emit: noop, connect: noop, disconnect: noop };
+  setTimeout(() => {
+    try {
+      showTopNotice({
+        title: '실시간 세션 기능을 불러오지 못했습니다',
+        sub: 'socket.io 스크립트가 차단됐어요. 악보 보기는 되지만 세션 참여/주석 공유는 동작하지 않습니다.',
+        timeoutMs: 0
+      });
+    } catch {}
+  }, 800);
+  return stub;
+}
+const socket = typeof io === 'function' ? io(API_URL, {
   withCredentials: true,
   auth: { nickname: state.nickname || '익명', metaToken: '' }
-});
+}) : createOfflineSocketStub();
 
 function setRoomToUrl(roomCode) {
   const u = new URL(window.location.href);
@@ -1639,18 +1687,55 @@ function leaveSession() {
   setHidden('touchRoomBadge', true);
   setHidden('touchTurnerBadge', true);
   setHidden('participantsPanel', true);
-  if (roomCode) socket.emit('session:leave', { roomCode });
+  if (roomCode && socket.connected) socket.emit('session:leave', { roomCode });
   setRoomToUrl('');
   if (state.fileId) clearLastRoomForFile(state.fileId);
   resetFaviconBadge();
   restoreUiAfterLeavingSession();
   updateTurnerToggleAccess();
   updateSongBookPickVisibility();
+  // 세션 전용 상태(도구 권한/커서 공유/리액션 모드/참여자 목록)를 초기화하지 않으면
+  // 나간 뒤에도 이모지 바가 남고 리액션 모드가 그리기를 막는다.
+  try {
+    state.isToolAuthorized = false;
+    state.reactionArmed = false;
+    state._lastParticipants = [];
+    if (state.cursorShareOn) stopCursorShare(false);
+    updateReactionUI();
+    updateCursorShareUI();
+    applyToolToAll();
+  } catch {}
 }
 
-// reconnect safety: 소켓 재연결 시 방 재가입
+// reconnect safety: 소켓 재연결 시 방 재가입 + 최신 상태 재동기화
 socket.on('connect', () => {
-  if (state.isInSession && state.roomCode) emitSessionJoin(state.roomCode);
+  if (state._wasDisconnected) {
+    state._wasDisconnected = false;
+    flashHud('서버와 다시 연결됐습니다', 1200);
+  }
+  if (state.isInSession && state.roomCode) {
+    emitSessionJoin(state.roomCode);
+    setText('sessionBadge', `세션: ${state.roomCode}`);
+    // 끊긴 사이 바뀐 참여자/터너/주석을 다시 받아온다
+    socket.emit('session:participants:refresh', { roomCode: state.roomCode });
+    if (state.fileId) socket.emit('wb:sync:request', { roomCode: state.roomCode, fileId: state.fileId });
+  }
+});
+socket.on('disconnect', (reason) => {
+  if (reason === 'io server disconnect') {
+    // 서버가 끊은 경우(강퇴 등): 자동 재연결되지 않으므로 세션 UI를 정리한다
+    if (state.isInSession) {
+      leaveSession();
+      flashHud('세션에서 나가졌습니다', 2000);
+    }
+    return;
+  }
+  state._wasDisconnected = true;
+  if (state.isInSession && state.roomCode) setText('sessionBadge', `세션: ${state.roomCode} (재연결 중...)`);
+  flashHud('서버 연결이 끊겼습니다. 재연결 중...', 2000);
+});
+socket.on('connect_error', () => {
+  if (state.isInSession && state.roomCode) setText('sessionBadge', `세션: ${state.roomCode} (재연결 중...)`);
 });
 
 // ---- Song picker (노래책에서 고르기) ------------------------------------------------
@@ -1730,7 +1815,7 @@ function setTextPresetPaletteOpen(open) {
   if (open) {
     // restore last position (draggable palette)
     try {
-      const raw = localStorage.getItem('mb_text_preset_palette_pos_v1') || '';
+      const raw = lsGet('mb_text_preset_palette_pos_v1') || '';
       const p = raw ? JSON.parse(raw) : null;
       if (p && Number.isFinite(p.left) && Number.isFinite(p.top)) {
         el.style.left = `${Math.round(p.left)}px`;
@@ -1791,7 +1876,7 @@ function initTextPresetPaletteDrag() {
     try {
       const left = parseFloat(el.style.left || '') || el.getBoundingClientRect().left;
       const top = parseFloat(el.style.top || '') || el.getBoundingClientRect().top;
-      localStorage.setItem('mb_text_preset_palette_pos_v1', JSON.stringify({ left, top }));
+      lsSet('mb_text_preset_palette_pos_v1', JSON.stringify({ left, top }));
     } catch {}
   };
 
@@ -1860,7 +1945,7 @@ function renderTextPresetPalette() {
         const v = String(p.value || '').trim();
         state.textPreset = v;
         try {
-          localStorage.setItem('mb_text_preset', v);
+          lsSet('mb_text_preset', v);
         } catch {}
         // 편집 중인 텍스트가 있으면 즉시 교체(편의)
         applyTextPresetToActiveObject(v);
@@ -1904,9 +1989,21 @@ function openSongPickModal() {
   } catch {}
   songPickState.pendingQuery = '';
   setSongPickLoading(true);
-  loadSongCardsIfNeeded().catch(() => {
-    document.getElementById('songPickHint').textContent = '곡 목록을 불러오지 못했습니다.';
-  });
+  const tryLoad = () =>
+    loadSongCardsIfNeeded().catch(() => {
+      // 로딩 플래그를 내려야 스켈레톤/비활성 필터가 풀리고 다시 시도할 수 있다
+      setSongPickLoading(false);
+      songCardsCache = null;
+      const hint = document.getElementById('songPickHint');
+      if (hint) {
+        hint.innerHTML = '곡 목록을 불러오지 못했습니다. <button type="button" id="songPickRetryBtn" class="mini">다시 시도</button>';
+        document.getElementById('songPickRetryBtn')?.addEventListener('click', () => {
+          setSongPickLoading(true);
+          tryLoad();
+        });
+      }
+    });
+  tryLoad();
 }
 
 function closeSongPickModal() {
@@ -2027,7 +2124,7 @@ function renderSongPickAvailableVocalChips() {
     const name = String(u?.displayName || uid);
     const chip = document.createElement('span');
     chip.className = 'songPickChip';
-    chip.innerHTML = `${name} <button type="button" data-uid="${uid}">×</button>`;
+    chip.innerHTML = `${escapeHtml(name)} <button type="button" data-uid="${escapeHtml(uid)}" aria-label="${escapeHtml(name)} 제외">×</button>`;
     chip.querySelector('button')?.addEventListener('click', async () => {
       songPickState.selectedAvailableVocalUserIds = (songPickState.selectedAvailableVocalUserIds || []).filter((x) => x !== uid);
       await loadSongPickAvailableVocalSets(songPickState.selectedAvailableVocalUserIds);
@@ -2158,14 +2255,14 @@ function renderSongPickList(cards) {
     const keysHtml = `
       <div class="songPickKeys">
         ${keys
-          .map((k) => `<button class="songPickKeyBtn" type="button" data-k="${encodeURIComponent(k || '')}">${k || '-'}</button>`)
+          .map((k) => `<button class="songPickKeyBtn" type="button" data-k="${encodeURIComponent(k || '')}">${escapeHtml(k || '-')}</button>`)
           .join('')}
       </div>
     `;
     el.innerHTML = `
       <div style="min-width:0;">
-        <div class="songPickTitle">${String(c.title || '')}</div>
-        <div class="songPickSub">${String(c.artist || '')}</div>
+        <div class="songPickTitle">${escapeHtml(c.title || '')}</div>
+        <div class="songPickSub">${escapeHtml(c.artist || '')}</div>
       </div>
       ${keysHtml}
     `;
@@ -2218,7 +2315,11 @@ function applyStateFromUrl() {
   const fit = String(qs('fit') || '').trim().toLowerCase();
   const py = Number(qs('py') || '');
 
-  if (Number.isFinite(p) && p > 0) state.pageNo = Math.floor(p);
+  if (Number.isFinite(p) && p > 0) {
+    state.pageNo = Math.floor(p);
+    // loadPdf()가 pageNo를 1로 초기화하므로, 첫 로드가 끝난 뒤 한 번만 복원한다.
+    state._initialPageFromUrl = Math.floor(p);
+  }
   if (Number.isFinite(s) && s >= 1) state.spreadCount = clamp(Math.floor(s), 1, 4);
   if (fit) state.fitMode = true; // (현 구현은 page/width 구분 없이 fitScale 사용)
   if (Number.isFinite(z) && z > 0) {
@@ -2258,7 +2359,7 @@ const updateUrlState = debounce(() => {
 // fileIdBadge는 UI에서 숨김(불필요)
 
 // link row collapse (desktop)
-const linkCollapsed = localStorage.getItem('mb_viewer_linkCollapsed') === '1';
+const linkCollapsed = lsGet('mb_viewer_linkCollapsed') === '1';
 document.body.classList.toggle('link-collapsed', linkCollapsed);
 
 // ---- Mode (PDF / CodeWiki) -------------------------------------------------------
@@ -3364,11 +3465,11 @@ function applyTheme(theme) {
   document.body.classList.toggle('light', theme === 'light');
 }
 // 기본 테마는 GAS 레퍼런스처럼 dark
-const savedTheme = localStorage.getItem('mb_viewer_theme') || 'dark';
+const savedTheme = lsGet('mb_viewer_theme') || 'dark';
 applyTheme(savedTheme);
 document.getElementById('themeBtn')?.addEventListener('click', () => {
   const next = document.body.classList.contains('light') ? 'dark' : 'light';
-  localStorage.setItem('mb_viewer_theme', next);
+  lsSet('mb_viewer_theme', next);
   applyTheme(next);
 });
 
@@ -3505,6 +3606,27 @@ document.getElementById('songPickRandomBtn')?.addEventListener('click', () => {
 document.getElementById('songPickModal')?.addEventListener('click', (e) => {
   if (e.target?.id === 'songPickModal') closeSongPickModal();
 });
+// Esc: 열려 있는 모달/팔레트를 닫는다(취소 가능한 것만 - 필수 입력 모달은 제외)
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || e.isComposing) return;
+  const closable = [
+    ['songPickModal', () => closeSongPickModal()],
+    ['cacheModal', () => setHidden('cacheModal', true)],
+    ['sessionMenuModal', () => setHidden('sessionMenuModal', true)],
+    ['joinModal', () => document.getElementById('joinCancelBtn')?.click()],
+    ['inputModal', () => document.getElementById('inputModalCancelBtn')?.click()]
+  ];
+  for (const [id, close] of closable) {
+    const el = document.getElementById(id);
+    if (el && !el.classList.contains('hidden')) {
+      // 필수 입력(취소 버튼 숨김) 모달은 Esc로 닫지 않는다
+      if (id === 'inputModal' && document.getElementById('inputModalCancelBtn')?.classList.contains('hidden')) return;
+      e.preventDefault();
+      close();
+      return;
+    }
+  }
+});
 document.getElementById('songPickSearch')?.addEventListener(
   'input',
   debounce((e) => {
@@ -3566,8 +3688,8 @@ function renderSongPickAvailableVocalModalList() {
       const uid = String(u.userId || '').trim();
       const name = String(u.displayName || uid).trim();
       row.innerHTML = `<label style="display:flex; align-items:center; gap:10px; width:100%;">
-        <input type="checkbox" data-uid="${uid}" ${selected.has(uid) ? 'checked' : ''} />
-        <span style="font-weight:900;">${name}</span>
+        <input type="checkbox" data-uid="${escapeHtml(uid)}" ${selected.has(uid) ? 'checked' : ''} />
+        <span style="font-weight:900;">${escapeHtml(name)}</span>
       </label>`;
       row.querySelector('input')?.addEventListener('change', async (e) => {
         const on = Boolean(e.target.checked);
@@ -3613,6 +3735,16 @@ try {
   document.documentElement.style.setProperty('--spreadOverlapPx', `0px`);
 } catch {}
 
+// 팔로워가 받는 viewer:settings에는 overlapPx가 항상 포함된다. 겹침 UI는 제거됐지만
+// 값 자체는 상태/CSS 변수에 반영해 둔다(정의가 없어서 ReferenceError로 설정 동기화가 끊기던 버그).
+function setSpreadOverlapPx(px) {
+  const v = Math.max(0, Math.min(40, Number(px) || 0));
+  state.overlapPx = v;
+  try {
+    document.documentElement.style.setProperty('--spreadOverlapPx', `${v}px`);
+  } catch {}
+}
+
 // ---- BPM / metronome (local only) -------------------------------------------------
 let _metroTimer = null;
 let _metroAudio = null; // AudioContext
@@ -3621,7 +3753,7 @@ function setBpm(v) {
   const next = clamp(Number(v || 0), 40, 240);
   state.bpm = next;
   try {
-    localStorage.setItem('mb_viewer_bpm', String(next));
+    lsSet('mb_viewer_bpm', String(next));
   } catch {}
   const input = document.getElementById('bpmInput');
   if (input) input.value = String(next);
@@ -3734,8 +3866,8 @@ document.getElementById('sessionFloatBtn')?.addEventListener('click', async () =
     if (!v) return;
     const nick = String(v.nick || '').trim();
     state.nickname = nick;
-    localStorage.setItem('mb_presence_nick', nick);
-    localStorage.setItem('mb_nickname', nick);
+    lsSet('mb_presence_nick', nick);
+    lsSet('mb_nickname', nick);
     // viewer는 displayName을 입력 닉네임으로 고정(기존 게스트-xxxx 잔존 방지)
     if (String(authState?.role || '') === 'viewer') authState.displayName = nick;
     else authState.displayName = authState.displayName || nick;
@@ -3845,10 +3977,15 @@ function openByInput(input) {
 document.getElementById('openBtn')?.addEventListener('click', () => {
   const input = document.getElementById('linkInput')?.value || '';
   openByInput(input);
+  // 입력칸에 포커스가 남으면 페달/화살표 페이지 넘김이 막힌다(세션 중 브로드캐스트만 하고 화면이 안 바뀌는 경우)
+  try {
+    document.getElementById('linkInput')?.blur();
+  } catch {}
 });
 document.getElementById('closeBtn')?.addEventListener('click', () => closeCurrentDocument({ reason: '사용자 요청' }));
 document.getElementById('linkInput')?.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') document.getElementById('openBtn')?.click();
+  if (e.key === 'Enter' && !e.isComposing) document.getElementById('openBtn')?.click();
+  if (e.key === 'Escape') e.target?.blur?.();
 });
 
 // ---- Key bindings (키보드 + MIDI) ---------------------------------------------------
@@ -3867,8 +4004,8 @@ function formatBindToken(token) {
 }
 
 function loadBoundKeys() {
-  const prev = (localStorage.getItem(KEY_STORAGE.prev) || '').split(',').map((x) => x.trim()).filter(Boolean);
-  const next = (localStorage.getItem(KEY_STORAGE.next) || '').split(',').map((x) => x.trim()).filter(Boolean);
+  const prev = (lsGet(KEY_STORAGE.prev) || '').split(',').map((x) => x.trim()).filter(Boolean);
+  const next = (lsGet(KEY_STORAGE.next) || '').split(',').map((x) => x.trim()).filter(Boolean);
   return {
     prev: prev.length ? prev : DEFAULT_PREV_KEYS,
     next: next.length ? next : DEFAULT_NEXT_KEYS
@@ -3876,7 +4013,7 @@ function loadBoundKeys() {
 }
 
 function saveBoundKey(which, key) {
-  localStorage.setItem(KEY_STORAGE[which], key);
+  lsSet(KEY_STORAGE[which], key);
 }
 
 function setBindLabels() {
@@ -3898,8 +4035,8 @@ document.getElementById('bindNextBtn')?.addEventListener('click', () => {
 });
 
 document.getElementById('bindResetBtn')?.addEventListener('click', () => {
-  localStorage.removeItem(KEY_STORAGE.prev);
-  localStorage.removeItem(KEY_STORAGE.next);
+  lsRemove(KEY_STORAGE.prev);
+  lsRemove(KEY_STORAGE.next);
   setBindLabels();
   setHidden('pageHud', false);
   setText('pageHud', '키 바인딩 초기화 완료');
@@ -4051,22 +4188,40 @@ document.getElementById('touchNextBtn')?.addEventListener('click', () => {
 });
 document.getElementById('touchMenuBtn')?.addEventListener('click', () => bumpTouchNav());
 
-document.getElementById('touchNavBottom')?.addEventListener('click', (e) => {
-  if (e.target?.id !== 'touchMenuBtn') return;
-  toggleSessionPanel(e);
-});
 
 // Tap zones: 모바일 UX 혼선/도구 충돌 방지를 위해 비활성(하단 화살표 사용)
 
+// MUST-2: 전체화면 대상은 문서 루트. #viewer-wrapper만 전체화면으로 올리면 body 바로 아래에 있는
+// 모달(세션 옵션/노래책 고르기/입력)과 참여자 메뉴가 top layer 밖이라 보이지 않는데,
+// 모달이 열린 상태로 인식돼 키보드/페달까지 막히는 문제가 있었다.
+function isFullscreenActive() {
+  return Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+}
+function updateFullscreenButton() {
+  const btn = document.getElementById('fullscreenBtn');
+  if (btn) btn.textContent = isFullscreenActive() ? '전체화면 종료' : '전체화면';
+}
 document.getElementById('fullscreenBtn').addEventListener('click', async () => {
-  // MUST-2: fullscreen target must be top-level wrapper
-  const wrapper = document.getElementById('viewer-wrapper');
-  if (!document.fullscreenElement) {
-    await wrapper.requestFullscreen();
-  } else {
-    await document.exitFullscreen();
+  const root = document.documentElement;
+  const req = root.requestFullscreen || root.webkitRequestFullscreen;
+  const exit = document.exitFullscreen || document.webkitExitFullscreen;
+  try {
+    if (!isFullscreenActive()) {
+      if (typeof req !== 'function') {
+        flashHud('이 브라우저는 전체화면을 지원하지 않아요(iOS Safari는 홈 화면 추가 후 사용)', 2200);
+        return;
+      }
+      await req.call(root);
+    } else if (typeof exit === 'function') {
+      await exit.call(document);
+    }
+  } catch {
+    flashHud('전체화면 전환 실패', 1400);
   }
+  updateFullscreenButton();
 });
+document.addEventListener('fullscreenchange', updateFullscreenButton);
+document.addEventListener('webkitfullscreenchange', updateFullscreenButton);
 
 // fullscreenBtn2 제거(상단 버튼으로 통일)
 
@@ -4768,7 +4923,13 @@ function isAnyTextEditing() {
   try {
     const ae = document.activeElement;
     const tag = String(ae?.tagName || '').toUpperCase();
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || ae?.isContentEditable) return true;
+    if (tag === 'TEXTAREA' || ae?.isContentEditable) return true;
+    if (tag === 'INPUT') {
+      // 슬라이더/체크박스/색상 선택은 포커스가 남아 있어도 페달/화살표를 막지 않는다
+      const type = String(ae?.type || 'text').toLowerCase();
+      const textLike = ['text', 'search', 'url', 'number', 'password', 'email', 'tel'];
+      if (textLike.includes(type)) return true;
+    }
     // 모달이 열려 있으면 기본적으로 입력/선택 중이므로 단축키를 막는다.
     const openModalIds = ['songPickModal', 'inputModal', 'joinModal', 'cacheModal', 'sessionMenuModal'];
     for (const id of openModalIds) {
@@ -4917,33 +5078,52 @@ async function renderSpread(leftPageNo) {
     if (seq !== renderSpread._seq) return;
     const v = makeView(p);
 
-    v.pdfCanvas.width = Math.floor(viewport.width);
-    v.pdfCanvas.height = Math.floor(viewport.height);
-    v.annoCanvas.width = v.pdfCanvas.width;
-    v.annoCanvas.height = v.pdfCanvas.height;
+    // CSS 픽셀 크기(레이아웃/주석 좌표계 기준)
+    const cssW = Math.floor(viewport.width);
+    const cssH = Math.floor(viewport.height);
+    // 고해상도(태블릿 2x 등)에서 악보가 흐리게 보이지 않도록 PDF 레이어만 DPR 배율로 렌더한다.
+    // 주석 캔버스(fabric)는 자체 retina 스케일링을 하므로 CSS 크기 그대로 둔다. 메모리 보호를 위해 2x로 캡.
+    const dpr = Math.max(1, Math.min(2, Number(window.devicePixelRatio) || 1));
+    const renderViewport = dpr === 1 ? viewport : page.getViewport({ scale: scale * dpr });
+    v.pdfCanvas.width = Math.floor(renderViewport.width);
+    v.pdfCanvas.height = Math.floor(renderViewport.height);
+    v.pdfCanvas.style.width = `${cssW}px`;
+    v.pdfCanvas.style.height = `${cssH}px`;
+    v.annoCanvas.width = cssW;
+    v.annoCanvas.height = cssH;
 
     // size root to fit canvas
-    v.root.style.width = `${v.pdfCanvas.width}px`;
-    v.root.style.height = `${v.pdfCanvas.height}px`;
+    v.root.style.width = `${cssW}px`;
+    v.root.style.height = `${cssH}px`;
 
-    v.fabric.setWidth(v.pdfCanvas.width);
-    v.fabric.setHeight(v.pdfCanvas.height);
+    v.fabric.setWidth(cssW);
+    v.fabric.setHeight(cssH);
 
     const ctx = v.pdfCanvas.getContext('2d');
-    await page.render({ canvasContext: ctx, viewport }).promise;
+    await page.render({ canvasContext: ctx, viewport: renderViewport }).promise;
     if (seq !== renderSpread._seq) return;
 
     const saved = state.annoStore[p];
     if (saved) applySnapshotToPage(p, saved);
-    else applySnapshotToPage(p, { json: { objects: [] }, w: v.pdfCanvas.width, h: v.pdfCanvas.height });
+    else applySnapshotToPage(p, { json: { objects: [] }, w: cssW, h: cssH });
 
-    contentW += v.pdfCanvas.width;
-    contentH = Math.max(contentH, v.pdfCanvas.height);
+    contentW += cssW;
+    contentH = Math.max(contentH, cssH);
 
   }
   contentW += gap * Math.max(0, pages.length - 1);
   setContentBoxSize(contentW, contentH);
   applyPanScroll();
+}
+
+// URL의 ?p= 페이지를 문서 로드 직후 1회 적용(첫 로드에만). 세션 참여 중이면 터너 상태가 우선이라 건너뛴다.
+function applyInitialPageOnce(numPages) {
+  const want = Number(state._initialPageFromUrl || 0) || 0;
+  state._initialPageFromUrl = 0;
+  if (!want || want <= 1) return;
+  if (state.isInSession) return;
+  state.pageNo = Math.max(1, Math.min(Number(numPages || 1) || 1, want));
+  state.activeDrawPageNo = state.pageNo;
 }
 
 async function loadPdf(fileId) {
@@ -4953,6 +5133,11 @@ async function loadPdf(fileId) {
   state._loadingFileId = String(fileId);
 
   state.isPdfReady = false;
+  // 이전 문서는 워커 메모리를 계속 잡고 있으므로 명시적으로 해제한다(긴 합주에서 곡을 여러 번 바꿀 때 누수 방지)
+  try {
+    const prevDoc = state.pdfDoc;
+    if (prevDoc && typeof prevDoc.destroy === 'function') prevDoc.destroy().catch?.(() => {});
+  } catch {}
   state.pdfDoc = null;
   state.totalPages = 1;
   state.pageNo = 1;
@@ -4998,11 +5183,17 @@ async function loadPdf(fileId) {
           disableStream: true,
           disableAutoFetch: true
         }).promise;
-        if (!stillLatest()) return;
+        if (!stillLatest()) {
+          try {
+            pdf.destroy();
+          } catch {}
+          return;
+        }
         state.previewMode = false;
         state.previewVirtualMode = false;
         state.pdfDoc = pdf;
         state.totalPages = pdf.numPages;
+        applyInitialPageOnce(pdf.numPages);
         state.isPdfReady = true;
         state.renderedFileId = String(fileId);
         updatePageLabels();
@@ -5026,10 +5217,18 @@ async function loadPdf(fileId) {
         disableStream: true,
         disableAutoFetch: true
       }).promise;
+      // 빠르게 곡을 바꾼 경우(follow:file 연타) 이전 곡의 문서가 늦게 도착해 화면을 덮어쓰지 않게 한다.
+      if (!stillLatest()) {
+        try {
+          pdf.destroy();
+        } catch {}
+        return false;
+      }
       state.previewMode = false;
       state.previewVirtualMode = false;
       state.pdfDoc = pdf;
       state.totalPages = pdf.numPages;
+      applyInitialPageOnce(pdf.numPages);
       state.isPdfReady = true;
       state.renderedFileId = String(fileId);
       updatePageLabels();
@@ -5154,22 +5353,17 @@ async function loadPdf(fileId) {
     } catch {}
 
     setHidden('pageHud', false);
-    const failReasonLabel = lastPdfLoadFail.reason ? ` (사유: ${escapeHtml(lastPdfLoadFail.reason)})` : '';
-    setHtml(
-      'pageHud',
-      `이 파일은 앱 내부에서 직접 열지 못했습니다${failReasonLabel} ${
-        previewUrl ? '<button class="hudBtn" id="openDrivePreviewBtn" type="button">미리보기</button> ' : ''
-      }<button class="hudBtn" id="openDriveBtn" type="button">Drive에서 열기</button>`
-    );
-    document.getElementById('openDrivePreviewBtn')?.addEventListener('click', () => {
-      try {
-        window.open(previewUrl || viewUrl, '_blank');
-      } catch {}
-    });
-    document.getElementById('openDriveBtn')?.addEventListener('click', () => {
-      try {
-        window.open(viewUrl, '_blank');
-      } catch {}
+    setText('pageHud', 'PDF를 열지 못했습니다');
+    // 복구 버튼은 상단 알림에 둔다. pageHud는 페이지 넘김/토스트마다 다시 그려져서 버튼이 사라졌다.
+    const failReasonLabel = lastPdfLoadFail.reason ? ` (사유: ${lastPdfLoadFail.reason})` : '';
+    const actions = [];
+    if (previewUrl) actions.push({ id: 'openDrivePreviewBtn', label: '미리보기', onClick: () => window.open(previewUrl || viewUrl, '_blank', 'noopener') });
+    actions.push({ id: 'openDriveBtn', label: 'Drive에서 열기', primary: true, onClick: () => window.open(viewUrl, '_blank', 'noopener') });
+    showTopNotice({
+      title: '이 파일은 앱 안에서 직접 열지 못했습니다',
+      sub: `Drive 공유 설정(링크가 있는 모든 사용자)과 fileId를 확인해 주세요${failReasonLabel}`,
+      actions,
+      timeoutMs: 0
     });
     setNetBadge(`PDF:open-drive[${lastPdfLoadFail.reason || '?'}] ${Date.now() - t0}ms`, { ok: false });
   } catch {
@@ -5242,7 +5436,7 @@ function syncQuickColorPaletteUI() {
       btn.style.background = c || 'rgba(255,255,255,0.08)';
       btn.classList.toggle('active', String(state.brushColor || '').toLowerCase() === c.toLowerCase());
     });
-    localStorage.setItem('mb_viewer_quick_colors_v1', JSON.stringify(colors));
+    lsSet('mb_viewer_quick_colors_v1', JSON.stringify(colors));
   } catch {}
 }
 
@@ -5279,18 +5473,18 @@ document.getElementById('cursorShareBtn')?.addEventListener('click', () => {
   else {
     // 기본은 "한줄전체" (요구사항)
     state.cursorShareMode = 'row';
-    localStorage.setItem('mb_viewer_cursorMode', 'row');
+    lsSet('mb_viewer_cursorMode', 'row');
     startCursorShare();
   }
 });
 document.getElementById('cursorModeLineBtn')?.addEventListener('click', () => {
   state.cursorShareMode = 'line';
-  localStorage.setItem('mb_viewer_cursorMode', 'line');
+  lsSet('mb_viewer_cursorMode', 'line');
   updateCursorShareUI();
 });
 document.getElementById('cursorModeRowBtn')?.addEventListener('click', () => {
   state.cursorShareMode = 'row';
-  localStorage.setItem('mb_viewer_cursorMode', 'row');
+  lsSet('mb_viewer_cursorMode', 'row');
   updateCursorShareUI();
 });
 document.getElementById('laserBtn')?.addEventListener('click', () => setTool('laser'));
@@ -5392,22 +5586,40 @@ document.getElementById('undoBtn').addEventListener('click', undoForActivePage);
 document.getElementById('redoBtn').addEventListener('click', redoForActivePage);
 document.getElementById('clearBtn').addEventListener('click', () => {
   // "전체" = 현재 파일의 모든 주석(그려진 페이지들)을 삭제
-  const empty = { json: { objects: [] }, w: 1, h: 1 };
   const touchedPages = new Set();
-  Object.keys(state.annoStore || {}).forEach((k) => touchedPages.add(Number(k)));
+  Object.keys(state.annoStore || {}).forEach((k) => {
+    const n = Number(k);
+    const objs = state.annoStore?.[k]?.json?.objects;
+    if (n && Array.isArray(objs) && objs.length) touchedPages.add(n);
+  });
   // 아무것도 없으면 현재 스프레드만이라도 clear
   if (!touchedPages.size) getSpreadPages(state.pageNo).forEach((p) => touchedPages.add(p));
+  const pageCount = touchedPages.size;
+  if (!confirm(`이 악보의 주석을 전부 지울까요? (${pageCount}페이지)\n되돌리기(Undo)는 페이지별로 가능합니다.`)) return;
 
   touchedPages.forEach((pageNo) => {
     if (!pageNo) return;
+    const empty = { json: { objects: [] }, w: 1, h: 1 };
     state.undoStack[pageNo] ||= [];
-    const current = snapshotPage(pageNo);
+    // 화면에 없는 페이지는 캔버스 스냅샷을 못 뜨므로 저장된 스냅샷을 undo 항목으로 넣는다(영구 유실 방지)
+    const current = snapshotPage(pageNo) || state.annoStore[pageNo] || null;
     if (current) state.undoStack[pageNo].push(current);
     state.redoStack[pageNo] = [];
     state.annoStore[pageNo] = empty;
-    if (viewMap.has(pageNo)) applySnapshotToPage(pageNo, empty);
-    broadcastDebouncedByPage.get(pageNo)?.();
+    if (viewMap.has(pageNo)) {
+      applySnapshotToPage(pageNo, empty);
+      broadcastDebouncedByPage.get(pageNo)?.();
+    } else if (state.isInSession && state.roomCode && state.fileId && canUseToolsNow()) {
+      // 화면 밖 페이지는 디바운스 브로드캐스터가 없으므로 직접 전송(서버/팔로워에 남아 되살아나는 문제 방지)
+      socket.emit('wb:page:update', {
+        roomCode: state.roomCode,
+        fileId: state.fileId,
+        pageNo: String(pageNo),
+        pageSnapshot: empty
+      });
+    }
   });
+  flashHud(`주석 ${pageCount}페이지 삭제됨`, 1200);
 });
 
 // View controls
@@ -5454,12 +5666,12 @@ document.getElementById('spread3Btn').addEventListener('click', () => setSpread(
 document.getElementById('spread4Btn').addEventListener('click', () => setSpread(4));
 
 // Page turn unit (한번에/한페이지씩)
-state.turnUnit = localStorage.getItem('mb_viewer_turn_unit') || 'single'; // 'single' | 'spread'
+state.turnUnit = lsGet('mb_viewer_turn_unit') || 'single'; // 'single' | 'spread'
 function setTurnUnit(v) {
   // 모바일 viewer는 항상 한페이지씩 강제
   const next = isMobileViewer() ? 'single' : v === 'spread' ? 'spread' : 'single';
   state.turnUnit = next;
-  localStorage.setItem('mb_viewer_turn_unit', state.turnUnit);
+  lsSet('mb_viewer_turn_unit', state.turnUnit);
   document.getElementById('turnUnitSpreadBtn')?.classList.toggle('active', state.turnUnit === 'spread');
   document.getElementById('turnUnitSingleBtn')?.classList.toggle('active', state.turnUnit === 'single');
 }
@@ -5541,7 +5753,7 @@ document.getElementById('toggleToolBtn')?.addEventListener('click', () => {
 document.getElementById('toggleLinkBtn')?.addEventListener('click', () => {
   const next = !document.body.classList.contains('link-collapsed');
   document.body.classList.toggle('link-collapsed', next);
-  localStorage.setItem('mb_viewer_linkCollapsed', next ? '1' : '0');
+  lsSet('mb_viewer_linkCollapsed', next ? '1' : '0');
 });
 
 // (mobileCtlBar 제거됨)
@@ -5756,10 +5968,10 @@ socket.on('session:participants', (p) => {
       <span class="participant-left">
         ${
           photo
-            ? `<span class="participant-avatar"><img src="${String(photo)}" alt="" /></span>`
-            : `<span class="participant-avatar" style="background:${String(bg)}">${initial}</span>`
+            ? `<span class="participant-avatar"><img src="${escapeHtml(photo)}" alt="" /></span>`
+            : `<span class="participant-avatar" style="background:${escapeHtml(bg)}">${escapeHtml(initial)}</span>`
         }
-        <span class="participant-name" title="${String(labelName)}">${labelName}</span>
+        <span class="participant-name" title="${escapeHtml(labelName)}">${escapeHtml(labelName)}</span>
       </span>
       <span class="participant-actions"></span>
     `;
@@ -6117,6 +6329,8 @@ socket.on('session:follow:file', (p) => {
 // Whiteboard sync
 socket.on('wb:sync', (p) => {
   if (!p?.snapshot) return;
+  // 곡 전환 직후 늦게 도착한 이전 곡의 스냅샷이 새 곡 주석을 덮어쓰지 않게 한다.
+  if (p?.fileId && state.fileId && String(p.fileId) !== String(state.fileId)) return;
   state.annoStore = p.snapshot || {};
   // re-apply overlays
   if (state.mode === 'chord') {
@@ -6172,14 +6386,14 @@ async function init() {
   // - 예방: 기본 닉네임('익명')으로 즉시 진행하고,
   //   사용자가 세션 참여를 눌렀을 때만 닉네임/룸 모달을 띄운다.
   if (authState.role === 'viewer') {
-    const saved = localStorage.getItem('mb_presence_nick') || localStorage.getItem('mb_nickname') || '';
+    const saved = lsGet('mb_presence_nick') || lsGet('mb_nickname') || '';
     const nick = String(saved || '익명').trim() || '익명';
     state.nickname = nick;
     authState.displayName = nick;
     if (!saved) {
       try {
-        localStorage.setItem('mb_presence_nick', nick);
-        localStorage.setItem('mb_nickname', nick);
+        lsSet('mb_presence_nick', nick);
+        lsSet('mb_nickname', nick);
       } catch {}
     }
     try {
@@ -6226,8 +6440,8 @@ async function init() {
 
   // participants panel collapse state restore
   try {
-    const v = localStorage.getItem('mb_viewer_participantsCollapsed');
-    setParticipantsCollapsed(v === '1');
+    const v = lsGet('mb_viewer_participantsCollapsed');
+    if (v === '1' && state.isInSession) setParticipantsOpen(false);
   } catch {}
 
 

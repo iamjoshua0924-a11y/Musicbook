@@ -2338,6 +2338,80 @@ body.archive-mode[data-private-theme="midnight"] .book-theme-swatches span{
 .availability-edit-title{ font-weight: 1000; }
 .availability-edit-actions{ display:flex; gap:10px; }
 
+/* ---- 접근성/공통 상태 -------------------------------------------------------- */
+/* 키보드 포커스 표시(마우스 클릭에는 안 뜸) */
+.floating-btn:focus-visible,
+.icon-btn:focus-visible,
+.song-card.clickable:focus-visible,
+.book-theme-card:focus-visible,
+.prof-option:focus-visible,
+.setlist-mini-btn:focus-visible,
+.review-bubble-btn:focus-visible,
+.mb-sheet-tab:focus-visible{
+  outline: 3px solid rgba(59,109,246,0.55);
+  outline-offset: 2px;
+}
+.input:focus-visible,
+textarea:focus-visible,
+.select:focus-visible{
+  border-color: rgba(59,109,246,0.55);
+  box-shadow: 0 0 0 3px rgba(59,109,246,0.18);
+}
+.floating-btn:disabled,
+.floating-btn[disabled]{
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none !important;
+  filter: none !important;
+}
+/* 모달이 열려 있는 동안 뒷배경 스크롤 잠금 */
+body.modal-open{ overflow: hidden; }
+/* 검색창(type=search) 브라우저 기본 장식 정리 + 지우기 버튼 */
+.input[type="search"]{ -webkit-appearance: none; appearance: none; }
+.input[type="search"]::-webkit-search-decoration{ -webkit-appearance: none; }
+.input[type="search"]::-webkit-search-cancel-button{ cursor: pointer; opacity: 0.6; }
+
+/* 결과 없음 / 불러오기 실패 */
+.song-list-empty{
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 44px 16px;
+  text-align: center;
+  border-radius: 20px;
+  background: var(--surface-soft);
+  border: 1px dashed rgba(0,0,0,0.12);
+}
+.song-list-empty-icon{ font-size: 32px; opacity: 0.35; line-height: 1; }
+.song-list-empty-title{ font-weight: 1000; font-size: 16px; }
+.song-list-empty-desc{ font-weight: 700; opacity: 0.7; font-size: 13px; max-width: 420px; line-height: 1.5; }
+.song-list-empty .floating-btn{ margin-top: 6px; }
+
+/* 키-값 박스(유저 생성 결과 등) */
+.kv-box{
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--muted-surface);
+  border: 1px solid rgba(0,0,0,0.06);
+}
+.kv-row{ display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.kv-key{ font-weight: 900; opacity: 0.65; font-size: 13px; }
+.kv-val{ font-weight: 900; word-break: break-all; text-align: right; }
+.kv-val.kbd{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: rgba(0,0,0,0.08);
+  padding: 4px 10px;
+  border-radius: 10px;
+  letter-spacing: 0.06em;
+  user-select: all;
+}
+
 .toast {
   position: fixed;
   left: 50%;
@@ -2352,6 +2426,9 @@ body.archive-mode[data-private-theme="midnight"] .book-theme-swatches span{
   opacity: 0;
   pointer-events: none;
   transition: 0.2s ease;
+  max-width: min(92vw, 560px);
+  text-align: center;
+  line-height: 1.35;
 }
 .toast.show {
   opacity: 1;
@@ -2511,6 +2588,29 @@ body.archive-mode .loading-anim{ display:grid; }
    정의되어 있어, 같은 특이도의 override를 앞쪽에 두면 무시된다.
    ================================================================== */
 @media (max-width: 720px){
+  /* 검색/필터 1행: 데스크톱은 한 줄 고정(nowrap + overflow hidden)이지만 폰 폭에서는
+     분위기/보컬/가능보컬이 화면 밖으로 잘려 아예 누를 수 없었다 → 줄바꿈 허용 */
+  .search-row-1{
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+  .search-row-1 .input{
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .search-row-1 .select{
+    flex: 1 1 calc(50% - 5px);
+    min-width: 0;
+  }
+  .search-row-1 .avail-pick-btn{
+    flex: 1 1 calc(50% - 5px);
+    height: auto;
+    min-height: 43px;
+  }
+  .search-row-2{
+    flex-wrap: wrap;
+  }
+
   /* 곡 카드: 240px 고정 트랙이면 좁은 화면에서 양옆 여백이 크게 버려진다.
      남는 폭을 카드가 나눠 갖도록 유동 트랙으로 바꾼다. */
   .song-card-list{

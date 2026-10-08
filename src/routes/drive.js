@@ -3,6 +3,7 @@ const { getFileMetadata, getReadonlyAccessToken, buildPreviewUrl, buildViewUrl }
 const { requireSessionOrAdmin } = require('../middleware/auth');
 const { issueDriveGrantToken, consumeDriveGrantToken } = require('../services/publicPdfSign');
 const { pushError } = require('../services/errorLog');
+const Song = require('../models/Song');
 
 const router = express.Router();
 
@@ -34,9 +35,31 @@ function isPdfLike(meta) {
   return mime === 'application/pdf' || name.endsWith('.pdf');
 }
 
-function isPublicReadable(meta) {
-  const perms = Array.isArray(meta?.permissions) ? meta.permissions : [];
-  return perms.some((p) => String(p?.type || '') === 'anyone' && String(p?.role || '').length > 0);
+// 공개 여부 3단 판정: 'public' | 'private' | 'unknown'
+// - Drive API는 permissions 목록을 "요청자(서비스계정)가 공유 권한을 가진 파일"에만 내려주고,
+//   공유 드라이브 파일에는 아예 내려주지 않는다. 서비스계정이 루트 폴더를 "보기 권한"으로만
+//   공유받은 일반적인 구성에서는 permissions가 항상 비어 있어서, 실제로는 "링크가 있는 모든 사용자"
+//   공개 파일인데도 전부 PUBLIC_REQUIRED로 거절되던 원인이었다.
+// - 따라서 목록이 없으면 "비공개"가 아니라 "확인 불가(unknown)"로 취급한다.
+function getPublicStatus(meta) {
+  if (Array.isArray(meta?.permissions)) {
+    const isPublic = meta.permissions.some((p) => String(p?.type || '') === 'anyone' && String(p?.role || '').length > 0);
+    return isPublic ? 'public' : 'private';
+  }
+  // permissionIds는 별도 권한 없이 내려오는 경우가 있다. 링크 공개 권한의 ID는 고정값(anyoneWithLink/anyone).
+  const ids = Array.isArray(meta?.permissionIds) ? meta.permissionIds.map((x) => String(x || '')) : [];
+  if (ids.includes('anyoneWithLink') || ids.includes('anyone')) return 'public';
+  return 'unknown';
+}
+
+// 공유 정보를 볼 수 없는 파일은 "노래책 카탈로그(Drive 동기화로 들어온 곡)에 있는 파일"일 때만 허용한다.
+// 카탈로그 파일은 운영자가 공유 루트 폴더에 넣은 악보이므로 기존 운영 전제(공개 PDF)와 같다.
+async function isCatalogFile(fileId) {
+  try {
+    return Boolean(await Song.exists({ googleFileId: String(fileId || '').trim() }));
+  } catch {
+    return false;
+  }
 }
 
 // Public: preview URL builder does not access Drive API; safe for anonymous viewer mode.
@@ -78,9 +101,18 @@ router.post('/drive/token-grants', express.json(), async (req, res) => {
       return res.status(403).json({ ok: false, error: 'DOWNLOAD_DISABLED' });
     }
     // NOTE: viewer 전체에 grant를 주기로 한 결정이라도, 현재 운영 전제(공개 PDF)와 맞는 파일만 허용한다.
-    if (!isPublicReadable(meta)) {
+    const publicStatus = getPublicStatus(meta);
+    if (publicStatus === 'private') {
       logDriveFail('token-grants', 'PUBLIC_REQUIRED', { fileId, meta });
       return res.status(403).json({ ok: false, error: 'PUBLIC_REQUIRED' });
+    }
+    if (publicStatus === 'unknown' && !(await isCatalogFile(fileId))) {
+      logDriveFail('token-grants', 'PUBLIC_UNVERIFIED', {
+        fileId,
+        meta,
+        detail: `sharing info hidden (canShare=${meta?.capabilities?.canShare}, driveId=${meta?.driveId || ''}) and not in songbook catalog`
+      });
+      return res.status(403).json({ ok: false, error: 'PUBLIC_UNVERIFIED' });
     }
     const issued = issueDriveGrantToken({ fileId, ttlSec: 45 });
     return res.json({

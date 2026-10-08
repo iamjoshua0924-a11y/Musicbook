@@ -61,7 +61,11 @@ async function getFileMetadata(fileId) {
   const res = await drive.files.get({
     fileId,
     supportsAllDrives: true,
-    fields: 'id,name,mimeType,size,modifiedTime,capabilities/canDownload,permissions(type,role)'
+    // NOTE: permissions는 "서비스계정이 공유 권한을 가진 파일"에서만 내려오고 공유 드라이브 파일에는 아예 없다
+    // (Drive v3 File.permissions 문서). 보기 권한으로만 공유받은 폴더의 파일이면 비어 있으므로,
+    // 공개 여부 판정 보조용으로 permissionIds(anyoneWithLink)/canShare/driveId도 함께 받는다.
+    fields:
+      'id,name,mimeType,size,modifiedTime,driveId,permissionIds,capabilities(canDownload,canShare),permissions(type,role)'
   });
   return res.data;
 }

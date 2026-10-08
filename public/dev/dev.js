@@ -11,18 +11,53 @@ const apiUrl = (path) => {
   return `${API_URL}${p.startsWith('/') ? '' : '/'}${p}`;
 };
 
+// 네트워크 실패/HTML 에러 응답에서도 항상 {ok:false,error} 형태로 돌려준다(호출부의 실패 표시가 동작하도록)
 async function apiGet(url) {
-  const res = await fetch(apiUrl(url), { credentials: 'include' });
-  return res.json();
+  try {
+    const res = await fetch(apiUrl(url), { credentials: 'include' });
+    try {
+      return await res.json();
+    } catch {
+      return { ok: false, error: `HTTP_${res.status}` };
+    }
+  } catch (e) {
+    return { ok: false, error: `NETWORK_ERROR:${String(e?.message || e)}` };
+  }
 }
 async function apiJson(url, method, body) {
-  const res = await fetch(apiUrl(url), {
-    method,
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body ?? {})
-  });
-  return res.json();
+  try {
+    const res = await fetch(apiUrl(url), {
+      method,
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body ?? {})
+    });
+    try {
+      return await res.json();
+    } catch {
+      return { ok: false, error: `HTTP_${res.status}` };
+    }
+  } catch (e) {
+    return { ok: false, error: `NETWORK_ERROR:${String(e?.message || e)}` };
+  }
+}
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+async function withBusy(btn, fn, busyLabel) {
+  if (!btn) return fn();
+  if (btn.dataset.busy === '1') return undefined;
+  const prev = btn.textContent;
+  btn.dataset.busy = '1';
+  btn.disabled = true;
+  if (busyLabel) btn.textContent = busyLabel;
+  try {
+    return await fn();
+  } finally {
+    btn.dataset.busy = '0';
+    btn.disabled = false;
+    if (busyLabel) btn.textContent = prev;
+  }
 }
 
 function showAuthed(on) {
@@ -44,15 +79,31 @@ async function refreshMe() {
 
 async function login() {
   const token = ($('devToken')?.value || '').trim();
-  if (!token) return;
+  if (!token) {
+    $('loginOut').textContent = 'DEV_TOKEN을 입력하세요.';
+    return;
+  }
   const r = await apiJson('/api/dev/auth', 'POST', { token });
-  $('loginOut').textContent = JSON.stringify(r, null, 2);
+  $('loginOut').textContent = r?.ok ? '로그인 완료' : `로그인 실패: ${r?.error || ''}`;
   const authed = await refreshMe();
   if (authed) {
-    startSyncPolling();
-    // best-effort initial load
-    loadSync().catch(() => {});
+    $('devToken').value = '';
+    // 로그인 직후에도 대시보드 전체가 채워지도록(예전엔 새로고침 버튼을 일일이 눌러야 했다)
+    loadAll();
   }
+}
+
+// 대시보드 전체 로딩(페이지 진입/로그인 공통)
+function loadAll() {
+  loadPrivateArchivePrefix().catch(() => {});
+  loadUsers().catch(() => {});
+  loadSessions().catch(() => {});
+  loadConnections().catch(() => {});
+  loadDriveRoot().catch(() => {});
+  loadSync().catch(() => {});
+  loadParseErrors().catch(() => {});
+  loadTraffic().catch(() => {});
+  loadErrors().catch(() => {});
 }
 
 async function logout() {
@@ -71,13 +122,13 @@ function stopSyncPolling() {
 }
 
 async function loadSessions() {
-  $('sessionsOut').textContent = '로딩 중...';
-  $('sessionsList').innerHTML = '';
+  // 자동 새로고침(2초)마다 목록을 먼저 비우면 깜빡이고 "상세" 클릭이 헛나간다 → 응답 온 뒤 교체
   const [r, sr] = await Promise.all([apiGet('/api/dev/sessions'), apiGet('/api/dev/sessions/stats')]);
   if (!r.ok) {
     $('sessionsOut').textContent = `실패: ${r.error || ''}`;
     return;
   }
+  $('sessionsList').innerHTML = '';
   const rooms = Array.isArray(r.rooms) ? r.rooms : [];
   const st = sr?.ok ? sr.stats : null;
   $('sessionsOut').textContent = st
@@ -88,8 +139,8 @@ async function loadSessions() {
     el.className = 'item';
     el.innerHTML = `
       <div style="flex:1; display:grid; gap:6px;">
-        <div><span class="kbd">${String(x.roomCode || '')}</span> · members=${x.memberCount || 0} · page=${x.currentPageNo || 1}</div>
-        <div class="muted">${String(x.currentFileId || '') ? `fileId=${String(x.currentFileId)}` : ''}</div>
+        <div><span class="kbd">${esc(x.roomCode || '')}</span> · members=${Number(x.memberCount || 0)} · page=${Number(x.currentPageNo || 1)}</div>
+        <div class="muted">${String(x.currentFileId || '') ? `fileId=${esc(x.currentFileId)}` : ''}</div>
       </div>
       <div style="display:flex; gap:8px; align-items:center;">
         <button type="button" class="light" data-action="detail">상세</button>
@@ -186,6 +237,8 @@ async function loadSync() {
       }`;
   if ($('syncStatusLine')) $('syncStatusLine').textContent = msg;
   syncRunning = Boolean(s?.running);
+  // 동기화가 끝났으면 1.2초 폴링을 멈춘다(예전엔 한 번 시작하면 탭을 닫을 때까지 계속 돌았다)
+  if (!syncRunning) stopSyncPolling();
   const btn = $('syncBtn');
   if (btn) btn.textContent = syncRunning ? '동기화 중지' : '동기화 실행';
   $('syncJson').textContent = JSON.stringify(s, null, 2);
@@ -310,8 +363,10 @@ async function loadTraffic() {
 }
 
 async function resetTraffic() {
+  if (!confirm('트래픽 지표를 리셋할까요?')) return;
   const r = await apiJson('/api/dev/metrics/traffic/reset', 'POST', {});
-  $('trafficJson').textContent = JSON.stringify(r.data || r, null, 2);
+  if (!r.ok) return alert(`리셋 실패: ${r.error || ''}`);
+  await loadTraffic();
 }
 
 async function loadErrors() {
@@ -327,7 +382,9 @@ async function loadErrors() {
 }
 
 async function clearErrors() {
-  await apiJson('/api/dev/errors/clear', 'POST', {});
+  if (!confirm('에러 로그를 모두 지울까요?')) return;
+  const r = await apiJson('/api/dev/errors/clear', 'POST', {});
+  if (!r.ok) return alert(`삭제 실패: ${r.error || ''}`);
   await loadErrors();
 }
 
@@ -517,10 +574,15 @@ async function loadConnections() {
   drawLineChart($('connectionsCanvas'), pts);
 }
 
-$('devLoginBtn').onclick = () => login().catch(() => {});
+$('devLoginBtn').onclick = () => withBusy($('devLoginBtn'), () => login().catch(() => {}), '로그인 중...');
+$('devToken')?.addEventListener?.('keydown', (e) => {
+  if (e.key === 'Enter' && !e.isComposing) $('devLoginBtn')?.click();
+});
 $('devLogoutBtn').onclick = () => logout().catch(() => {});
 $('reloadUsersBtn')?.addEventListener?.('click', () => loadUsers().catch(() => {}));
-$('createPrivateUserBtn')?.addEventListener?.('click', () => createPrivateUser().catch(() => {}));
+$('createPrivateUserBtn')?.addEventListener?.('click', () =>
+  withBusy($('createPrivateUserBtn'), () => createPrivateUser().catch(() => {}), '생성 중...')
+);
 $('reloadSessionsBtn').onclick = () => loadSessions().catch(() => {});
 $('reloadConnectionsBtn')?.addEventListener?.('click', () => loadConnections().catch(() => {}));
 $('saveRootFolderBtn')?.addEventListener?.('click', () => saveDriveRoot().catch(() => {}));
@@ -565,16 +627,6 @@ $('autoRefreshToggle')?.addEventListener?.('change', (e) => setAutoRefresh(Boole
 
 refreshMe()
   .then((authed) => {
-    if (authed) {
-      loadPrivateArchivePrefix().catch(() => {});
-      loadUsers().catch(() => {});
-      loadSessions().catch(() => {});
-      loadConnections().catch(() => {});
-      loadDriveRoot().catch(() => {});
-      loadSync().catch(() => {});
-      loadParseErrors().catch(() => {});
-      loadTraffic().catch(() => {});
-      loadErrors().catch(() => {});
-    }
+    if (authed) loadAll();
   })
   .catch(() => {});

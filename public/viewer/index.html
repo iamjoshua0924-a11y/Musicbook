@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&display=swap" />
     <!-- cache-bust for mobile browsers -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/naver/d2codingfont@master/D2Coding.css" />
-    <link rel="stylesheet" href="viewer.css?v=20260630_2" />
+    <link rel="stylesheet" href="viewer.css?v=20260903_1" />
   </head>
   <body>
     <div id="viewer-wrapper">
@@ -231,7 +231,7 @@
           <div id="canvas-stack">
             <!-- page views injected by viewer.js -->
           </div>
-          <div id="pageHud" class="hidden"></div>
+          <div id="pageHud" class="hidden" role="status" aria-live="polite"></div>
           <div id="tapZoneLeft"></div>
           <div id="tapZoneCenter"></div>
           <div id="tapZoneRight"></div>
@@ -250,9 +250,9 @@
         </section>
 
         <div id="touchNavBottom">
-          <button id="touchPrevBtn" type="button">◀</button>
+          <button id="touchPrevBtn" type="button" aria-label="이전 페이지">◀</button>
           <button id="touchMenuBtn" type="button">세션</button>
-          <button id="touchNextBtn" type="button">▶</button>
+          <button id="touchNextBtn" type="button" aria-label="다음 페이지">▶</button>
         </div>
 
         <aside id="participantsPanel" class="hidden">
@@ -404,7 +404,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
     <script src="../config.js"></script>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
-    <script src="../common/avatar.js?v=20260529_1"></script>
-    <script src="viewer.js?v=20260630_2"></script>
+    <script src="../common/avatar.js?v=20260903_1"></script>
+    <script src="viewer.js?v=20260903_1"></script>
   </body>
 </html>

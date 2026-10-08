@@ -104,6 +104,7 @@ const state = {
   sortDir: 'desc',
   page: 1,
   pageSize: 500,
+  guestbookHidden: false,
 
   // card click selection
   _pendingCard: null,
@@ -549,8 +550,12 @@ async function submitPrivateRequest() {
   if (!state._requestDraft?.googleFileId) return toast('신청할 노래를 선택해 주세요.');
   const memo = String($('privateRequestMemo')?.value || '').trim();
   const payload = { ...state._requestDraft, memo };
-  const r = await apiJson(`/api/private-requests/${encodeURIComponent(state.archiveTargetUserId)}`, 'POST', payload);
-  if (!r.ok) return toast('신청 실패');
+  const r = await withBusy(
+    $('privateRequestSubmitBtn'),
+    () => apiJson(`/api/private-requests/${encodeURIComponent(state.archiveTargetUserId)}`, 'POST', payload),
+    '신청 중...'
+  );
+  if (!r?.ok) return toast(r?.error === 'DUPLICATE' ? '이미 신청된 곡이에요.' : '신청 실패');
   toast('신청 완료');
   closePrivateRequestPanel();
   await loadSongs(true);
@@ -645,6 +650,7 @@ function renderReviewListForCard(cardId, anchorEl) {
           if (!isArchiveOwner()) return;
           const commentId = String(e.currentTarget?.dataset?.cid || '').trim();
           if (!commentId) return;
+          if (!confirm('이 코멘트를 삭제할까요?')) return;
           const r = await apiJson(
             `/api/reviews/${encodeURIComponent(state.archiveTargetUserId)}/${encodeURIComponent(String(cardId || '').trim())}/${encodeURIComponent(commentId)}`,
             'DELETE',
@@ -667,15 +673,25 @@ async function submitReviewComment() {
   if (!ctx?.cardId) return;
   const input = $('reviewComposerInput');
   const text = String(input?.value || '').trim();
-  if (!text) return toast('코멘트를 입력하세요.');
-  const res = await apiJson(`/api/reviews/${encodeURIComponent(state.archiveTargetUserId)}`, 'POST', {
-    cardId: ctx.cardId,
-    title: ctx.title,
-    artist: ctx.artist,
-    tagText: ctx.tagText,
-    text
-  });
-  if (!res.ok) return toast('저장 실패');
+  if (!text) {
+    input?.focus();
+    return toast('코멘트를 입력하세요.');
+  }
+  const saveBtn = $('reviewComposerSaveBtn');
+  if (saveBtn?.dataset.busy === '1') return;
+  const res = await withBusy(
+    saveBtn,
+    () =>
+      apiJson(`/api/reviews/${encodeURIComponent(state.archiveTargetUserId)}`, 'POST', {
+        cardId: ctx.cardId,
+        title: ctx.title,
+        artist: ctx.artist,
+        tagText: ctx.tagText,
+        text
+      }),
+    '저장 중...'
+  );
+  if (!res?.ok) return toast('저장 실패');
   toast('남겼어요');
   closeReviewComposer();
   // 즉시 반영을 위해 reload
@@ -774,13 +790,12 @@ function renderSetlistPanel() {
       e.stopPropagation();
       if (owner && state.setlistEditMode) return;
       if (!driveUrl) return toast('링크가 없습니다.');
-      try {
-        await navigator.clipboard.writeText(driveUrl);
+      if (await copyText(driveUrl)) {
         row.classList.remove('copied');
         void row.offsetWidth;
         row.classList.add('copied');
         setTimeout(() => row.classList.remove('copied'), 950);
-      } catch {
+      } else {
         toast('복사 실패(브라우저 권한 확인)');
       }
     });
@@ -840,11 +855,18 @@ async function loadSetlist() {
 }
 
 async function saveSetlistToServer() {
-  if (!isArchiveOwner()) return toast('권한 없음');
+  if (!isArchiveOwner()) {
+    toast('권한 없음');
+    return false;
+  }
   const res = await apiJson('/api/setlist', 'PATCH', { items: state.setlistItems || [] });
-  if (!res.ok) return toast('저장 실패');
+  if (!res.ok) {
+    toast('저장 실패');
+    return false;
+  }
   state.setlistItems = Array.isArray(res.items) ? res.items : [];
   toast('저장 완료');
+  return true;
 }
 
 function enterSetlistEditMode() {
@@ -1078,6 +1100,48 @@ function toMs(v) {
   return Number.isFinite(t) ? t : 0;
 }
 
+// 한글/영문/숫자가 섞인 제목·가수명 정렬. 코드포인트 비교(>)는 대소문자·한글 순서가 뒤섞이므로
+// localeCompare(ko, numeric)로 통일한다. 빈 값은 항상 뒤로 보낸다(오름/내림 무관).
+const _koCollator = (() => {
+  try {
+    return new Intl.Collator('ko', { numeric: true, sensitivity: 'base' });
+  } catch {
+    return null;
+  }
+})();
+function compareSortValues(av, bv, dir) {
+  if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+  const as = String(av ?? '').trim();
+  const bs = String(bv ?? '').trim();
+  const aEmpty = !as || as === '-';
+  const bEmpty = !bs || bs === '-';
+  if (aEmpty !== bEmpty) return aEmpty ? 1 : -1;
+  if (aEmpty && bEmpty) return 0;
+  const c = _koCollator ? _koCollator.compare(as, bs) : as < bs ? -1 : as > bs ? 1 : 0;
+  return c * dir;
+}
+// 정렬 기준을 바꿀 때의 자연스러운 기본 방향(날짜/숙련도는 내림차순, 텍스트는 오름차순)
+function defaultSortDirFor(field) {
+  return field === 'createdAt' || field === 'proficiency' ? 'desc' : 'asc';
+}
+const SORT_PREF_KEY = 'mb_sort_pref_v1';
+function persistSortPrefs() {
+  try {
+    localStorage.setItem(SORT_PREF_KEY, JSON.stringify({ field: state.sortField, dir: state.sortDir, pageSize: state.pageSize }));
+  } catch {}
+}
+function restoreSortPrefs() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SORT_PREF_KEY) || 'null');
+    if (!raw || typeof raw !== 'object') return;
+    const fields = ['createdAt', 'title', 'key', 'artist', 'genre', 'mood', 'vocal', 'proficiency'];
+    if (fields.includes(raw.field)) state.sortField = raw.field;
+    if (raw.dir === 'asc' || raw.dir === 'desc') state.sortDir = raw.dir;
+    const ps = Number(raw.pageSize || 0);
+    if ([50, 100, 200, 500, 1000].includes(ps)) state.pageSize = ps;
+  } catch {}
+}
+
 function getSortValue(item, field) {
   const f = String(field || '');
   if (f === 'createdAt') {
@@ -1264,19 +1328,196 @@ function setListDimLoading(on) {
 }
 
 let toastTimer = null;
-function toast(msg) {
+// 짧은 메시지는 1.4초, 긴 메시지는 글자 수에 비례해 더 오래 보여준다(최대 5초).
+function toast(msg, ms) {
   const el = $('toast');
-  el.textContent = msg;
+  if (!el) return;
+  const text = String(msg ?? '');
+  el.textContent = text;
   el.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), 1400);
+  const auto = Math.min(5000, Math.max(1400, 900 + text.length * 55));
+  toastTimer = setTimeout(() => el.classList.remove('show'), Number(ms) > 0 ? Number(ms) : auto);
+}
+
+// ---- Modal helpers ------------------------------------------------------------------
+// - Escape: 가장 위에 열린 모달을 "취소" 버튼과 같은 경로로 닫는다(모달별 취소 핸들러 유지).
+// - 오버레이 클릭: 입력이 없는 가벼운 모달만 닫는다(입력 중인 내용을 실수로 잃지 않도록).
+// - 열릴 때 첫 입력칸(없으면 첫 버튼)에 포커스, 닫힐 때 이전 포커스 복원.
+// - 모달이 하나라도 열려 있으면 body 스크롤을 잠근다.
+const MODAL_CANCEL_BTN = {
+  loginModal: 'loginCloseBtn',
+  requestModal: 'requestCancelBtn',
+  editModal: 'editCancelBtn',
+  randomModal: 'randomCloseBtn',
+  randomSettingsModal: 'randomSettingsCloseBtn',
+  availableVocalModal: 'availableVocalCloseBtn',
+  profileModal: 'profileCancelBtn',
+  bookSettingsModal: 'bookSettingsCancelBtn',
+  themePickerModal: 'themePickerCancelBtn',
+  createUserModal: 'createUserCancelBtn',
+  createUserResultModal: 'createUserResultCloseBtn',
+  songTagModal: 'songTagCancelBtn',
+  tagRequiredModal: 'tagReqCancelBtn',
+  keySelectModal: 'keySelectCancelBtn',
+  songActionModal: 'songActionCancelBtn',
+  bulkAddSongsModal: 'bulkAddCancelBtn',
+  attachFileModal: 'attachFileCancelBtn',
+  uploadDropModal: 'uploadDropCancelBtn',
+  sessionJoinModal: 'sessionJoinCancelBtn'
+};
+// 오버레이(바깥) 클릭으로 닫아도 잃을 입력이 없는 모달만
+const MODAL_OVERLAY_DISMISS = new Set([
+  'loginModal',
+  'randomModal',
+  'randomSettingsModal',
+  'availableVocalModal',
+  'keySelectModal',
+  'songActionModal',
+  'createUserResultModal',
+  'sessionJoinModal'
+]);
+const _modalStack = [];
+const _modalPrevFocus = new Map();
+
+function syncModalBodyLock() {
+  const anyOpen = Boolean(document.querySelector('.modal-overlay.active'));
+  document.body.classList.toggle('modal-open', anyOpen);
+}
+
+function focusFirstField(overlay) {
+  try {
+    const first = overlay.querySelector(
+      'input:not([type="hidden"]):not([disabled]):not([tabindex="-1"]), textarea:not([disabled]), select:not([disabled]):not([tabindex="-1"]), button:not([disabled])'
+    );
+    if (!first) return;
+    const visible = (el) => el && el.offsetParent !== null;
+    if (visible(first)) first.focus({ preventScroll: true });
+    else {
+      const btn = Array.from(overlay.querySelectorAll('button:not([disabled])')).find(visible);
+      btn?.focus?.({ preventScroll: true });
+    }
+  } catch {}
 }
 
 function openModal(id) {
-  $(id).classList.add('active');
+  const overlay = $(id);
+  if (!overlay) return;
+  if (!overlay.classList.contains('active')) {
+    _modalPrevFocus.set(id, document.activeElement);
+    _modalStack.push(id);
+  }
+  overlay.classList.add('active');
+  syncModalBodyLock();
+  // 렌더 직후 포커스(display 전환 뒤에 잡아야 함)
+  setTimeout(() => focusFirstField(overlay), 0);
 }
 function closeModal(id) {
-  $(id).classList.remove('active');
+  const overlay = $(id);
+  if (!overlay) return;
+  overlay.classList.remove('active');
+  const idx = _modalStack.lastIndexOf(id);
+  if (idx >= 0) _modalStack.splice(idx, 1);
+  syncModalBodyLock();
+  try {
+    const prev = _modalPrevFocus.get(id);
+    _modalPrevFocus.delete(id);
+    // 다른 모달이 아직 열려 있으면 그쪽 포커스를 유지한다.
+    if (prev && typeof prev.focus === 'function' && !_modalStack.length && document.contains(prev)) prev.focus({ preventScroll: true });
+  } catch {}
+}
+function dismissModal(id) {
+  const cancelId = MODAL_CANCEL_BTN[id];
+  const btn = cancelId ? $(cancelId) : null;
+  if (btn && !btn.disabled) btn.click();
+  else closeModal(id);
+}
+function topOpenModalId() {
+  for (let i = _modalStack.length - 1; i >= 0; i -= 1) {
+    if ($(_modalStack[i])?.classList.contains('active')) return _modalStack[i];
+  }
+  return '';
+}
+
+function wireModalDismissal() {
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || e.isComposing) return;
+    const id = topOpenModalId();
+    if (!id) return;
+    e.preventDefault();
+    dismissModal(id);
+  });
+  document.querySelectorAll('.modal-overlay').forEach((overlay) => {
+    const id = overlay.id;
+    if (!id || !MODAL_OVERLAY_DISMISS.has(id)) return;
+    overlay.addEventListener('mousedown', (e) => {
+      // 모달 안에서 드래그하다가 바깥에서 mouseup 되는 경우를 막기 위해 mousedown 기준으로 판정
+      overlay.dataset.downOutside = e.target === overlay ? '1' : '0';
+    });
+    overlay.addEventListener('click', (e) => {
+      if (e.target !== overlay || overlay.dataset.downOutside !== '1') return;
+      dismissModal(id);
+    });
+  });
+}
+
+// Enter 키로 제출(텍스트 입력에서만, IME 조합 중 제외)
+function submitOnEnter(inputIds, submitFn) {
+  inputIds.forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    el.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' || e.isComposing || e.shiftKey) return;
+      if (el.tagName === 'TEXTAREA') return;
+      e.preventDefault();
+      submitFn();
+    });
+  });
+}
+
+// 비동기 버튼 공통: 처리 중 중복 클릭 방지 + 라벨 표시.
+async function withBusy(btn, fn, busyLabel) {
+  if (!btn) return fn();
+  if (btn.dataset.busy === '1') return undefined;
+  const prevLabel = btn.textContent;
+  btn.dataset.busy = '1';
+  btn.disabled = true;
+  if (busyLabel) btn.textContent = busyLabel;
+  try {
+    return await fn();
+  } finally {
+    btn.dataset.busy = '0';
+    btn.disabled = false;
+    if (busyLabel) btn.textContent = prevLabel;
+  }
+}
+
+// 클립보드 복사: navigator.clipboard가 막힌 환경(http/권한/구형 브라우저)에서는 execCommand로 폴백
+async function copyText(text) {
+  const value = String(text ?? '');
+  if (!value) return false;
+  try {
+    if (navigator.clipboard?.writeText && window.isSecureContext !== false) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+  } catch {}
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = value;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.top = '-1000px';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, value.length);
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return Boolean(ok);
+  } catch {
+    return false;
+  }
 }
 
 function formatDateTime(v) {
@@ -1345,8 +1586,10 @@ function renderGuestbook() {
   const list = $('guestbookList');
   if (!panel || !showBtn || !list) return;
   const visible = state.isArchiveMode;
-  panel.style.display = visible ? 'flex' : 'none';
-  showBtn.style.display = 'none';
+  // 사용자가 "숨기기"로 접어둔 상태는 role/필터 재렌더에서 되살리지 않는다.
+  const hidden = visible && Boolean(state.guestbookHidden);
+  panel.style.display = visible && !hidden ? 'flex' : 'none';
+  showBtn.style.display = hidden ? 'inline-flex' : 'none';
   // compose는 기본 숨김, "방명록 쓰기" 버튼으로 토글
   try {
     const compose = $('guestbookCompose');
@@ -1380,9 +1623,11 @@ function renderGuestbook() {
       <div class="guestbook-item-content">${esc(item.content || '')}</div>
     `;
     el.querySelector('[data-del]')?.addEventListener('click', async () => {
+      if (!confirm(`${item.nickname || '익명'}님의 방명록을 삭제할까요?`)) return;
       const r = await apiJson(`/api/guestbook/${encodeURIComponent(item._id)}`, 'DELETE', {});
       if (!r.ok) return toast('삭제 실패');
       await loadGuestbook(true);
+      toast('삭제됨');
     });
     list.appendChild(el);
   });
@@ -1427,18 +1672,35 @@ function initGuestbookDrag() {
     handle.style.cursor = 'grab';
     window.removeEventListener('pointermove', onPointerMove);
     window.removeEventListener('pointerup', onPointerUp);
+    window.removeEventListener('pointercancel', onPointerUp);
   };
   handle.addEventListener('pointerdown', (e) => {
     if (!state.isArchiveMode) return;
+    // 헤더 안의 버튼(방명록 쓰기/숨기기)을 누른 건 드래그가 아니다
+    if (e.target?.closest?.('button, input, textarea, a')) return;
+    if (typeof e.button === 'number' && e.button !== 0) return;
     const rect = panel.getBoundingClientRect();
     state._guestbookDrag = { offsetX: e.clientX - rect.left, offsetY: e.clientY - rect.top };
     handle.style.cursor = 'grabbing';
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
   });
 }
 
-function switchPage(page) {
+function switchPage(page, { fromHash = false } = {}) {
+  if (state.isArchiveMode) page = 'songs';
+  if (!fromHash && !state.isArchiveMode) {
+    try {
+      const next = page === 'songs' ? '#songs' : '';
+      const cur = String(window.location.hash || '');
+      if (next !== cur) {
+        const u = new URL(window.location.href);
+        u.hash = next;
+        window.history.pushState(null, '', u.toString());
+      }
+    } catch {}
+  }
   $('mainPage').classList.toggle('active', page === 'main');
   $('songsPage').classList.toggle('active', page === 'songs');
   $('mainNavBtn').classList.toggle('active', page === 'main');
@@ -1515,7 +1777,8 @@ function updateProfileImage(id, url) {
 function openUrlOrToast(url, label) {
   // chzzk: legacy default (원본 GAS 링크)
   if (!url && label === '치지직') url = 'https://m.chzzk.naver.com/a69cde62e00086cfcf1c6733758cad9c';
-  if (url) window.open(url, '_blank');
+  if (!url && !state.main) return toast(`${label} 링크를 아직 불러오지 못했어요. 잠시 후 다시 눌러 주세요.`);
+  if (url) window.open(url, '_blank', 'noopener,noreferrer');
   else toast(`${label} 링크가 설정되어 있지 않습니다. /admin에서 설정해 주세요.`);
 }
 
@@ -1527,17 +1790,19 @@ async function loadMainPage() {
   // banner/title
   const bannerUrl = normalizeProfilePhotoUrl(state.main.bannerImage || '', 1600);
   const titleUrl = normalizeProfilePhotoUrl(state.main.titleImage || '', 800);
-  $('bannerImage').src = bannerUrl || 'https://placehold.co/1200x400?text=NO+IMAGE';
+  // onerror 핸들러가 placeholder로 교체하는데, placeholder까지 막힌 환경(오프라인/차단)에서 무한 재시도되지 않게 1회만 교체
+  const banner = $('bannerImage');
+  banner.onerror = () => {
+    banner.onerror = null;
+    banner.src = 'https://placehold.co/1200x400?text=NO+IMAGE';
+  };
+  banner.src = bannerUrl || 'https://placehold.co/1200x400?text=NO+IMAGE';
   $('songsTitleLogo').src = titleUrl || '';
   $('songsTitleLogo').style.display = state.main.titleImage ? 'block' : 'none';
 
   // notice
   $('noticeContent').innerText = state.main.notice || '';
 
-  // external links
-  $('discordBtn').onclick = () => openUrlOrToast(state.main.discordUrl, '디스코드');
-  $('youtubeBtn').onclick = () => openUrlOrToast(state.main.youtubeUrl, '유튜브');
-  $('chzzkBtn').onclick = () => openUrlOrToast(state.main.chzzkUrl, '치지직');
 }
 
 // ---- CHZZK admin controls (PoC) --------------------------------------------------
@@ -1605,6 +1870,62 @@ async function chzzkStop() {
   }
 }
 
+// /api/songs/cards 응답을 짧게(같은 URL, 3초) 재사용한다. 부트스트랩/태그 저장 등에서
+// loadSongs()와 loadSongFiles()가 같은 파라미터로 연달아 호출되면서 5000곡짜리 응답을
+// 두 번 받던 문제를 없앤다. force 재조회는 항상 새 요청이지만, 연달아 오는 두 번째 호출은 재사용.
+let _cardsFetchCache = { url: '', at: 0, promise: null };
+function fetchSongCards(url) {
+  const now = Date.now();
+  if (_cardsFetchCache.promise && _cardsFetchCache.url === url && now - _cardsFetchCache.at < 3000) {
+    return _cardsFetchCache.promise;
+  }
+  const promise = apiGet(url).then((data) => {
+    if (!data?.ok) _cardsFetchCache = { url: '', at: 0, promise: null };
+    return data;
+  });
+  _cardsFetchCache = { url, at: now, promise };
+  return promise;
+}
+
+function buildSongCardsUrl() {
+  const params = new URLSearchParams();
+  // 이 아카이브 오너의 private-scope placeholder 곡(악보없음/코드위키)도 함께 보이게 한다.
+  // edit 모드 여부와 무관하게 항상 붙인다 - "전체 곡 중에서 고르는" edit 모드에서도
+  // 다른 사람의 private 곡이 섞여 나오면 안 되니, 항상 "이 아카이브 오너 것만" 범위로 제한한다.
+  if (state.isArchiveMode && state.archiveTargetUserId) {
+    params.set('privateOwnerId', String(state.archiveTargetUserId));
+  }
+  // archive 기본 화면은 "내 가능곡만"이므로 목록을 동일하게 제한(편집 모드에서는 전체 곡을 봐야 한다)
+  if (!state._forceAllSongsForEdit && state.isArchiveMode && !state.availabilityEditMode && state.archiveTargetUserId) {
+    params.set('availableUserId', String(state.archiveTargetUserId));
+  }
+  return `/api/songs/cards${params.toString() ? `?${params.toString()}` : ''}`;
+}
+
+function renderSongsLoadError(errorText) {
+  const wrap = $('songCardList');
+  if (!wrap) return;
+  const detail = String(errorText || '').trim();
+  const hint = detail.startsWith('NETWORK_ERROR')
+    ? '네트워크/광고차단/CORS 문제로 서버에 연결하지 못했습니다.'
+    : '서버가 잠시 응답하지 않을 수 있어요(콜드스타트). 잠시 후 다시 시도해 주세요.';
+  wrap.innerHTML = `
+    <div class="song-list-empty" role="alert">
+      <div class="song-list-empty-title">곡 목록을 불러오지 못했습니다</div>
+      <div class="song-list-empty-desc">${esc(hint)}</div>
+      <button class="floating-btn compact-btn black-btn" type="button" id="songsRetryBtn">다시 시도</button>
+    </div>
+  `;
+  if ($('resultCount')) $('resultCount').textContent = '불러오기 실패';
+  $('songsRetryBtn')?.addEventListener('click', async () => {
+    try {
+      state.songCardsAll = [];
+      await loadSongs(true);
+      applySongFilters();
+    } catch {}
+  });
+}
+
 async function loadSongs(force = false) {
   if (!force && state.songCardsAll.length) return;
   const firstLoad = !state.songCardsAll.length;
@@ -1630,19 +1951,12 @@ async function loadSongs(force = false) {
           .join('');
       }
     }
-    const params = new URLSearchParams();
-    // 이 아카이브 오너의 private-scope placeholder 곡(악보없음/코드위키)도 함께 보이게 한다.
-    // edit 모드 여부와 무관하게 항상 붙인다 - "전체 곡 중에서 고르는" edit 모드에서도
-    // 다른 사람의 private 곡이 섞여 나오면 안 되니, 항상 "이 아카이브 오너 것만" 범위로 제한한다.
-    if (state.isArchiveMode && state.archiveTargetUserId) {
-      params.set('privateOwnerId', String(state.archiveTargetUserId));
+    const url = buildSongCardsUrl();
+    const data = await fetchSongCards(url);
+    if (!data.ok) {
+      renderSongsLoadError(data.error);
+      throw new Error(`songs load failed: ${data.error || ''}`);
     }
-    if (!state._forceAllSongsForEdit && state.isArchiveMode && !state.availabilityEditMode && state.archiveTargetUserId) {
-      params.set('availableUserId', String(state.archiveTargetUserId));
-    }
-    const url = `/api/songs/cards${params.toString() ? `?${params.toString()}` : ''}`;
-    const data = await apiGet(url);
-    if (!data.ok) throw new Error('songs load failed');
     state.songCardsTotal = Number(data.totalCards || 0) || Number(data.total || 0) || 0;
     state.songCardsAll = (data.items || []).map((c) => ({
       ...c,
@@ -1677,19 +1991,9 @@ async function loadSongFiles(force = false) {
   // - file 단위 목록과 card 단위 목록이 서로 다른 API(/api/songs vs /api/songs/cards)를 사용하면
   //   5000 cap 환경에서 "한쪽에는 있는데 다른 쪽에는 없는" 불일치가 발생할 수 있다(정렬/limit 기준 차이).
   // - 따라서 file 목록도 cards 응답을 펼쳐서 생성해 UI/정렬/노출을 일관되게 유지한다.
-  const params = new URLSearchParams();
-  // 이 아카이브 오너의 private-scope placeholder 곡(악보없음/코드위키)도 함께 보이게 한다.
-  // loadSongs()와 동일한 이유로 edit 모드 여부와 무관하게 항상 붙인다.
-  if (state.isArchiveMode && state.archiveTargetUserId) {
-    params.set('privateOwnerId', String(state.archiveTargetUserId));
-  }
-  // archive 기본 화면은 "내 가능곡만"이므로, 파일 목록도 동일하게 제한(편집 모드에서는 전체 곡을 봐야 한다)
-  if (!state._forceAllSongsForEdit && state.isArchiveMode && !state.availabilityEditMode && state.archiveTargetUserId) {
-    params.set('availableUserId', String(state.archiveTargetUserId));
-  }
-  const url = `/api/songs/cards${params.toString() ? `?${params.toString()}` : ''}`;
-  const data = await apiGet(url);
-  if (!data.ok) throw new Error('songs load failed');
+  const url = buildSongCardsUrl();
+  const data = await fetchSongCards(url);
+  if (!data.ok) throw new Error(`songs load failed: ${data.error || ''}`);
   state.songFilesTotal = Number(data.totalDocs || 0) || 0;
   const files = [];
   (data.items || []).forEach((c) => {
@@ -1959,15 +2263,13 @@ function applySongFilters() {
 
     const f = state.sortField;
     const dir = state.sortDir === 'asc' ? 1 : -1;
+    const profMapForSort = state.proficiencyDraftMap || state.myAvailabilityProficiencyMap || new Map();
     list.sort((a, b) => {
-      const profMap = state.proficiencyDraftMap || state.myAvailabilityProficiencyMap || new Map();
       const av =
-        f === 'proficiency' ? Number(profMap.get(String(a.googleFileId || '')) || a.proficiency || 0) || 0 : getSortValue(a, f);
+        f === 'proficiency' ? Number(profMapForSort.get(String(a.googleFileId || '')) || a.proficiency || 0) || 0 : getSortValue(a, f);
       const bv =
-        f === 'proficiency' ? Number(profMap.get(String(b.googleFileId || '')) || b.proficiency || 0) || 0 : getSortValue(b, f);
-      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
-      if (av === bv) return 0;
-      return av > bv ? dir : -dir;
+        f === 'proficiency' ? Number(profMapForSort.get(String(b.googleFileId || '')) || b.proficiency || 0) || 0 : getSortValue(b, f);
+      return compareSortValues(av, bv, dir);
     });
 
     state.songFilesFiltered = list;
@@ -2039,25 +2341,60 @@ function applySongFilters() {
       const bReqMs = Number(b?._requestCreatedAtMs || 0) || 0;
       if (aReqMs !== bReqMs) return bReqMs - aReqMs;
     }
-    const av = getSortValue(a, f);
-    const bv = getSortValue(b, f);
-    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
-    if (av === bv) return 0;
-    return av > bv ? dir : -dir;
+    return compareSortValues(getSortValue(a, f), getSortValue(b, f), dir);
   });
 
   state.songCardsFiltered = list;
   const totalCardsLabel = !state.isArchiveMode && state.songCardsTotal ? ` / 전체: ${state.songCardsTotal}곡` : '';
-  $('resultCount').textContent = `검색 결과: ${list.length}곡${totalCardsLabel}`;
+  $('resultCount').textContent = `${hasAnyActiveFilter() ? '검색 결과' : '곡'}: ${list.length}곡${totalCardsLabel}`;
   renderSongCards(hideTags);
   renderPager();
   updateArchiveStatusCard();
+}
+
+function hasAnyActiveFilter() {
+  return Boolean(
+    String($('searchInput')?.value || '').trim() ||
+      $('genreFilter')?.value ||
+      $('moodFilter')?.value ||
+      $('vocalFilter')?.value ||
+      $('proficiencyFilter')?.value ||
+      getSelectedAvailableVocalUserIds().length
+  );
+}
+
+function renderEmptyState(wrap, { total }) {
+  if (!wrap) return;
+  const filtered = hasAnyActiveFilter();
+  const q = String($('searchInput')?.value || '').trim();
+  const title = total === 0 && !filtered ? '아직 등록된 곡이 없어요' : '조건에 맞는 곡이 없어요';
+  const desc =
+    total === 0 && !filtered
+      ? state.isArchiveMode
+        ? '가능곡 편집에서 곡을 체크하면 여기에 나타나요.'
+        : '관리자가 Drive 동기화를 실행하면 곡이 채워져요.'
+      : q
+        ? `"${q}" 검색어나 필터를 바꿔 보세요. 초성(ㄱㄴㄷ)이나 띄어쓰기 없이도 검색돼요.`
+        : '필터 조건을 줄이거나 초기화해 보세요.';
+  wrap.innerHTML = `
+    <div class="song-list-empty">
+      <div class="song-list-empty-icon" aria-hidden="true">♪</div>
+      <div class="song-list-empty-title">${esc(title)}</div>
+      <div class="song-list-empty-desc">${esc(desc)}</div>
+      ${filtered ? `<button class="floating-btn compact-btn" type="button" id="emptyResetFiltersBtn">필터 초기화</button>` : ''}
+    </div>
+  `;
+  $('emptyResetFiltersBtn')?.addEventListener('click', () => $('resetFiltersBtn')?.click());
 }
 
 function renderSongCards(hideTags) {
   const wrap = $('songCardList');
   wrap.innerHTML = '';
   applySongsViewMode();
+  if (!state.songCardsFiltered.length && !(state.isArchiveMode && state.page === 1)) {
+    renderEmptyState(wrap, { total: state.songCardsAll.length });
+    return;
+  }
 
   const totalPages = Math.max(1, Math.ceil(state.songCardsFiltered.length / state.pageSize));
   state.page = Math.min(state.page, totalPages);
@@ -2307,10 +2644,10 @@ function updateAvailabilityEditCount() {
   const orig = state.availabilityOriginalSet || new Set();
   const draft = state.availabilityDraftSet || new Set();
   let added = 0;
-  for (const fid of draft) {
-    if (!orig.has(fid)) added += 1;
-  }
-  el.textContent = `새로 체크: ${added}곡`;
+  let removed = 0;
+  for (const fid of draft) if (!orig.has(fid)) added += 1;
+  for (const fid of orig) if (!draft.has(fid)) removed += 1;
+  el.textContent = removed ? `추가 ${added}곡 · 해제 ${removed}곡` : `새로 체크: ${added}곡`;
 }
 
 function updateProficiencyEditCount() {
@@ -2965,6 +3302,10 @@ function renderAvailabilityEditCards(hideTags) {
   const wrap = $('songCardList');
   wrap.innerHTML = '';
   applySongsViewMode();
+  if (!state.songFilesFiltered.length) {
+    renderEmptyState(wrap, { total: state.songFilesAll.length });
+    return;
+  }
 
   const totalPages = Math.max(1, Math.ceil(state.songFilesFiltered.length / state.pageSize));
   state.page = Math.min(state.page, totalPages);
@@ -3032,6 +3373,10 @@ function renderProficiencyEditCards(hideTags) {
   const wrap = $('songCardList');
   wrap.innerHTML = '';
   applySongsViewMode();
+  if (!state.songFilesFiltered.length) {
+    renderEmptyState(wrap, { total: state.songFilesAll.length });
+    return;
+  }
 
   const totalPages = Math.max(1, Math.ceil(state.songFilesFiltered.length / state.pageSize));
   state.page = Math.min(state.page, totalPages);
@@ -3323,12 +3668,8 @@ async function copyDriveLink() {
   const v = state._pendingVariant;
   const url = String(v?.driveUrl || '').trim();
   if (!url) return toast('링크가 없습니다.');
-  try {
-    await navigator.clipboard.writeText(url);
-    toast('드라이브 링크 복사됨');
-  } catch {
-    toast('복사 실패(브라우저 권한 확인)');
-  }
+  if (await copyText(url)) toast('드라이브 링크 복사됨');
+  else toast('복사 실패(브라우저 권한 확인)');
 }
 
 async function openInViewer() {
@@ -3340,9 +3681,18 @@ async function openInViewer() {
     roomCode,
     bookUserId: state.isArchiveMode && state.archiveTargetUserId ? state.archiveTargetUserId : ''
   });
-  if (roomCode && state.isPageTurner) {
-    state._socket?.emit?.('session:follow:file', { roomCode, fileId: v.googleFileId, originalLink: v.driveUrl || '' }, () => {
+  if (roomCode && state.isPageTurner && state._socket?.connected) {
+    // 서버 ack가 안 오더라도(연결 흔들림) 뷰어 이동은 막히면 안 된다.
+    let moved = false;
+    const go = () => {
+      if (moved) return;
+      moved = true;
       window.location.href = targetUrl;
+    };
+    const timer = setTimeout(go, 1200);
+    state._socket.emit('session:follow:file', { roomCode, fileId: v.googleFileId, originalLink: v.driveUrl || '' }, () => {
+      clearTimeout(timer);
+      go();
     });
   } else {
     window.location.href = targetUrl;
@@ -3355,6 +3705,7 @@ function renderPager() {
   const pageInfo = $('pageInfo');
   if (pageInfo && pageInfo.dataset.editing !== '1') {
     pageInfo.textContent = `${state.page} / ${totalPages}`;
+    pageInfo.title = totalPages > 1 ? '더블클릭하면 페이지 번호를 직접 입력할 수 있어요' : '';
   }
   $('prevPageBtn').disabled = state.page <= 1;
   $('nextPageBtn').disabled = state.page >= totalPages;
@@ -3575,8 +3926,11 @@ function rollRouletteCandidates() {
   $('randomResult').textContent = '룰렛을 돌려 후보를 뽑습니다...';
   renderRandomCandidates([]);
 
-  const pool = state.songCardsFiltered || [];
-  if (!pool.length) return toast('랜덤 대상 곡이 없습니다.');
+  const pool = (state.songCardsFiltered || []).filter((c) => !c?._privateRequest);
+  if (!pool.length) {
+    $('randomResult').textContent = '현재 조건에 맞는 곡이 없어요. 필터를 바꾸고 다시 시도해 주세요.';
+    return toast('랜덤 대상 곡이 없습니다.');
+  }
 
   const want = getRandomCandidateCount();
   const candidates = pickRandomCardsNoDup(pool, want);
@@ -3674,14 +4028,33 @@ function renderRequests() {
       if (delBtn) {
         delBtn.onclick = async (e) => {
           e.stopPropagation();
-          await apiJson(`/api/requests/${encodeURIComponent(r._id)}`, 'DELETE');
+          if (!confirm(`신청곡 "${title}"을(를) 삭제할까요?`)) return;
+          const res = await apiJson(`/api/requests/${encodeURIComponent(r._id)}`, 'DELETE');
+          if (!res.ok) return toast('삭제 실패');
           await loadRequests(true);
+          toast('삭제됨');
         };
       }
     }
 
     wrap.appendChild(row);
   });
+}
+
+function openRequestModal() {
+  // 신청자 이름 프리필: 로그인 표시이름 > 마지막으로 입력한 이름
+  try {
+    const input = $('requesterInput');
+    if (input && !input.value.trim()) {
+      const remembered = String(localStorage.getItem('mb_requester_name') || '').trim();
+      input.value = state.role !== 'viewer' && state.displayName ? state.displayName : remembered;
+    }
+  } catch {}
+  openModal('requestModal');
+  // 이름이 이미 채워져 있으면 곡명부터 입력하도록
+  setTimeout(() => {
+    if ($('requesterInput')?.value.trim()) $('requestSongInput')?.focus();
+  }, 0);
 }
 
 async function submitSongRequest() {
@@ -3691,37 +4064,50 @@ async function submitSongRequest() {
     artist: $('requestArtistInput').value.trim(),
     targetSinger: $('requestSingerInput').value.trim()
   };
-  if (!payload.songTitle) return toast('곡명을 입력해 주세요.');
-  const res = await apiJson('/api/requests', 'POST', payload);
-  if (!res.ok) return toast('신청 실패');
-  closeModal('requestModal');
-  $('requestSongInput').value = '';
-  $('requestArtistInput').value = '';
-  $('requestSingerInput').value = '';
-  await loadRequests(true);
-  toast('신청 완료');
+  if (!payload.songTitle) {
+    $('requestSongInput')?.focus();
+    return toast('곡명을 입력해 주세요.');
+  }
+  await withBusy($('requestSubmitBtn'), async () => {
+    const res = await apiJson('/api/requests', 'POST', payload);
+    if (!res.ok) return toast('신청 실패');
+    try {
+      localStorage.setItem('mb_requester_name', payload.requesterName);
+    } catch {}
+    closeModal('requestModal');
+    $('requestSongInput').value = '';
+    $('requestArtistInput').value = '';
+    $('requestSingerInput').value = '';
+    await loadRequests(true);
+    toast('신청 완료');
+  }, '신청 중...');
 }
 
 async function applySelectedRequestStatus(status) {
   if (!state.selectedRequestIds.size) return toast('선택된 신청곡이 없습니다.');
-  for (const id of state.selectedRequestIds) {
-    await apiJson(`/api/requests/${encodeURIComponent(id)}`, 'PATCH', { status });
-  }
+  const ids = Array.from(state.selectedRequestIds);
+  const results = await Promise.all(ids.map((id) => apiJson(`/api/requests/${encodeURIComponent(id)}`, 'PATCH', { status })));
+  const failed = results.filter((r) => !r?.ok).length;
   await loadRequests(true);
+  toast(failed ? `상태 변경 ${ids.length - failed}건 · 실패 ${failed}건` : `상태 변경 완료(${ids.length}건)`);
 }
 
 async function deleteSelectedRequests() {
   if (!state.selectedRequestIds.size) return toast('선택된 신청곡이 없습니다.');
-  for (const id of state.selectedRequestIds) {
-    await apiJson(`/api/requests/${encodeURIComponent(id)}`, 'DELETE');
-  }
+  const ids = Array.from(state.selectedRequestIds);
+  if (!confirm(`선택한 신청곡 ${ids.length}건을 삭제할까요?`)) return;
+  const results = await Promise.all(ids.map((id) => apiJson(`/api/requests/${encodeURIComponent(id)}`, 'DELETE')));
+  const failed = results.filter((r) => !r?.ok).length;
   await loadRequests(true);
+  toast(failed ? `삭제 ${ids.length - failed}건 · 실패 ${failed}건` : `삭제 완료(${ids.length}건)`);
 }
 
 async function clearRequests() {
+  if (!confirm('신청곡 리스트 전체를 초기화할까요? 되돌릴 수 없습니다.')) return;
   const res = await apiJson('/api/requests/clear', 'POST', {});
   if (!res.ok) return toast('권한 없음');
   await loadRequests(true);
+  toast('신청곡 리스트를 초기화했습니다.');
 }
 
 // ---- Auth / Role UI ---------------------------------------------------------------
@@ -3787,10 +4173,33 @@ async function submitCreateUser() {
   const role = $('createUserRole').value;
   const displayName = $('createUserName').value.trim();
   if (!userId) return toast('유저 ID를 입력하세요.');
-  const res = await apiJson('/api/admin/users', 'POST', { userId, role, displayName });
-  if (!res.ok) return toast(`유저 추가 실패: ${res.error || ''}`);
-  closeModal('createUserModal');
-  toast(`유저 생성 완료: ${userId} / PW: ${res.password || '(응답 없음)'}`);
+  const btn = $('createUserSubmitBtn');
+  await withBusy(btn, async () => {
+    const res = await apiJson('/api/admin/users', 'POST', { userId, role, displayName });
+    if (!res.ok) {
+      const map = { USER_EXISTS: '이미 존재하는 유저 ID입니다.', FORBIDDEN: '관리자 권한이 필요합니다.' };
+      return toast(`유저 추가 실패: ${map[res.error] || res.error || ''}`);
+    }
+    closeModal('createUserModal');
+    // 초기 비밀번호는 토스트로 1~2초 보여주고 사라지면 안 된다 → 복사 버튼이 있는 모달로 보여준다.
+    const body = $('createUserResultBody');
+    const pw = String(res.password || '(응답 없음)');
+    if (body) {
+      body.innerHTML = `
+        <div class="kv-row"><span class="kv-key">ID</span><span class="kv-val">${esc(userId)}</span></div>
+        <div class="kv-row"><span class="kv-key">권한</span><span class="kv-val">${esc(role)}</span></div>
+        <div class="kv-row"><span class="kv-key">초기 비밀번호</span><span class="kv-val kbd">${esc(pw)}</span></div>
+      `;
+    }
+    const copyBtn = $('createUserResultCopyBtn');
+    if (copyBtn) {
+      copyBtn.onclick = async () => {
+        const ok = await copyText(`ID: ${userId}\nPW: ${pw}`);
+        toast(ok ? 'ID/비밀번호 복사됨' : '복사 실패(브라우저 권한 확인)');
+      };
+    }
+    openModal('createUserResultModal');
+  }, '생성 중...');
 }
 
 async function refreshSession() {
@@ -3882,12 +4291,23 @@ async function refreshSocketMetaAndReconnect() {
 async function doLogin() {
   const userId = $('loginId').value.trim();
   const password = $('loginPw').value;
-  if (!userId || !password) return toast('아이디/비번을 입력해 주세요.');
+  if (!userId || !password) {
+    (userId ? $('loginPw') : $('loginId'))?.focus();
+    return toast('아이디/비번을 입력해 주세요.');
+  }
+  const btn = $('loginSubmitBtn');
+  if (btn?.dataset.busy === '1') return;
+  return withBusy(btn, () => doLoginInner(userId, password), '로그인 중...');
+}
+
+async function doLoginInner(userId, password) {
   const res = await apiJson('/api/admin/login', 'POST', { userId, password });
   if (!res.ok) {
     // 네트워크/CORS 차단이면 사용자에게 원인을 보여준다.
     if (String(res.error || '').startsWith('NETWORK_ERROR')) return toast('로그인 요청이 차단되었습니다(네트워크/확장프로그램/CORS).');
-    return toast('로그인 실패');
+    $('loginPw')?.focus();
+    $('loginPw')?.select?.();
+    return toast('로그인 실패: 아이디 또는 비밀번호를 확인해 주세요.');
   }
   closeModal('loginModal');
   $('loginPw').value = '';
@@ -3938,13 +4358,63 @@ async function saveEditModal() {
   toast('저장 완료');
 }
 
+let _syncInFlight = false;
 async function syncDrive(isFast) {
-  // NEW! 배지는 "최근 1일"만 표시(도배 방지)
-  const res = await apiJson('/api/admin/sync/drive', 'POST', { latestDays: 1 });
-  if (!res.ok) return toast(`동기화 실패: ${res.error || ''}`);
-  toast(`동기화 완료: ${res.processed}개`);
-  await loadSongs(true);
-  applySongFilters();
+  if (_syncInFlight) return toast('동기화가 이미 진행 중입니다.');
+  const allBtn = $('syncAllBtn');
+  const fastBtn = $('syncFastBtn');
+  const statusEl = $('syncStatusText');
+  const setStatus = (t) => {
+    if (statusEl) {
+      statusEl.textContent = t || '';
+      statusEl.style.display = t ? 'block' : 'none';
+    }
+  };
+  // 전체 동기화는 DB 전체를 다시 훑는 무거운 작업이라 실수 클릭을 막는다.
+  if (!isFast && !confirm('전체 곡 동기화는 Drive 전체를 다시 읽어 수 분이 걸릴 수 있습니다. 진행할까요?')) return;
+  _syncInFlight = true;
+  let poll = null;
+  try {
+    if (allBtn) allBtn.disabled = true;
+    if (fastBtn) fastBtn.disabled = true;
+    setStatus(isFast ? '최신곡 추가 중...' : '전체 동기화 중...');
+    // 서버는 동기화가 끝날 때까지 응답을 잡고 있으므로, 진행 상황은 status를 따로 폴링해 보여준다.
+    poll = setInterval(async () => {
+      try {
+        const st = await apiGet('/api/admin/sync/status');
+        const p = st?.status;
+        if (!p?.running) return;
+        const file = String(p.currentFile || p.currentPath || '').trim();
+        setStatus(`${isFast ? '최신곡 추가' : '전체 동기화'} 중... 처리 ${Number(p.processed || 0)}개${file ? ` · ${file}` : ''}`);
+      } catch {}
+    }, 1500);
+    // NEW! 배지는 "최근 1일"만 표시(도배 방지).
+    // 최신곡 추가 = incremental(마지막 정상 완료 이후 변경분만), 전체 동기화 = 전체 재스캔.
+    const res = await apiJson('/api/admin/sync/drive', 'POST', { latestDays: 1, incremental: Boolean(isFast) });
+    if (!res.ok) {
+      setStatus('');
+      return toast(`동기화 실패: ${res.error || ''}`);
+    }
+    const parts = [`처리 ${Number(res.processed || 0)}개`];
+    if (Number(res.skipped || 0)) parts.push(`건너뜀 ${Number(res.skipped)}개`);
+    if (Number(res.hiddenCount || 0)) parts.push(`숨김 ${Number(res.hiddenCount)}개`);
+    if (res.aborted) parts.push('중단됨');
+    setStatus(`동기화 완료 · ${parts.join(' · ')}`);
+    toast(`동기화 완료: ${parts.join(' · ')}`);
+    state.songCardsAll = [];
+    state.songFilesAll = [];
+    await loadSongs(true);
+    if (!state.isArchiveMode) await loadSongFiles(true);
+    applySongFilters();
+  } catch (e) {
+    setStatus('');
+    toast('동기화 실패(네트워크)');
+  } finally {
+    if (poll) clearInterval(poll);
+    _syncInFlight = false;
+    if (allBtn) allBtn.disabled = false;
+    if (fastBtn) fastBtn.disabled = false;
+  }
 }
 
 function openProfileModal() {
@@ -4051,6 +4521,33 @@ async function saveBookSettings() {
 function wireEvents() {
   $('mainNavBtn').onclick = () => switchPage('main');
   $('songsNavBtn').onclick = () => switchPage('songs');
+  // 외부 링크 버튼은 메인 데이터 로딩 전에도 눌리므로, state.main을 클릭 시점에 읽는다.
+  $('discordBtn').onclick = () => openUrlOrToast(state.main?.discordUrl, '디스코드');
+  $('youtubeBtn').onclick = () => openUrlOrToast(state.main?.youtubeUrl, '유튜브');
+  $('chzzkBtn').onclick = () => openUrlOrToast(state.main?.chzzkUrl, '치지직');
+  wireModalDismissal();
+  // 검색 단축키: "/" 또는 Ctrl/Cmd+K → 검색창 포커스, 검색창에서 Esc → 비우기
+  document.addEventListener('keydown', (e) => {
+    const t = e.target;
+    const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+    const isK = (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && String(e.key || '').toLowerCase() === 'k';
+    if ((e.key === '/' && !typing && !e.ctrlKey && !e.metaKey && !e.altKey) || isK) {
+      if (topOpenModalId()) return;
+      e.preventDefault();
+      if (!$('songsPage')?.classList.contains('active')) switchPage('songs');
+      $('searchInput')?.focus();
+      $('searchInput')?.select?.();
+    }
+  });
+  $('searchInput')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && $('searchInput').value) {
+      e.preventDefault();
+      e.stopPropagation();
+      $('searchInput').value = '';
+      state.page = 1;
+      applySongFilters();
+    }
+  });
 
   $('authButton').onclick = async () => {
     if (state.role === 'viewer') openModal('loginModal');
@@ -4063,10 +4560,10 @@ function wireEvents() {
       try {
         // GitHub Pages(/Musicbook/public/musicbook/) 안에서 제공되는 admin 콘솔로 이동
         const url = new URL('../admin/', window.location.href).toString();
-        window.open(url, '_blank');
+        window.open(url, '_blank', 'noopener');
       } catch {
         try {
-          window.open('../admin/', '_blank');
+          window.open('../admin/', '_blank', 'noopener');
         } catch {}
       }
     };
@@ -4074,9 +4571,12 @@ function wireEvents() {
 
   $('profileButton').onclick = () => openProfileModal();
   $('profileCancelBtn').onclick = () => closeModal('profileModal');
-  $('profileSaveBtn').onclick = () => submitProfilePhoto().catch(() => {});
+  $('profileSaveBtn').onclick = () => withBusy($('profileSaveBtn'), () => submitProfilePhoto().catch(() => toast('프로필 저장 실패')), '저장 중...');
   $('toggleProfilePwBtn').onclick = () => toggleProfilePasswordBox();
-  $('profilePwSaveBtn').onclick = () => submitPasswordChangeFromProfile().catch(() => {});
+  $('profilePwSaveBtn').onclick = () =>
+    withBusy($('profilePwSaveBtn'), () => submitPasswordChangeFromProfile().catch(() => toast('비밀번호 변경 실패')), '저장 중...');
+  submitOnEnter(['profileCurrentPw', 'profileNewPw', 'profileNewPw2'], () => $('profilePwSaveBtn')?.click());
+  submitOnEnter(['profileDisplayNameInput', 'profilePhotoInput'], () => $('profileSaveBtn')?.click());
   $('privateArchiveOpenBtn').onclick = () => {
     const url = String(state.privateArchivePath || '').trim();
     if (!url) return;
@@ -4121,7 +4621,7 @@ function wireEvents() {
     openModal('bookSettingsModal');
   };
   $('bookSettingsCancelBtn').onclick = () => closeModal('bookSettingsModal');
-  $('bookSettingsSaveBtn').onclick = () => saveBookSettings().catch(() => {});
+  $('bookSettingsSaveBtn').onclick = () => withBusy($('bookSettingsSaveBtn'), () => saveBookSettings().catch(() => toast('저장 실패')), '저장 중...');
   // theme picker modal
   $('bookThemeOpenBtn').onclick = () => {
     state._themePickerPrev = {
@@ -4197,14 +4697,20 @@ function wireEvents() {
 
   $('createUserOpenBtn').onclick = () => openCreateUserModal();
   $('createUserCancelBtn').onclick = () => closeModal('createUserModal');
-  $('createUserSubmitBtn').onclick = () => submitCreateUser().catch(() => {});
+  $('createUserSubmitBtn').onclick = () => submitCreateUser().catch(() => toast('유저 추가 실패'));
+  submitOnEnter(['createUserId', 'createUserName'], () => $('createUserSubmitBtn')?.click());
+  if ($('createUserResultCloseBtn')) $('createUserResultCloseBtn').onclick = () => closeModal('createUserResultModal');
 
   $('loginCloseBtn').onclick = () => closeModal('loginModal');
-  $('loginSubmitBtn').onclick = () => doLogin().catch(() => {});
+  $('loginSubmitBtn').onclick = () => doLogin().catch(() => toast('로그인 실패'));
+  submitOnEnter(['loginId', 'loginPw'], () => doLogin().catch(() => toast('로그인 실패')));
 
-  $('requestOpenBtn').onclick = () => openModal('requestModal');
+  $('requestOpenBtn').onclick = () => openRequestModal();
   $('requestCancelBtn').onclick = () => closeModal('requestModal');
-  $('requestSubmitBtn').onclick = () => submitSongRequest().catch(() => {});
+  $('requestSubmitBtn').onclick = () => submitSongRequest().catch(() => toast('신청 실패'));
+  submitOnEnter(['requesterInput', 'requestSongInput', 'requestArtistInput', 'requestSingerInput'], () =>
+    submitSongRequest().catch(() => toast('신청 실패'))
+  );
 
   $('requestPopoutBtn').onclick = () => {
     try {
@@ -4244,7 +4750,7 @@ function wireEvents() {
   });
 
   $('editCancelBtn').onclick = () => closeModal('editModal');
-  $('editSaveBtn').onclick = () => saveEditModal().catch(() => {});
+  $('editSaveBtn').onclick = () => withBusy($('editSaveBtn'), () => saveEditModal().catch(() => toast('저장 실패')), '저장 중...');
 
   $('songTagCancelBtn').onclick = () => closeModal('songTagModal');
   $('songTagSaveBtn').onclick = () => saveSongTagModal().catch(() => {});
@@ -4366,6 +4872,11 @@ function wireEvents() {
   $('availabilityEditSaveBtn').onclick = async () => {
     const userId = state.isArchiveMode && state.archiveTargetUserId ? state.archiveTargetUserId : state.userId || '';
     if (!userId) return;
+    const saveBtn = $('availabilityEditSaveBtn');
+    if (saveBtn?.dataset.busy === '1') return;
+    await withBusy(saveBtn, () => saveAvailabilityEdits(userId), '저장 중...');
+  };
+  async function saveAvailabilityEdits(userId) {
     const before = state.availabilityOriginalSet || new Set();
     const after = state.availabilityDraftSet || new Set();
     const all = new Set([...before, ...after]);
@@ -4394,8 +4905,8 @@ function wireEvents() {
       await loadSongs(true);
     }
     applySongFilters();
-    toast('저장 완료');
-  };
+    toast(items.length ? `저장 완료 (${items.length}곡 변경)` : '변경사항 없음');
+  }
 
   // 가능곡 편집모드 안에서 곡 메타데이터(제목/가수/조성/장르 등) 인라인 편집 일괄저장(관리자 전용).
   // 위 availabilityEditSaveBtn(가능곡 체크 저장)과는 완전히 별개 데이터/버튼이다.
@@ -4466,6 +4977,11 @@ function wireEvents() {
   $('proficiencyEditSaveBtn').onclick = async () => {
     const userId = state.isArchiveMode && state.archiveTargetUserId ? state.archiveTargetUserId : state.userId || '';
     if (!userId) return;
+    const saveBtn = $('proficiencyEditSaveBtn');
+    if (saveBtn?.dataset.busy === '1') return;
+    await withBusy(saveBtn, () => saveProficiencyEdits(userId), '저장 중...');
+  };
+  async function saveProficiencyEdits(userId) {
     const before = state.proficiencyOriginalMap || new Map();
     const after = state.proficiencyDraftMap || new Map();
     const all = new Set([...before.keys(), ...after.keys()]);
@@ -4491,8 +5007,8 @@ function wireEvents() {
       await loadSongs(true);
     }
     applySongFilters();
-    toast('저장 완료');
-  };
+    toast(items.length ? `저장 완료 (${items.length}곡 변경)` : '변경사항 없음');
+  }
 
   $('availabilityHideExistingToggle').onchange = () => {
     state.availabilityHideExisting = Boolean($('availabilityHideExistingToggle')?.checked);
@@ -4516,21 +5032,33 @@ function wireEvents() {
   $('pageSizeSelect').onchange = () => {
     state.pageSize = Number($('pageSizeSelect').value || 100);
     state.page = 1;
+    persistSortPrefs();
     applySongFilters();
   };
   // 초기 기본값(HTML 기본 selected + state.pageSize) 반영
   try {
     $('pageSizeSelect').value = String(state.pageSize || 500);
   } catch {}
+  const scrollToListTop = () => {
+    try {
+      const anchor = $('songsTitleRow')?.offsetParent ? $('songsTitleRow') : $('songCardList');
+      const y = (anchor?.getBoundingClientRect().top || 0) + window.scrollY - 12;
+      window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
+    } catch {}
+  };
   $('prevPageBtn').onclick = () => {
+    if (state.page <= 1) return;
     state.page = Math.max(1, state.page - 1);
     applySongFilters();
+    scrollToListTop();
   };
   $('nextPageBtn').onclick = () => {
     const total = state.availabilityEditMode || state.proficiencyEditMode ? state.songFilesFiltered.length : state.songCardsFiltered.length;
     const totalPages = Math.max(1, Math.ceil(total / state.pageSize));
+    if (state.page >= totalPages) return;
     state.page = Math.min(totalPages, state.page + 1);
     applySongFilters();
+    scrollToListTop();
   };
   $('pageInfo').ondblclick = () => {
     const host = $('pageInfo');
@@ -4551,16 +5079,23 @@ function wireEvents() {
       host.dataset.editing = '0';
       host.textContent = `${state.page} / ${totalPages}`;
     };
+    let finished = false;
     const commit = () => {
+      if (finished) return;
+      finished = true;
       const raw = Number(String(input.value || '').trim() || 0) || 0;
       if (!raw) return cleanup();
       state.page = Math.max(1, Math.min(totalPages, raw));
       host.dataset.editing = '0';
       applySongFilters();
+      scrollToListTop();
     };
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') commit();
-      if (e.key === 'Escape') cleanup();
+      if (e.key === 'Escape') {
+        finished = true;
+        cleanup();
+      }
     });
     input.addEventListener('blur', () => commit());
   };
@@ -4608,12 +5143,8 @@ function wireEvents() {
     if (!m) return;
     const url = String(m.dataset.driveUrl || '').trim();
     if (!url) return toast('링크가 없습니다.');
-    try {
-      await navigator.clipboard.writeText(url);
-      toast('링크 복사됨');
-    } catch {
-      toast('복사 실패(브라우저 권한 확인)');
-    }
+    if (await copyText(url)) toast('링크 복사됨');
+    else toast('복사 실패(브라우저 권한 확인)');
   };
   $('privateRequestManageDeleteBtn').onclick = async () => {
     const m = $('privateRequestManageModal');
@@ -4672,6 +5203,10 @@ function wireEvents() {
   };
   $('setlistSaveBtn').onclick = async () => {
     if (!isArchiveOwner() || !state.setlistEditMode) return;
+    if ($('setlistSaveBtn')?.dataset.busy === '1') return;
+    await withBusy($('setlistSaveBtn'), () => saveSetlistSelection(), '저장 중...');
+  };
+  async function saveSetlistSelection() {
     // 선택된 카드 → 셋리스트에 추가(중복 방지)
     const selected = Array.from(state.setlistSelectedCardIds || new Set());
     if (selected.length) {
@@ -4699,9 +5234,9 @@ function wireEvents() {
         });
       });
     }
-    await saveSetlistToServer();
-    exitSetlistEditMode(false);
-  };
+    const ok = await saveSetlistToServer();
+    if (ok) exitSetlistEditMode(false);
+  }
 
   // resize (panel)
   (() => {
@@ -4737,21 +5272,25 @@ function wireEvents() {
 
   $('sortFieldSelect').onchange = () => {
     state.sortField = String($('sortFieldSelect').value || 'createdAt');
-    if (state.sortField === 'createdAt' && !state.sortDir) state.sortDir = 'desc';
+    // 기준을 바꾸면 그 기준에 맞는 기본 방향으로(곡명순인데 내림차순으로 ㅎ→ㄱ 나오는 혼란 방지)
+    state.sortDir = defaultSortDirFor(state.sortField);
     state.page = 1;
     updateSortControls();
+    persistSortPrefs();
     applySongFilters();
   };
   $('sortAscBtn').onclick = () => {
     state.sortDir = 'asc';
     state.page = 1;
     updateSortControls();
+    persistSortPrefs();
     applySongFilters();
   };
   $('sortDescBtn').onclick = () => {
     state.sortDir = 'desc';
     state.page = 1;
     updateSortControls();
+    persistSortPrefs();
     applySongFilters();
   };
   updateSortControls();
@@ -4766,19 +5305,55 @@ function wireEvents() {
   $('sessionCreateBtn').onclick = () => {
     if (state.role === 'viewer') return toast('로그인된 멤버만 세션을 만들 수 있습니다.');
     const socket = state._socket;
-    if (!socket) return;
-    socket.emit('session:create', {}, (ack) => {
-      if (!ack?.ok) return toast('세션 생성 실패');
-      // 세션 생성/참여는 바로 viewer로 이동
-      window.location.href = viewerUrl({ roomCode: String(ack.roomCode || '') });
-    });
+    if (!socket || !socket.connected) return toast('서버와 연결이 끊겨 있어요. 잠시 후 다시 시도해 주세요.');
+    const btn = $('sessionCreateBtn');
+    withBusy(
+      btn,
+      () =>
+        new Promise((resolve) => {
+          let done = false;
+          const finish = (ack) => {
+            if (done) return;
+            done = true;
+            if (!ack?.ok) toast('세션 생성 실패');
+            // 세션 생성/참여는 바로 viewer로 이동
+            else window.location.href = viewerUrl({ roomCode: String(ack.roomCode || '') });
+            resolve();
+          };
+          setTimeout(() => finish({ ok: false }), 6000);
+          socket.emit('session:create', {}, finish);
+        }),
+      '만드는 중...'
+    );
+  };
+  const submitSessionJoin = () => {
+    const code = String($('sessionJoinCodeInput')?.value || '')
+      .trim()
+      .toUpperCase();
+    if (!code) {
+      $('sessionJoinCodeInput')?.focus();
+      return toast('Room Code를 입력해 주세요.');
+    }
+    closeModal('sessionJoinModal');
+    window.location.href = viewerUrl({ roomCode: code });
   };
   $('sessionJoinBtn').onclick = () => {
     if (state.role === 'viewer') return toast('로그인된 멤버만 세션에 참여할 수 있습니다.');
-    const code = (prompt('Room Code를 입력하세요:', state.sessionRoomCode || '') || '').trim().toUpperCase();
-    if (!code) return;
-    window.location.href = viewerUrl({ roomCode: code });
+    if ($('sessionJoinCodeInput')) $('sessionJoinCodeInput').value = state.sessionRoomCode || '';
+    openModal('sessionJoinModal');
   };
+  if ($('sessionJoinCancelBtn')) $('sessionJoinCancelBtn').onclick = () => closeModal('sessionJoinModal');
+  if ($('sessionJoinSubmitBtn')) $('sessionJoinSubmitBtn').onclick = submitSessionJoin;
+  submitOnEnter(['sessionJoinCodeInput'], submitSessionJoin);
+  $('sessionJoinCodeInput')?.addEventListener?.('input', (e) => {
+    // 코드 입력은 대문자 고정
+    const el = e.target;
+    const pos = el.selectionStart;
+    el.value = String(el.value || '').toUpperCase();
+    try {
+      el.setSelectionRange(pos, pos);
+    } catch {}
+  });
   $('sessionLeaveBtn').onclick = () => leaveLiveSession();
   $('sessionMembersBtn').onclick = () => {
     $('sessionPanel').style.display = 'block';
@@ -4791,12 +5366,8 @@ function wireEvents() {
     if (!state.sessionRoomCode) return;
     // 공유 링크는 "송북"으로 보내고, 들어가서 room이 있으면 viewer로 이동하는 구조가 가장 자연스럽다.
     const url = new URL('./?room=' + encodeURIComponent(state.sessionRoomCode), window.location.href).toString();
-    try {
-      await navigator.clipboard.writeText(url);
-      toast('세션 링크 복사됨');
-    } catch {
-      prompt('복사해서 공유하세요:', url);
-    }
+    if (await copyText(url)) toast('세션 링크 복사됨');
+    else prompt('복사해서 공유하세요:', url);
   };
 
   // 가능보컬 필터(AND 멀티 선택)
@@ -4812,12 +5383,11 @@ function wireEvents() {
   }
 
   $('guestbookHideBtn').onclick = () => {
-    $('guestbookPanel').style.display = 'none';
-    $('guestbookShowBtn').style.display = state.isArchiveMode ? 'inline-flex' : 'none';
+    state.guestbookHidden = true;
+    renderGuestbook();
   };
   $('guestbookShowBtn').onclick = () => {
-    $('guestbookPanel').style.display = 'flex';
-    $('guestbookShowBtn').style.display = 'none';
+    state.guestbookHidden = false;
     ensureGuestbookPosition();
     renderGuestbook();
   };
@@ -4840,18 +5410,24 @@ function wireEvents() {
     }
     const nickname = String($('guestbookNicknameInput')?.value || '').trim();
     const content = String($('guestbookContentInput')?.value || '').trim();
-    if (!nickname || !content) return toast('닉네임과 내용을 입력해 주세요.');
-    const r = await apiJson(`/api/guestbook/${encodeURIComponent(state.archiveTargetUserId)}`, 'POST', { nickname, content });
-    if (!r.ok) return toast('등록 실패');
-    try {
-      localStorage.setItem('mb_guestbook_nick', nickname);
-    } catch {}
-    $('guestbookContentInput').value = '';
-    compose.style.display = 'none';
-    compose.dataset.open = '0';
-    btn.textContent = '방명록 쓰기';
-    await loadGuestbook(true);
-    toast('방명록을 남겼습니다.');
+    if (!nickname || !content) {
+      (nickname ? $('guestbookContentInput') : $('guestbookNicknameInput'))?.focus();
+      return toast('닉네임과 내용을 입력해 주세요.');
+    }
+    await withBusy(btn, async () => {
+      const r = await apiJson(`/api/guestbook/${encodeURIComponent(state.archiveTargetUserId)}`, 'POST', { nickname, content });
+      if (!r.ok) return toast('등록 실패');
+      try {
+        localStorage.setItem('mb_guestbook_nick', nickname);
+      } catch {}
+      $('guestbookContentInput').value = '';
+      compose.style.display = 'none';
+      compose.dataset.open = '0';
+      await loadGuestbook(true);
+      toast('방명록을 남겼습니다.');
+    }, '남기는 중...');
+    // withBusy가 라벨을 복원하므로 닫힌 상태의 라벨을 다시 맞춘다
+    btn.textContent = compose.dataset.open === '1' ? '남기기' : '방명록 쓰기';
   };
 
   // action modals
@@ -4870,6 +5446,11 @@ function wireEvents() {
 }
 
 function attachSockets() {
+  // socket.io CDN이 차단된 환경(사내망/광고차단)에서도 곡 목록/검색은 동작해야 한다.
+  if (typeof io !== 'function') {
+    console.warn('[musicbook] socket.io unavailable; realtime features disabled');
+    return;
+  }
   const nickname = getOrCreatePresenceNickname();
   const metaToken = state.metaToken || '';
   const socket = io(API_URL, { withCredentials: true, auth: { nickname, metaToken } });
@@ -5211,7 +5792,18 @@ async function bootstrap() {
     }
 
     wireEvents();
+    restoreSortPrefs();
+    updateSortControls();
+    try {
+      $('pageSizeSelect').value = String(state.pageSize || 500);
+    } catch {}
     updateViewModeControls();
+    // #songs 해시로 곡 리스트 딥링크 + 브라우저 뒤로가기로 메인/곡 리스트 전환
+    if (!state.isArchiveMode) {
+      const applyHash = () => switchPage(window.location.hash === '#songs' ? 'songs' : 'main', { fromHash: true });
+      window.addEventListener('popstate', applyHash);
+      if (window.location.hash === '#songs') applyHash();
+    }
     // archive public profile (for header/loading animation)
     if (state.isArchiveMode && state.archiveTargetUserId) {
       try {

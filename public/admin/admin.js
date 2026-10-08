@@ -16,34 +16,87 @@ const apiUrl = (path) => {
   return `${API_URL}${p.startsWith('/') ? '' : '/'}${p}`;
 };
 
+// 네트워크 실패/프록시 HTML 에러(502 등)에서도 항상 {ok:false,error}로 돌려줘서
+// 호출부의 if (!r.ok) 분기가 사용자에게 실패를 보여줄 수 있게 한다.
 async function apiGet(url) {
-  const res = await fetch(apiUrl(url), { credentials: 'include' });
-  return res.json();
+  try {
+    const res = await fetch(apiUrl(url), { credentials: 'include' });
+    try {
+      return await res.json();
+    } catch {
+      return { ok: false, error: `HTTP_${res.status}` };
+    }
+  } catch (e) {
+    return { ok: false, error: `NETWORK_ERROR:${String(e?.message || e)}` };
+  }
 }
 async function apiJson(url, method, body) {
-  const res = await fetch(apiUrl(url), {
-    method,
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body ?? {})
-  });
-  return res.json();
+  try {
+    const res = await fetch(apiUrl(url), {
+      method,
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body ?? {})
+    });
+    try {
+      return await res.json();
+    } catch {
+      return { ok: false, error: `HTTP_${res.status}` };
+    }
+  } catch (e) {
+    return { ok: false, error: `NETWORK_ERROR:${String(e?.message || e)}` };
+  }
+}
+const ERROR_LABELS = {
+  INVALID_CREDENTIALS: '아이디 또는 비밀번호가 올바르지 않습니다.',
+  UNAUTHORIZED: '로그인이 필요합니다.',
+  FORBIDDEN: '권한이 없습니다(관리자 전용).',
+  USER_EXISTS: '이미 존재하는 유저 ID입니다.',
+  BAD_REQUEST: '입력값을 확인해 주세요.'
+};
+function errorLabel(code) {
+  const c = String(code || '');
+  if (ERROR_LABELS[c]) return ERROR_LABELS[c];
+  if (c.startsWith('NETWORK_ERROR')) return '서버에 연결하지 못했습니다(네트워크/CORS).';
+  if (c.startsWith('HTTP_')) return `서버 오류(${c.slice(5)})`;
+  return c || '알 수 없는 오류';
+}
+// 처리 중 중복 클릭 방지
+async function withBusy(btn, fn, busyLabel) {
+  if (!btn) return fn();
+  if (btn.dataset.busy === '1') return undefined;
+  const prev = btn.textContent;
+  btn.dataset.busy = '1';
+  btn.disabled = true;
+  if (busyLabel) btn.textContent = busyLabel;
+  try {
+    return await fn();
+  } finally {
+    btn.dataset.busy = '0';
+    btn.disabled = false;
+    if (busyLabel) btn.textContent = prev;
+  }
 }
 
-// Back link: Render(/admin)에서 열릴 때는 /musicbook/ 경로가 없으므로 루트로 보정.
+// Back link: Express(/admin/)에서 열리면 ../musicbook/ 경로는 index.html만 내려주고 css/js가 없다.
+// GitHub Pages(/Musicbook/public/admin/)에서는 ../musicbook/이 맞으므로, 경로 형태로 구분한다.
 try {
   const a = document.getElementById('backToSongbook');
   if (a) {
-    const host = String(window.location.hostname || '');
-    if (host.endsWith('onrender.com') && window.location.pathname === '/admin') a.href = '/';
+    const p = String(window.location.pathname || '');
+    if (!/\/public\/admin\/?$/.test(p)) a.href = '/';
   }
 } catch {}
 
-function showAuthed(on) {
+function showAuthed(on, role = '') {
   setDisplay('loginCard', on ? 'none' : 'block');
   // CSV 임포트 기능은 더 이상 사용하지 않으므로 UI에서 제거
   // 진단/운영 콘솔은 /dev로 이관됨
-  ['meCard', 'mainCard', 'usersCard'].forEach((id) => setDisplay(id, on ? 'block' : 'none'));
+  setDisplay('meCard', on ? 'block' : 'none');
+  // 메인 설정/유저 관리는 서버가 requireAdmin이라 세션 멤버에게 보여줘도 전부 실패한다
+  const isAdmin = role === 'admin';
+  ['mainCard', 'usersCard'].forEach((id) => setDisplay(id, on && isAdmin ? 'block' : 'none'));
+  setDisplay('sessionOnlyNote', on && !isAdmin ? 'block' : 'none');
   ['syncCard', 'parseErrorCard', 'trafficCard'].forEach((id) => setDisplay(id, 'none'));
 }
 
@@ -54,7 +107,7 @@ async function refreshMe() {
     return null;
   }
   if ($('meText')) $('meText').textContent = `${me.user.userId} (${me.user.role})`;
-  showAuthed(true);
+  showAuthed(true, String(me.user.role || ''));
   return me.user;
 }
 
@@ -383,47 +436,71 @@ async function resetTraffic() {
 }
 
 function wire() {
-  $('loginBtn')?.addEventListener?.('click', async () => {
-    const userId = ($('loginId')?.value || '').trim();
-    const password = $('loginPw')?.value || '';
-    const r = await apiJson('/api/admin/login', 'POST', { userId, password });
-    if ($('loginOut')) $('loginOut').textContent = JSON.stringify(r, null, 2);
-    if (r.ok) location.reload();
-  });
+  const doLogin = () =>
+    withBusy($('loginBtn'), async () => {
+      const userId = ($('loginId')?.value || '').trim();
+      const password = $('loginPw')?.value || '';
+      if (!userId || !password) {
+        if ($('loginOut')) $('loginOut').textContent = '아이디와 비밀번호를 입력하세요.';
+        (userId ? $('loginPw') : $('loginId'))?.focus();
+        return;
+      }
+      if ($('loginOut')) $('loginOut').textContent = '로그인 중...';
+      const r = await apiJson('/api/admin/login', 'POST', { userId, password });
+      if (r.ok) {
+        if ($('loginOut')) $('loginOut').textContent = '로그인 완료';
+        location.reload();
+        return;
+      }
+      if ($('loginOut')) $('loginOut').textContent = `로그인 실패: ${errorLabel(r.error)}`;
+      $('loginPw')?.focus();
+    }, '로그인 중...');
+  $('loginBtn')?.addEventListener?.('click', () => doLogin().catch(() => {}));
+  ['loginId', 'loginPw'].forEach((id) =>
+    $(id)?.addEventListener?.('keydown', (e) => {
+      if (e.key === 'Enter' && !e.isComposing) doLogin().catch(() => {});
+    })
+  );
 
   $('logoutBtn')?.addEventListener?.('click', async () => {
     await apiJson('/api/admin/logout', 'POST', {});
     location.reload();
   });
 
-  $('saveMainBtn')?.addEventListener?.('click', () => saveMain().catch(() => {}));
+  $('saveMainBtn')?.addEventListener?.('click', () =>
+    withBusy($('saveMainBtn'), () => saveMain().catch(() => alert('저장 실패(네트워크)')), '저장 중...')
+  );
   $('saveRootFolderBtn')?.addEventListener?.('click', () => saveDriveRoot().catch(() => {}));
-  $('syncBtn')?.addEventListener?.('click', async () => {
-    if (syncRunning) {
-      const r = await apiJson('/api/admin/sync/stop', 'POST', {});
-      if ($('syncOut')) $('syncOut').textContent = JSON.stringify(r, null, 2);
-      await loadSyncStatus();
-      return;
-    }
-    await syncDrive();
-  });
+  $('syncBtn')?.addEventListener?.('click', () =>
+    withBusy($('syncBtn'), async () => {
+      if (syncRunning) {
+        const r = await apiJson('/api/admin/sync/stop', 'POST', {});
+        if ($('syncOut')) $('syncOut').textContent = JSON.stringify(r, null, 2);
+        await loadSyncStatus();
+        return;
+      }
+      await syncDrive();
+    })
+  );
   $('reloadParseErrorsBtn')?.addEventListener?.('click', () => loadParseErrors().catch(() => {}));
   $('reloadTrafficBtn')?.addEventListener?.('click', () => loadTraffic().catch(() => {}));
   $('resetTrafficBtn')?.addEventListener?.('click', () => resetTraffic().catch(() => {}));
 
   $('reloadUsersBtn')?.addEventListener?.('click', () => loadUsers().catch(() => {}));
-  $('createUserBtn')?.addEventListener?.('click', async () => {
-    const userId = ($('newUserId')?.value || '').trim();
-    const role = $('newUserRole')?.value || '';
-    const displayName = ($('newUserName')?.value || '').trim();
-    if (!userId) return alert('userId를 입력하세요');
-    const r = await apiJson('/api/admin/users', 'POST', { userId, role, displayName });
-    if (!r.ok) return alert('생성 실패');
-    if ($('newUserId')) $('newUserId').value = '';
-    if ($('newUserName')) $('newUserName').value = '';
-    alert(`생성 완료: ${userId} (PW: ${r.password || '1234'})`);
-    await loadUsers();
-  });
+  $('createUserBtn')?.addEventListener?.('click', () =>
+    withBusy($('createUserBtn'), async () => {
+      const userId = ($('newUserId')?.value || '').trim();
+      const role = $('newUserRole')?.value || '';
+      const displayName = ($('newUserName')?.value || '').trim();
+      if (!userId) return alert('userId를 입력하세요');
+      const r = await apiJson('/api/admin/users', 'POST', { userId, role, displayName });
+      if (!r.ok) return alert(`생성 실패: ${errorLabel(r.error)}`);
+      if ($('newUserId')) $('newUserId').value = '';
+      if ($('newUserName')) $('newUserName').value = '';
+      alert(`생성 완료: ${userId} (PW: ${r.password || '1234'})`);
+      await loadUsers();
+    }, '생성 중...')
+  );
 }
 
 async function boot() {

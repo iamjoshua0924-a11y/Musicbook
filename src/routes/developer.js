@@ -290,6 +290,8 @@ router.post(
     const userId = String(parsed.data.userId || '').trim();
     const displayName = String(parsed.data.displayName || '').trim();
     if (!userId) return res.status(400).json({ ok: false, error: 'BAD_REQUEST' });
+    // 기존 계정(관리자 포함)을 private session 계정으로 덮어쓰지 않는다
+    if (await User.exists({ userId })) return res.status(409).json({ ok: false, error: 'USER_EXISTS' });
 
     const passwordHash = await bcrypt.hash('1234', 10);
     const doc = await User.findOneAndUpdate(

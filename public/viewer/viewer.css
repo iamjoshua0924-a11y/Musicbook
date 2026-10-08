@@ -1033,6 +1033,7 @@ body.live-mode #participantsPanel{
   font-weight: 800;
 }
 #viewer-wrapper:fullscreen { position: relative; background: #fff; }
+:fullscreen { background: var(--bg); }
 
 /* Mobile / tablet live mode */
 /* topbar는 모바일에서도 동일 UI 사용 */

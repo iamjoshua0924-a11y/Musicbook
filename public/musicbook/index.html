@@ -5,7 +5,7 @@
     <title>밍긴어게인 노래책</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='bg' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23ff9ecf'/%3E%3Cstop offset='55%25' stop-color='%23b28cff'/%3E%3Cstop offset='100%25' stop-color='%236fa8ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='4' y='4' width='56' height='56' rx='16' fill='url(%23bg)'/%3E%3Cpath d='M40 17v23.5c-1.7-1.1-4.3-1.6-6.8-1.1-4 .8-6.8 3.6-6.2 6.3.6 2.7 4.2 4.1 8.2 3.3 3.6-.7 6.1-3 6.2-5.5V26.5l9-2.2v12.2c-1.7-1.1-4.3-1.6-6.8-1.1-4 .8-6.8 3.6-6.2 6.3.6 2.7 4.2 4.1 8.2 3.3 3.8-.7 6.3-3.2 6.2-5.8V17.8c0-1.1-1-1.9-2-1.7L40 17z' fill='white'/%3E%3C/svg%3E" />
-    <link rel="stylesheet" href="musicbook.css?v=20260819_2" />
+    <link rel="stylesheet" href="musicbook.css?v=20260903_1" />
   </head>
 
   <body class="preload">
@@ -100,6 +100,7 @@
           <button class="floating-btn" id="adminConsoleBtn" type="button">관리자 콘솔</button>
           <button class="floating-btn black-btn" id="chzzkStartBtn" type="button">방송시작</button>
           <button class="floating-btn" id="chzzkStopBtn" type="button">방종</button>
+          <div class="admin-status" id="syncStatusText" style="display:none;"></div>
           <div class="admin-status" id="chzzkStatusText">치지직 상태: OFF</div>
         </div>
 
@@ -109,7 +110,7 @@
               <img
                 id="bannerImage"
                 class="banner-image"
-                onerror="this.src='https://placehold.co/1200x400?text=NO+IMAGE'"
+                onerror="this.onerror=null; this.src='https://placehold.co/1200x400?text=NO+IMAGE'"
                 alt=""
               />
             </div>
@@ -137,7 +138,7 @@
             <div class="glass-card">
               <div class="search-grid">
                 <div class="search-row search-row-1">
-                  <input id="searchInput" class="input" placeholder="곡명 / 가수 검색" />
+                  <input id="searchInput" class="input" type="search" placeholder="곡명 / 가수 검색 (초성 가능, / 키)" autocomplete="off" aria-label="곡명 또는 가수 검색" />
 
                   <select id="genreFilter" class="select">
                     <option value="">장르 전체</option>
@@ -229,7 +230,7 @@
 
             <!-- Set list panel (archive only, viewer can read when exists) -->
             <div id="setlistPanel" class="setlist-panel" style="display:none;">
-              <div class="setlist-resize-handle" id="setlistResizeHandle" title="드래그로 크기 조절"></div>
+              <div class="setlist-resize-handle" id="setlistResizeHandle" title="드래그로 크기 조절" aria-hidden="true"></div>
               <div class="setlist-header">
                 <div class="setlist-title">Set list</div>
                 <div class="setlist-header-right">
@@ -292,7 +293,7 @@
             </div>
 
             <!-- Private request manage modal -->
-            <div class="modal-overlay" id="privateRequestManageModal" style="display:none;">
+            <div class="modal-overlay" id="privateRequestManageModal" role="dialog" aria-modal="true" style="display:none;">
               <div class="modal">
                 <div class="modal-title" id="privateRequestManageTitle">신청곡</div>
                 <div class="muted" id="privateRequestManageDesc" style="margin-top:8px; font-weight:900;"></div>
@@ -310,15 +311,15 @@
                 <div class="paging-left">
                   <button class="floating-btn compact-btn" id="prevPageBtn" type="button">이전</button>
                   <button class="floating-btn compact-btn" id="nextPageBtn" type="button">다음</button>
-                  <div class="paging-info" id="pageInfo"></div>
+                  <div class="paging-info" id="pageInfo" title="더블클릭하면 페이지 번호를 직접 입력할 수 있어요"></div>
                 </div>
 
                 <div class="paging-right">
                   <label class="paging-label" for="pageSizeSelect">페이지당</label>
                   <select id="pageSizeSelect" class="select paging-select">
                     <option value="50">50</option>
-                    <option value="200">200</option>
                     <option value="100">100</option>
+                    <option value="200">200</option>
                     <option value="500" selected>500</option>
                     <option value="1000">1000</option>
                   </select>
@@ -353,7 +354,7 @@
         <div class="request-panel-header">
           <div class="request-panel-title">신청곡 현황</div>
           <div class="toolbar-right">
-            <button class="floating-btn compact-btn" id="requestPopoutBtn" type="button" title="별도창">↗</button>
+            <button class="floating-btn compact-btn" id="requestPopoutBtn" type="button" title="별도창으로 열기" aria-label="신청곡 현황 별도창으로 열기">↗</button>
             <button class="floating-btn compact-btn" id="requestHideBtn" type="button">숨기기</button>
           </div>
         </div>
@@ -435,11 +436,11 @@
     </aside>
 
     <!-- 모달(필수만) -->
-    <div class="modal-overlay" id="loginModal">
+    <div class="modal-overlay" id="loginModal" role="dialog" aria-modal="true">
       <div class="modal">
         <div class="modal-title">로그인</div>
-        <input id="loginId" class="input" placeholder="ID" />
-        <input id="loginPw" class="input" type="password" placeholder="Password" />
+        <input id="loginId" class="input" placeholder="ID" autocomplete="username" autocapitalize="off" spellcheck="false" />
+        <input id="loginPw" class="input" type="password" placeholder="Password" autocomplete="current-password" />
         <div class="modal-actions">
           <button class="floating-btn" id="loginCloseBtn" type="button">닫기</button>
           <button class="floating-btn black-btn" id="loginSubmitBtn" type="button">로그인</button>
@@ -447,7 +448,7 @@
       </div>
     </div>
 
-    <div class="modal-overlay" id="requestModal">
+    <div class="modal-overlay" id="requestModal" role="dialog" aria-modal="true">
       <div class="modal">
         <div class="modal-title">곡 신청하기</div>
         <input id="requesterInput" class="input" placeholder="신청자" />
@@ -461,7 +462,7 @@
       </div>
     </div>
 
-    <div class="modal-overlay" id="editModal">
+    <div class="modal-overlay" id="editModal" role="dialog" aria-modal="true">
       <div class="modal">
         <div class="modal-title" id="editModalTitle"></div>
         <textarea id="editModalInput" rows="7"></textarea>
@@ -472,11 +473,11 @@
       </div>
     </div>
 
-    <div class="modal-overlay" id="randomModal">
+    <div class="modal-overlay" id="randomModal" role="dialog" aria-modal="true">
       <div class="modal">
         <div class="modal-title-row">
           <div class="modal-title" style="margin-bottom:0;">랜덤 추천곡</div>
-          <button class="icon-btn" id="randomSettingsOpenBtn" type="button" title="설정">
+          <button class="icon-btn" id="randomSettingsOpenBtn" type="button" title="랜덤 설정" aria-label="랜덤 설정">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path
                 d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.27 7.27 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 13.9 1h-3.8a.5.5 0 0 0-.49.42l-.36 2.54c-.58.23-1.12.54-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L1.71 7.48a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94L1.83 14.52a.5.5 0 0 0-.12.64l1.92 3.32c.13.23.39.32.6.22l2.39-.96c.5.39 1.05.71 1.63.94l.36 2.54c.04.24.25.42.49.42h3.8c.24 0 .45-.18.49-.42l.36-2.54c.58-.23 1.12-.54 1.63-.94l2.39.96c.22.09.47 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Z"
@@ -495,7 +496,7 @@
     </div>
 
     <!-- 랜덤 설정 -->
-    <div class="modal-overlay" id="randomSettingsModal">
+    <div class="modal-overlay" id="randomSettingsModal" role="dialog" aria-modal="true">
       <div class="modal">
         <div class="modal-title">랜덤 설정</div>
         <div class="form-row">
@@ -553,7 +554,7 @@
     </div>
 
     <!-- 가능보컬 멀티 선택 모달 -->
-    <div class="modal-overlay" id="availableVocalModal">
+    <div class="modal-overlay" id="availableVocalModal" role="dialog" aria-modal="true">
       <div class="modal">
         <div class="modal-title">가능보컬 선택</div>
         <input id="availableVocalSearch" class="input" placeholder="이름 검색" />
@@ -565,7 +566,7 @@
     </div>
 
     <!-- Profile modal (GAS 원본 이식) -->
-    <div class="modal-overlay" id="profileModal">
+    <div class="modal-overlay" id="profileModal" role="dialog" aria-modal="true">
       <div class="modal">
         <div class="modal-title">프로필 관리</div>
 
@@ -581,9 +582,9 @@
         </button>
 
         <div id="profilePasswordBox" class="profile-password-box" style="display:none;">
-          <input type="password" id="profileCurrentPw" class="input" placeholder="현재 비밀번호" />
-          <input type="password" id="profileNewPw" class="input" placeholder="새 비밀번호" />
-          <input type="password" id="profileNewPw2" class="input" placeholder="새 비밀번호 확인" />
+          <input type="password" id="profileCurrentPw" class="input" placeholder="현재 비밀번호" autocomplete="current-password" />
+          <input type="password" id="profileNewPw" class="input" placeholder="새 비밀번호(4자 이상)" autocomplete="new-password" />
+          <input type="password" id="profileNewPw2" class="input" placeholder="새 비밀번호 확인" autocomplete="new-password" />
           <button class="floating-btn black-btn" id="profilePwSaveBtn" type="button">비밀번호 저장</button>
         </div>
 
@@ -593,13 +594,13 @@
 
         <div class="modal-actions">
           <button class="floating-btn" id="profileCancelBtn" type="button">취소</button>
-          <button class="floating-btn black-btn" id="profileSaveBtn" type="button">업로드</button>
+          <button class="floating-btn black-btn" id="profileSaveBtn" type="button">저장</button>
         </div>
       </div>
     </div>
 
     <!-- Book settings modal (private only) -->
-    <div class="modal-overlay" id="bookSettingsModal">
+    <div class="modal-overlay" id="bookSettingsModal" role="dialog" aria-modal="true">
       <div class="modal">
         <div class="modal-title">노래책 설정</div>
         <div class="muted" style="font-weight:900;">개인 타이틀 배너(이미지)</div>
@@ -647,7 +648,7 @@
     </div>
 
     <!-- Theme picker modal (book settings) -->
-    <div class="modal-overlay" id="themePickerModal">
+    <div class="modal-overlay" id="themePickerModal" role="dialog" aria-modal="true">
       <div class="modal">
         <div class="modal-title">테마 선택</div>
         <div class="muted" style="font-weight:900;">테마</div>
@@ -727,7 +728,7 @@
     </div>
 
     <!-- Create user modal (GAS 원본 이식) -->
-    <div class="modal-overlay" id="createUserModal">
+    <div class="modal-overlay" id="createUserModal" role="dialog" aria-modal="true">
       <div class="modal">
         <div class="modal-title">유저 추가</div>
         <input id="createUserId" class="input" placeholder="유저 ID" />
@@ -743,8 +744,34 @@
       </div>
     </div>
 
+    <!-- Create user result (초기 비밀번호는 토스트로 흘려보내지 않고 복사 가능한 모달로) -->
+    <div class="modal-overlay" id="createUserResultModal" role="dialog" aria-modal="true">
+      <div class="modal">
+        <div class="modal-title">유저 생성 완료</div>
+        <div class="muted" style="margin-bottom:8px;">초기 비밀번호는 지금만 표시돼요. 복사해서 전달해 주세요.</div>
+        <div id="createUserResultBody" class="kv-box"></div>
+        <div class="modal-actions">
+          <button class="floating-btn" id="createUserResultCopyBtn" type="button">ID/비밀번호 복사</button>
+          <button class="floating-btn black-btn" id="createUserResultCloseBtn" type="button">닫기</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Session join (기존 prompt() 대체) -->
+    <div class="modal-overlay" id="sessionJoinModal" role="dialog" aria-modal="true">
+      <div class="modal">
+        <div class="modal-title">세션 참여</div>
+        <div class="muted" style="margin-bottom:8px;">페이지터너가 공유한 Room Code를 입력하세요.</div>
+        <input id="sessionJoinCodeInput" class="input" placeholder="ROOM CODE" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="12" style="text-transform:uppercase; letter-spacing:0.12em; font-weight:900;" />
+        <div class="modal-actions">
+          <button class="floating-btn" id="sessionJoinCancelBtn" type="button">취소</button>
+          <button class="floating-btn black-btn" id="sessionJoinSubmitBtn" type="button">참여</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Song tag edit modal (관리자 전용) -->
-    <div class="modal-overlay" id="songTagModal">
+    <div class="modal-overlay" id="songTagModal" role="dialog" aria-modal="true">
       <div class="modal">
         <div class="modal-title">곡 태그 편집</div>
         <div class="muted" id="songTagModalSubtitle" style="font-weight:1000;"></div>
@@ -780,7 +807,7 @@
     </div>
 
     <!-- Tag required modal (session/admin) -->
-    <div class="modal-overlay" id="tagRequiredModal">
+    <div class="modal-overlay" id="tagRequiredModal" role="dialog" aria-modal="true">
       <div class="modal">
         <div class="modal-title">태그 입력(최초 1회)</div>
         <div class="muted" id="tagRequiredSubtitle" style="font-weight:1000;"></div>
@@ -809,7 +836,7 @@
     </div>
 
     <!-- Key select modal (조성 선택) -->
-    <div class="modal-overlay" id="keySelectModal">
+    <div class="modal-overlay" id="keySelectModal" role="dialog" aria-modal="true">
       <div class="modal">
         <div class="modal-title">키 선택</div>
         <div class="muted" id="keySelectSubtitle" style="font-weight:1000;"></div>
@@ -821,7 +848,7 @@
     </div>
 
     <!-- Song action modal (복사/뷰어 / 악보없음·코드위키 placeholder 곡 분기) -->
-    <div class="modal-overlay" id="songActionModal">
+    <div class="modal-overlay" id="songActionModal" role="dialog" aria-modal="true">
       <div class="modal">
         <div class="modal-title">선택</div>
         <div class="muted" id="songActionSubtitle" style="font-weight:1000;"></div>
@@ -843,7 +870,7 @@
 
     <!-- 가능곡 벌크 추가(개인 노래책 전용). 그리드는 musicbook.js가 컬럼 구성을 받아 동적으로 그린다
          (하드코딩 안 함 - 다음 phase의 파일 업로드에서도 같은 그리드 컴포넌트를 재사용할 예정). -->
-    <div class="modal-overlay" id="bulkAddSongsModal">
+    <div class="modal-overlay" id="bulkAddSongsModal" role="dialog" aria-modal="true">
       <div class="modal modal-wide">
         <div class="modal-title">노래책에 없는 곡 추가</div>
         <div class="muted" style="margin-top:-4px; margin-bottom:10px;">
@@ -858,7 +885,7 @@
     </div>
 
     <!-- 악보 연결(placeholder 승격 + 코드위키 링크 추가/교체). 파일/링크 중 하나만 있어도 됨. -->
-    <div class="modal-overlay" id="attachFileModal">
+    <div class="modal-overlay" id="attachFileModal" role="dialog" aria-modal="true">
       <div class="modal">
         <div class="modal-title">악보 연결</div>
         <div class="muted" id="attachFileSubtitle" style="font-weight:1000; margin-bottom:10px;"></div>
@@ -880,7 +907,7 @@
     </div>
 
     <!-- 악보 업로드(드래그&드롭). 파일 1개면 단일 폼, 2개 이상이면 벌크 그리드(Phase 3 컴포넌트 재사용). -->
-    <div class="modal-overlay" id="uploadDropModal">
+    <div class="modal-overlay" id="uploadDropModal" role="dialog" aria-modal="true">
       <div class="modal modal-wide">
         <div class="modal-title">악보 업로드</div>
         <div class="muted" style="margin-top:-4px; margin-bottom:10px;">
@@ -910,7 +937,7 @@
 
     <script src="../config.js"></script>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
-    <script src="../common/avatar.js?v=20260529_1"></script>
-    <script src="musicbook.js?v=20260819_2"></script>
+    <script src="../common/avatar.js?v=20260903_1"></script>
+    <script src="musicbook.js?v=20260903_1"></script>
   </body>
 </html>

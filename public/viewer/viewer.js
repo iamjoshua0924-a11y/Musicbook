@@ -5357,7 +5357,7 @@ async function loadPdf(fileId) {
     // 복구 버튼은 상단 알림에 둔다. pageHud는 페이지 넘김/토스트마다 다시 그려져서 버튼이 사라졌다.
     const REASON_LABELS = {
       PUBLIC_REQUIRED: '파일이 "링크가 있는 모든 사용자"로 공유되어 있지 않음',
-      PUBLIC_UNVERIFIED: '노래책에 등록되지 않은 파일이라 공유 상태를 확인할 수 없음(동기화 후 다시 시도)',
+      PUBLIC_UNVERIFIED: '공유 상태를 확인할 수 없음',
       DOWNLOAD_DISABLED: '파일 소유자가 다운로드/인쇄/복사를 막아 둠',
       PDF_ONLY: 'PDF 파일이 아님',
       NOT_FOUND: '파일을 찾을 수 없거나 서버 계정이 접근할 수 없음'

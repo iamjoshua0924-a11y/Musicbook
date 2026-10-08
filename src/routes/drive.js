@@ -52,14 +52,58 @@ function getPublicStatus(meta) {
   return 'unknown';
 }
 
-// 공유 정보를 볼 수 없는 파일은 "노래책 카탈로그(Drive 동기화로 들어온 곡)에 있는 파일"일 때만 허용한다.
-// 카탈로그 파일은 운영자가 공유 루트 폴더에 넣은 악보이므로 기존 운영 전제(공개 PDF)와 같다.
+// 노래책 카탈로그(Drive 동기화로 들어온 곡)에 있는 파일인지. 카탈로그 파일은 운영자가 공유 루트 폴더에
+// 넣은 악보이므로 공유 정보가 안 보여도 기존 운영 전제(공개 PDF)와 같다고 보고 바로 허용한다.
 async function isCatalogFile(fileId) {
   try {
     return Boolean(await Song.exists({ googleFileId: String(fileId || '').trim() }));
   } catch {
     return false;
   }
+}
+
+// 노래책에 없는 파일(사용자가 뷰어에 직접 붙여넣은 Drive 링크 등)은 서비스계정이 공유 정보를 볼 수 없어서
+// 공개 여부를 Drive API로 알 수 없다. 대신 로그인 없이 Drive 보기 페이지를 요청해 실제 공개 여부를 확인한다.
+// 실측: 링크 공개 → 200, 비공개 → 401, 없는 파일 → 404 (2026-10 확인).
+// 결과: 'public' | 'private' | 'inconclusive'(차단/레이트리밋/네트워크 오류 등 판단 불가)
+const anonProbeCache = new Map(); // fileId -> { status, at }
+const ANON_PROBE_TTL_MS = 10 * 60 * 1000;
+const ANON_PROBE_CACHE_MAX = 2000;
+
+async function probeAnonymousAccess(fileId) {
+  const id = String(fileId || '').trim();
+  const cached = anonProbeCache.get(id);
+  if (cached && Date.now() - cached.at < ANON_PROBE_TTL_MS) return cached.status;
+
+  let status = 'inconclusive';
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 6000);
+  try {
+    const res = await fetch(`https://drive.google.com/file/d/${encodeURIComponent(id)}/view`, {
+      method: 'GET',
+      redirect: 'manual',
+      signal: ctrl.signal,
+      headers: { 'Accept-Language': 'ko-KR,ko;q=0.9' }
+    });
+    // 본문(수백 KB HTML)은 필요 없으므로 바로 버린다
+    try {
+      await res.body?.cancel?.();
+    } catch {}
+    if (res.status === 200) status = 'public';
+    // 서비스계정은 볼 수 있는데 익명은 401/403/404 → 링크 공개가 아님
+    else if (res.status === 401 || res.status === 403 || res.status === 404) status = 'private';
+    // 3xx(로그인/봇확인 페이지로 이동), 429, 5xx 는 판단 불가
+  } catch {
+    status = 'inconclusive';
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (status !== 'inconclusive') {
+    if (anonProbeCache.size >= ANON_PROBE_CACHE_MAX) anonProbeCache.delete(anonProbeCache.keys().next().value);
+    anonProbeCache.set(id, { status, at: Date.now() });
+  }
+  return status;
 }
 
 // Public: preview URL builder does not access Drive API; safe for anonymous viewer mode.
@@ -107,12 +151,21 @@ router.post('/drive/token-grants', express.json(), async (req, res) => {
       return res.status(403).json({ ok: false, error: 'PUBLIC_REQUIRED' });
     }
     if (publicStatus === 'unknown' && !(await isCatalogFile(fileId))) {
-      logDriveFail('token-grants', 'PUBLIC_UNVERIFIED', {
-        fileId,
-        meta,
-        detail: `sharing info hidden (canShare=${meta?.capabilities?.canShare}, driveId=${meta?.driveId || ''}) and not in songbook catalog`
-      });
-      return res.status(403).json({ ok: false, error: 'PUBLIC_UNVERIFIED' });
+      // 노래책에 없는 파일: 익명 접근으로 실제 공개 여부를 확인한다.
+      const anon = await probeAnonymousAccess(fileId);
+      if (anon === 'private') {
+        logDriveFail('token-grants', 'PUBLIC_REQUIRED', {
+          fileId,
+          meta,
+          detail: 'not in songbook catalog; anonymous access denied (file is not link-shared)'
+        });
+        return res.status(403).json({ ok: false, error: 'PUBLIC_REQUIRED' });
+      }
+      // 'public'은 정상 허용. 'inconclusive'(Google 쪽 차단/일시 오류)는 열람을 막지 않는다 —
+      // 서비스계정이 이미 읽을 수 있는 파일이고, 일시적인 판정 실패로 공연 중 악보가 안 열리는 쪽이 더 나쁘다.
+      if (anon === 'inconclusive') {
+        logDriveFail('token-grants', 'PUBLIC_PROBE_INCONCLUSIVE', { fileId, meta, detail: 'allowed (probe inconclusive)' });
+      }
     }
     const issued = issueDriveGrantToken({ fileId, ttlSec: 45 });
     return res.json({

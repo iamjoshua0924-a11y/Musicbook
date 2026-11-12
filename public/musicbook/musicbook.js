@@ -4123,6 +4123,7 @@ function applyRoleUI() {
 
   $('adminToggleBtn').style.display = isAdmin ? 'inline-flex' : 'none';
   if ($('adminConsoleBtn')) $('adminConsoleBtn').style.display = isAdmin ? 'inline-flex' : 'none';
+  if ($('tagsBulkEditBtn')) $('tagsBulkEditBtn').style.display = isAdmin ? 'inline-flex' : 'none';
   $('profileButton').style.display = isPriv ? 'inline-flex' : 'none';
   // archive-only: 노래책 설정(본인 private만)
   try {
@@ -4566,6 +4567,14 @@ function wireEvents() {
           window.open('../admin/', '_blank', 'noopener');
         } catch {}
       }
+    };
+  }
+  // 관리자 콘솔의 "곡 태그 일괄 편집" 카드로 바로 이동
+  if ($('tagsBulkEditBtn')) {
+    $('tagsBulkEditBtn').onclick = () => {
+      try {
+        window.open(new URL('../admin/#tagsCard', window.location.href).toString(), '_blank', 'noopener');
+      } catch {}
     };
   }
 

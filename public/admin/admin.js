@@ -95,7 +95,7 @@ function showAuthed(on, role = '') {
   setDisplay('meCard', on ? 'block' : 'none');
   // 메인 설정/유저 관리는 서버가 requireAdmin이라 세션 멤버에게 보여줘도 전부 실패한다
   const isAdmin = role === 'admin';
-  ['mainCard', 'usersCard'].forEach((id) => setDisplay(id, on && isAdmin ? 'block' : 'none'));
+  ['mainCard', 'usersCard', 'tagsCard'].forEach((id) => setDisplay(id, on && isAdmin ? 'block' : 'none'));
   setDisplay('sessionOnlyNote', on && !isAdmin ? 'block' : 'none');
   ['syncCard', 'parseErrorCard', 'trafficCard'].forEach((id) => setDisplay(id, 'none'));
 }
@@ -503,10 +503,153 @@ function wire() {
   );
 }
 
+// ---- 곡 태그 일괄 편집 ---------------------------------------------------------------
+const TAG_FIELD_LABEL = { genre: '장르', mood: '분위기', vocal: '보컬' };
+const TAG_IMPORT_ERRORS = {
+  EMPTY: '내용이 비어 있습니다.',
+  ID_COLUMN_MISSING: '"ID(수정금지)" 열을 찾지 못했습니다. 머리글 행까지 포함해서 붙여넣어 주세요.',
+  TAG_COLUMNS_MISSING: '장르/분위기/보컬 열이 하나도 없습니다.'
+};
+let tagsPreviewedText = ''; // 미리보기한 내용과 같을 때만 "적용"을 허용
+
+function setTagsOut(text) {
+  if ($('tagsOut')) $('tagsOut').textContent = text || '';
+}
+
+async function exportTagsCsv() {
+  setTagsOut('내보내는 중...');
+  try {
+    const res = await fetch(apiUrl('/api/admin/songs/tags/export'), { credentials: 'include' });
+    if (!res.ok) {
+      let err = `HTTP_${res.status}`;
+      try {
+        err = (await res.json())?.error || err;
+      } catch {}
+      return setTagsOut(`내보내기 실패: ${errorLabel(err)}`);
+    }
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `songbook-tags-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    setTagsOut('내보내기 완료. 시트/엑셀에서 수정한 뒤 다시 올려 주세요.');
+  } catch (e) {
+    setTagsOut(`내보내기 실패: ${errorLabel(`NETWORK_ERROR:${e?.message || e}`)}`);
+  }
+}
+
+// 한국어 윈도우 엑셀에서 "CSV(쉼표로 분리)"로 저장하면 UTF-8이 아니라 CP949(euc-kr)가 된다.
+// UTF-8로 먼저 읽어 보고, 깨지면 euc-kr로 다시 읽는다.
+async function readTextFileSmart(file) {
+  const buf = await file.arrayBuffer();
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buf);
+  } catch {
+    try {
+      return new TextDecoder('euc-kr').decode(buf);
+    } catch {
+      return new TextDecoder('utf-8').decode(buf);
+    }
+  }
+}
+
+function renderTagsPreview(r, { applied = false } = {}) {
+  const wrap = $('tagsPreview');
+  if (!wrap) return;
+  const changes = Array.isArray(r.changes) ? r.changes : [];
+  const errors = Array.isArray(r.errors) ? r.errors : [];
+  const fields = (r.presentFields || []).map((f) => TAG_FIELD_LABEL[f] || f).join('/');
+  const head = applied
+    ? `<b>적용 완료</b>: 곡 ${r.appliedCards}개(파일 ${r.modifiedSongs}개) 변경`
+    : `<b>미리보기</b>: 전체 ${r.totalRows}행 중 변경 <b>${changes.length}</b>곡 · 그대로 ${r.unchanged}곡 · 건너뜀(오류) <b>${errors.length}</b>행`;
+  const MAX = 500;
+  const errHtml = errors.length
+    ? `<div style="margin-top:8px; color:#b42318; font-size:13px;"><b>건너뛴 행</b> (이 행들은 저장되지 않습니다)
+        <ul style="margin:4px 0 0 18px; padding:0;">${errors
+          .slice(0, MAX)
+          .map((e) => `<li>${e.line}행 ${escapeHtml(e.label)} — ${escapeHtml(e.message)}</li>`)
+          .join('')}${errors.length > MAX ? `<li>…외 ${errors.length - MAX}행</li>` : ''}</ul></div>`
+    : '';
+  const rowHtml = (c) =>
+    `<tr><td>${c.line}</td><td>${escapeHtml(c.title)}</td><td>${escapeHtml(c.artist)}</td><td>${c.fields
+      .map(
+        (f) =>
+          `${TAG_FIELD_LABEL[f.field] || f.field}: <span class="tag-before">${escapeHtml(f.before || '(없음)')}${
+            f.mixed ? ' *' : ''
+          }</span> → <b>${escapeHtml(f.after || '(지움)')}</b>`
+      )
+      .join('<br />')}</td></tr>`;
+  const tableHtml = changes.length
+    ? `<div class="tag-table-wrap"><table class="tag-table"><thead><tr><th>행</th><th>제목</th><th>가수</th><th>변경</th></tr></thead><tbody>${changes
+        .slice(0, MAX)
+        .map(rowHtml)
+        .join('')}</tbody></table></div>${
+        changes.length > MAX ? `<div class="muted">…외 ${changes.length - MAX}곡 (표시는 ${MAX}곡까지, 적용은 전부)</div>` : ''
+      }<div class="muted">* 표시: 같은 곡의 키 파일끼리 태그가 달랐던 곡(이번에 하나로 맞춰짐)</div>`
+    : '';
+  wrap.innerHTML = `<div style="font-size:14px;">${head}${fields ? ` <span class="muted">(반영 열: ${escapeHtml(fields)})</span>` : ''}</div>${errHtml}${tableHtml}`;
+}
+
+async function previewTagsImport() {
+  const text = String($('tagsInput')?.value || '');
+  $('tagsApplyBtn').disabled = true;
+  tagsPreviewedText = '';
+  if (!text.trim()) return setTagsOut('CSV 파일을 선택하거나 표를 붙여넣어 주세요.');
+  setTagsOut('확인 중...');
+  const r = await apiJson('/api/admin/songs/tags/import', 'POST', { text, dryRun: true });
+  if (!r.ok) {
+    if ($('tagsPreview')) $('tagsPreview').innerHTML = '';
+    return setTagsOut(`미리보기 실패: ${TAG_IMPORT_ERRORS[r.error] || errorLabel(r.error)}`);
+  }
+  renderTagsPreview(r);
+  tagsPreviewedText = text;
+  $('tagsApplyBtn').disabled = !(r.changes || []).length;
+  setTagsOut((r.changes || []).length ? '내용을 확인한 뒤 "적용"을 누르세요.' : '바뀔 내용이 없습니다.');
+}
+
+async function applyTagsImport() {
+  const text = String($('tagsInput')?.value || '');
+  if (!text || text !== tagsPreviewedText) {
+    $('tagsApplyBtn').disabled = true;
+    return setTagsOut('내용이 바뀌었습니다. 미리보기를 다시 해 주세요.');
+  }
+  if (!confirm('미리보기한 변경을 노래책에 저장할까요?')) return;
+  setTagsOut('저장 중...');
+  const r = await apiJson('/api/admin/songs/tags/import', 'POST', { text, dryRun: false });
+  if (!r.ok) return setTagsOut(`저장 실패: ${TAG_IMPORT_ERRORS[r.error] || errorLabel(r.error)}`);
+  renderTagsPreview(r, { applied: true });
+  tagsPreviewedText = '';
+  $('tagsApplyBtn').disabled = true;
+  setTagsOut('저장했습니다. 노래책을 새로고침하면 반영됩니다.');
+}
+
+function wireTags() {
+  $('tagsExportBtn')?.addEventListener('click', () => withBusy($('tagsExportBtn'), exportTagsCsv, '내보내는 중...'));
+  $('tagsFileInput')?.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    $('tagsInput').value = await readTextFileSmart(file);
+    if ($('tagsFileName')) $('tagsFileName').textContent = file.name;
+    e.target.value = '';
+    await withBusy($('tagsPreviewBtn'), previewTagsImport, '확인 중...');
+  });
+  $('tagsInput')?.addEventListener('input', () => {
+    if ($('tagsInput').value !== tagsPreviewedText) $('tagsApplyBtn').disabled = true;
+  });
+  $('tagsPreviewBtn')?.addEventListener('click', () => withBusy($('tagsPreviewBtn'), previewTagsImport, '확인 중...'));
+  $('tagsApplyBtn')?.addEventListener('click', () => withBusy($('tagsApplyBtn'), applyTagsImport, '저장 중...'));
+}
+
 async function boot() {
   wire();
+  wireTags();
   const me = await refreshMe();
   if (me) {
+    // 노래책 "태그 일괄 편집" 버튼으로 들어온 경우 해당 카드로 스크롤
+    if (window.location.hash === '#tagsCard') setTimeout(() => $('tagsCard')?.scrollIntoView({ block: 'start' }), 0);
     await loadMain();
     if (me.role === 'admin') await loadUsers();
     // 진단/운영 기능은 /dev로 이관됨

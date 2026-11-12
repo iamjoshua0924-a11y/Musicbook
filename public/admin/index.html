@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>관리자</title>
-    <link rel="stylesheet" href="admin.css" />
+    <link rel="stylesheet" href="admin.css?v=20261112_1" />
   </head>
   <body>
     <a id="backToSongbook" href="../musicbook/">← 노래책으로</a>
@@ -79,6 +79,30 @@
         <div class="list" id="usersList" style="margin-top:10px;"></div>
       </div>
 
+      <div class="card" id="tagsCard" style="display:none;">
+        <div class="title" style="font-size:16px;">곡 태그 일괄 편집</div>
+        <div class="muted" style="margin-top:4px; line-height:1.6;">
+          ① CSV로 내보내기 → ② 구글 시트/엑셀에서 <b>장르·분위기·보컬</b> 열만 수정 → ③ 파일을 올리거나 시트에서 표 전체를 복사해 붙여넣기 → ④ 미리보기 확인 후 적용<br />
+          한 행 = 한 곡(카드)이며, 키가 여러 개인 곡은 모든 키 파일에 같이 적용됩니다. 첫 열 <span class="kbd">ID(수정금지)</span>는 지우거나 고치지 마세요.<br />
+          허용 값 — 장르: KPOP/JPOP/POP/OST/기타 · 분위기: 발라드/락발라드/밴드송/댄스/뮤지컬/힙합/동요 · 보컬: 남솔로/여솔로/듀엣/그룹곡 (빈칸 = 태그 지우기)
+        </div>
+        <div class="row" style="margin-top:10px;">
+          <button id="tagsExportBtn">① CSV 내보내기</button>
+          <label class="light-btn">
+            ③ CSV 파일 선택
+            <input id="tagsFileInput" type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" hidden />
+          </label>
+          <span class="muted" id="tagsFileName"></span>
+        </div>
+        <textarea id="tagsInput" rows="5" style="margin-top:10px;" placeholder="또는 여기에 시트에서 복사한 표(머리글 포함)를 붙여넣으세요"></textarea>
+        <div class="row" style="margin-top:10px;">
+          <button id="tagsPreviewBtn" class="light">④ 미리보기</button>
+          <button id="tagsApplyBtn" disabled>적용</button>
+          <span class="muted" id="tagsOut"></span>
+        </div>
+        <div id="tagsPreview" style="margin-top:10px;"></div>
+      </div>
+
       <div class="card" id="syncCard" style="display:none;">
         <div class="title" style="font-size:16px;">Drive 동기화</div>
         <div class="row" style="margin-top:10px;">
@@ -120,6 +144,6 @@
     </div>
 
     <script src="../config.js"></script>
-    <script src="admin.js?v=20260810_1"></script>
+    <script src="admin.js?v=20261112_1"></script>
   </body>
 </html>

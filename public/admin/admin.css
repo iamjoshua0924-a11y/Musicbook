@@ -70,3 +70,13 @@ button:active{ transform: translateY(1px); }
 .avail-left { display: grid; gap: 2px; }
 .avail-title { font-weight: 1000; }
 .avail-sub { font-size: 12px; color: #666; }
+
+/* 곡 태그 일괄 편집 */
+.light-btn { display: inline-flex; align-items: center; padding: 10px 12px; border-radius: 10px; background: #f3f3f3; color: #111; font-weight: 800; font-size: 13.3px; cursor: pointer; }
+.light-btn:hover { filter: brightness(0.97); }
+.tag-table-wrap { margin-top: 8px; max-height: 50vh; overflow: auto; border: 1px solid #eee; border-radius: 10px; }
+.tag-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tag-table th { position: sticky; top: 0; background: #fafafa; text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee; }
+.tag-table td { padding: 6px 8px; border-bottom: 1px solid #f3f3f3; vertical-align: top; }
+.tag-before { color: #888; text-decoration: line-through; }
+@media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } }

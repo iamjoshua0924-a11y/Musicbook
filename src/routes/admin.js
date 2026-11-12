@@ -17,6 +17,7 @@ const { driveToThumb } = require('../services/legacyCsvImport');
 const { buildPrivateArchivePath } = require('../services/privateArchive');
 const { hasPublicBook } = require('../services/bookAccess');
 const { buildSongFileName } = require('../services/songNameNormalizer');
+const { buildExportCsv, planTagImport } = require('../services/songTagsCsv');
 
 const router = express.Router();
 
@@ -476,6 +477,60 @@ router.patch('/admin/song-cards', requireAdmin, async (req, res) => {
     { $set }
   );
   res.json({ ok: true, matched: r.matchedCount ?? r.n ?? 0, modified: r.modifiedCount ?? r.nModified ?? 0 });
+});
+
+// ---- 곡 태그 일괄 편집(CSV 내보내기 → 시트에서 수정 → 미리보기 → 적용) ----------------
+// 노래책 화면과 같은 범위(숨김 제외)의 곡을 카드(제목+가수) 단위로 내보낸다.
+const TAG_EXPORT_FIELDS = { _id: 1, title: 1, displayTitle: 1, artist: 1, key: 1, genre: 1, mood: 1, vocal: 1 };
+
+router.get('/admin/songs/tags/export', requireAdmin, async (_req, res) => {
+  const songs = await Song.find({ hidden: { $ne: true } }, TAG_EXPORT_FIELDS).lean();
+  const csv = buildExportCsv(songs);
+  const stamp = new Date().toISOString().slice(0, 10);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="songbook-tags-${stamp}.csv"`);
+  res.send(csv);
+});
+
+// 검색어(searchText)는 기존 편집 경로(/songs/card-tags)와 같은 규칙으로 다시 만든다.
+const SEARCH_TEXT_FIELDS = ['displayTitle', 'title', 'artist', 'key', 'genre', 'mood', 'vocal'];
+const REBUILD_SEARCH_TEXT = {
+  $set: {
+    searchText: {
+      $toLower: {
+        $concat: SEARCH_TEXT_FIELDS.flatMap((f, i) => (i === 0 ? [] : [' ']).concat([{ $ifNull: [`$${f}`, ''] }]))
+      }
+    }
+  }
+};
+
+// dryRun=true(기본): 무엇이 바뀔지만 돌려준다(미리보기). dryRun=false: 같은 계산을 저장 시점에 다시 해서 저장한다
+// (미리보기 이후 다른 사람이 태그를 바꿨어도 저장 시점 기준으로 비교하므로 엉뚱한 값을 덮어쓰지 않는다).
+router.post('/admin/songs/tags/import', requireAdmin, async (req, res) => {
+  const text = String(req.body?.text || '');
+  const dryRun = req.body?.dryRun !== false;
+  if (!text.trim()) return res.status(400).json({ ok: false, error: 'EMPTY' });
+
+  const songs = await Song.find({}, TAG_EXPORT_FIELDS).lean();
+  const songsById = new Map(songs.map((s) => [String(s._id), s]));
+  const plan = planTagImport(text, songsById);
+  if (!plan.ok) return res.status(400).json(plan);
+  if (dryRun) return res.json({ ...plan, dryRun: true });
+
+  // 카드 단위 updateMany(카드에 속한 모든 키 변형 파일을 같은 값으로)
+  const now = new Date();
+  const ops = plan.changes.map((c) => ({
+    updateMany: {
+      filter: { _id: { $in: c.ids } },
+      update: [{ $set: { ...c.set, updatedAt: now } }, REBUILD_SEARCH_TEXT]
+    }
+  }));
+  let modifiedSongs = 0;
+  for (let i = 0; i < ops.length; i += 500) {
+    const r = await Song.bulkWrite(ops.slice(i, i + 500), { ordered: false });
+    modifiedSongs += Number(r.modifiedCount ?? r.nModified ?? 0) || 0;
+  }
+  res.json({ ...plan, dryRun: false, appliedCards: plan.changes.length, modifiedSongs });
 });
 
 // CSV 업로드(곡) 임포트: 동일값은 스킵, 변경/비일치 항목만 CSV 값으로 덮어쓰기

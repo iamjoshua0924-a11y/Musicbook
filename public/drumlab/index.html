@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<!--HEAD-->
+<title>리니어 드럼 랩</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600&display=swap">
+<!--/HEAD-->
+<link rel="stylesheet" href="drumlab.css" />
+</head>
+<body>
+<!--BODY-->
+<div class="app">
+  <header class="top">
+    <h1>Linear <span>Drum</span> Lab</h1>
+  </header>
+
+  <main class="stage">
+    <div class="meta">
+      <span id="metaText"></span>
+      <span class="dots" id="dots" aria-hidden="true"></span>
+      <button type="button" id="stat" title="누르면 0으로 되돌립니다"></button>
+    </div>
+    <div class="paper">
+      <div id="score" role="img" aria-label="2마디 드럼 과제 악보"></div>
+      <div id="count" hidden></div>
+    </div>
+  </main>
+
+  <footer class="bar">
+    <button type="button" class="btn play" id="play" aria-label="재생">
+      <svg class="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l13-7.5z"/></svg>
+      <svg class="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
+    </button>
+    <div class="tempo">
+      <button type="button" class="btn wide" data-d="-5" aria-label="5 느리게">−5</button>
+      <button type="button" class="btn" data-d="-1" aria-label="1 느리게">−</button>
+      <div class="bpm"><b id="bpmVal">80</b><small>BPM</small></div>
+      <button type="button" class="btn" data-d="1" aria-label="1 빠르게">+</button>
+      <button type="button" class="btn wide" data-d="5" aria-label="5 빠르게">+5</button>
+    </div>
+    <button type="button" class="btn" id="tap">TAP</button>
+    <span class="spacer"></span>
+    <button type="button" class="btn" id="prev">이전</button>
+    <button type="button" class="btn next grow" id="next">다음 과제</button>
+    <button type="button" class="btn" id="openSet" aria-label="설정">
+      <svg viewBox="0 0 24 24"><path d="M4 7h9v2H4zm13 0h3v2h-3zM4 15h3v2H4zm7 0h9v2h-9z"/><circle cx="15" cy="8" r="2.6"/><circle cx="9" cy="16" r="2.6"/></svg>
+    </button>
+    <button type="button" class="btn" id="fs" aria-label="전체화면">
+      <svg class="i-enter" viewBox="0 0 24 24"><path d="M4 4h6v2H6v4H4zm10 0h6v6h-2V6h-4zM4 14h2v4h4v2H4zm14 0h2v6h-6v-2h4z"/></svg>
+      <svg class="i-exit" viewBox="0 0 24 24"><path d="M8 4h2v6H4V8h4zm6 0h2v4h4v2h-6zM4 14h6v6H8v-4H4zm10 0h6v2h-4v4h-2z"/></svg>
+    </button>
+  </footer>
+
+  <aside class="panel" id="panel" aria-label="설정">
+    <div class="panel-head">
+      <h2>과제 설정</h2>
+      <button type="button" class="btn" id="closeSet">닫기</button>
+    </div>
+    <div class="panel-body">
+      <section>
+        <h3>연습 테마</h3>
+        <div class="seg" data-key="theme">
+          <button type="button" data-val="linear">리니어</button>
+          <button type="button" data-val="para">파라디들</button>
+          <button type="button" data-val="sext">6연음 필인</button>
+        </div>
+        <div class="row">
+          <span class="lab">과제 길이 (박)</span>
+          <div class="seg" data-key="len">
+            <button type="button" data-val="1">1</button><button type="button" data-val="2">2</button>
+            <button type="button" data-val="3">3</button><button type="button" data-val="4">4</button>
+            <button type="button" data-val="5">5</button><button type="button" data-val="6">6</button>
+            <button type="button" data-val="7">7</button><button type="button" data-val="8">8</button>
+          </div>
+        </div>
+        <div class="row" id="placeRow">
+          <span class="lab">2마디 안 배치</span>
+          <div class="seg" data-key="place">
+            <button type="button" data-val="repeat">반복</button>
+            <button type="button" data-val="start">앞 정렬</button>
+            <button type="button" data-val="end">필 자리(끝)</button>
+          </div>
+        </div>
+        <div class="row" id="fillerRow">
+          <span class="lab">나머지 구간</span>
+          <div class="seg" data-key="filler">
+            <button type="button" data-val="rest">쉼표</button>
+            <button type="button" data-val="groove">8비트 그루브</button>
+          </div>
+        </div>
+      </section>
+
+      <section data-theme-only="linear">
+        <h3>리니어 구성</h3>
+        <div class="row">
+          <span class="lab">리듬 (여러 개 선택)</span>
+          <div class="chips" data-key="units">
+            <button type="button" data-val="36">점4분</button><button type="button" data-val="24">4분</button>
+            <button type="button" data-val="18">점8분</button><button type="button" data-val="12">8분</button>
+            <button type="button" data-val="8">8분 3연음</button><button type="button" data-val="6">16분</button>
+            <button type="button" data-val="4">6연음</button><button type="button" data-val="3">32분</button>
+          </div>
+        </div>
+        <div class="row">
+          <span class="lab">손+발 묶음 길이 (음 수)</span>
+          <div class="chips" data-key="cells">
+            <button type="button" data-val="2">2</button><button type="button" data-val="3">3</button>
+            <button type="button" data-val="4">4</button><button type="button" data-val="5">5</button>
+            <button type="button" data-val="6">6</button><button type="button" data-val="7">7</button>
+          </div>
+        </div>
+        <label class="check"><input type="checkbox" id="kickDouble" data-key="kickDouble" />베이스 더블(KK) 허용</label>
+      </section>
+
+      <section data-theme-only="para">
+        <h3>파라디들 구성</h3>
+        <div class="row">
+          <span class="lab">루디먼트 (여러 개 선택)</span>
+          <div class="chips" data-key="rudiments">
+            <button type="button" data-val="single">싱글 RLRR</button>
+            <button type="button" data-val="double">더블 RLRLRR</button>
+            <button type="button" data-val="triple">트리플 RLRLRLRR</button>
+            <button type="button" data-val="pdd">파라디들디들 RLRRLL</button>
+            <button type="button" data-val="inv">인버티드 RLLR</button>
+            <button type="button" data-val="rev">리버스 RRLR</button>
+          </div>
+        </div>
+        <div class="row">
+          <span class="lab">분할</span>
+          <div class="chips" data-key="subs">
+            <button type="button" data-val="12">8분</button><button type="button" data-val="8">8분 3연음</button>
+            <button type="button" data-val="6">16분</button><button type="button" data-val="4">6연음</button>
+            <button type="button" data-val="3">32분</button>
+          </div>
+        </div>
+        <label class="check"><input type="checkbox" id="kickSub" data-key="kickSub" />더블 스트로크를 베이스로 치환 (RLKK)</label>
+      </section>
+
+      <section data-theme-only="sext">
+        <h3>6연음 필인 구성</h3>
+        <div class="row">
+          <span class="lab">묶음 (여러 개 선택)</span>
+          <div class="chips" data-key="sextCells">
+            <button type="button" data-val="RLRLRL">RLRLRL</button>
+            <button type="button" data-val="RLRLKK">RLRLKK</button>
+            <button type="button" data-val="RLK">RLK</button>
+            <button type="button" data-val="RLKK">RLKK</button>
+            <button type="button" data-val="RRLLKK">RRLLKK</button>
+            <button type="button" data-val="RLRRLL">RLRRLL</button>
+          </div>
+        </div>
+        <p class="hint">3음·4음 묶음은 박을 넘어가며 이어진다.</p>
+      </section>
+
+      <section>
+        <h3>오케스트레이션</h3>
+        <div class="row">
+          <span class="lab">스네어 외에 쓸 악기</span>
+          <div class="chips" data-key="insts">
+            <button type="button" data-val="ht">하이탐</button><button type="button" data-val="mt">미드탐</button>
+            <button type="button" data-val="ft">플로어탐</button><button type="button" data-val="hh">하이햇</button>
+          </div>
+        </div>
+        <div class="checks">
+          <label class="check"><input type="checkbox" id="accent" data-key="accent" />묶음 첫 음 악센트</label>
+          <label class="check"><input type="checkbox" id="sticking" data-key="sticking" />스티킹 표시</label>
+        </div>
+        <div class="row">
+          <span class="lab">리드 손</span>
+          <div class="seg" data-key="lead">
+            <button type="button" data-val="R">오른손</button><button type="button" data-val="L">왼손</button>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h3>리듬 뼈대</h3>
+        <div class="seg" data-key="feel">
+          <button type="button" data-val="straight">스트레이트</button>
+          <button type="button" data-val="swing">스윙 (8분)</button>
+          <button type="button" data-val="bounce">바운스 (16분)</button>
+        </div>
+        <div class="row" id="swingRow">
+          <label for="swing">스윙 비율 <output data-out="swing"></output></label>
+          <input type="range" id="swing" data-key="swing" min="50" max="75" step="1" />
+          <p class="hint">67%가 셋잇단 느낌이다. 메트로놈 분할과 과제 리듬에 함께 적용되고, 잇단음은 그대로 둔다.</p>
+        </div>
+      </section>
+
+      <section>
+        <h3>메트로놈</h3>
+        <div class="row">
+          <span class="lab">박 분할</span>
+          <div class="seg" data-key="sub">
+            <button type="button" data-val="1">없음</button><button type="button" data-val="2">2</button>
+            <button type="button" data-val="3">3</button><button type="button" data-val="4">4</button>
+            <button type="button" data-val="6">6</button>
+          </div>
+        </div>
+        <div class="row">
+          <span class="lab">박별 설정 <span>누를 때마다 보통 → 음소거 → 강세</span></span>
+          <div class="grid8" id="beatGrid"></div>
+        </div>
+        <div class="row" id="subRow">
+          <span class="lab">분할 음 켜기/끄기</span>
+          <div class="subgrid" id="subGrid"></div>
+        </div>
+        <div class="row">
+          <label for="clickVol">클릭 음량 <output data-out="clickVol"></output></label>
+          <input type="range" id="clickVol" data-key="clickVol" min="0" max="100" step="5" />
+        </div>
+        <label class="check"><input type="checkbox" id="countIn" data-key="countIn" />시작할 때 1마디 카운트인</label>
+      </section>
+
+      <section>
+        <h3>과제 소리와 화면</h3>
+        <label class="check"><input type="checkbox" id="noteOn" data-key="noteOn" />과제를 드럼 소리로 들려주기</label>
+        <div class="row">
+          <label for="noteVol">드럼 음량 <output data-out="noteVol"></output></label>
+          <input type="range" id="noteVol" data-key="noteVol" min="0" max="100" step="5" />
+        </div>
+        <div class="row">
+          <label for="offset">커서 싱크 보정 (ms) <output data-out="offset"></output></label>
+          <input type="range" id="offset" data-key="offset" min="-100" max="300" step="10" />
+          <p class="hint">블루투스 이어폰처럼 소리가 늦게 나오면 값을 올린다.</p>
+        </div>
+      </section>
+    </div>
+  </aside>
+  <div class="scrim" id="scrim" hidden></div>
+</div>
+<!--/BODY-->
+<script src="https://cdn.jsdelivr.net/npm/vexflow@4.2.5/build/cjs/vexflow.js"></script>
+<script src="drumlab.js"></script>
+</body>
+</html>

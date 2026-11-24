@@ -17,7 +17,7 @@
     units: [12, 6, 4], cells: [3, 4, 5], kickDouble: true,
     rudiments: ['single', 'pdd'], subs: [6], kickSub: false,
     sextCells: ['RLRLKK', 'RLK', 'RLKK'],
-    insts: ['ht', 'ft'], accent: true, sticking: true, lead: 'R',
+    insts: ['ht', 'ft'], moveGap: 12, accent: true, sticking: true, lead: 'R',
     feel: 'straight', swing: 66,
     bpm: 80, sub: 1, beats: [2, 1, 1, 1, 2, 1, 1, 1], subOn: [1, 1, 1, 1, 1, 1],
     clickVol: 80, noteVol: 60, noteOn: true, countIn: true, offset: 0,
@@ -205,8 +205,23 @@
       }
     }
     ev.sort((a, b) => a.t - b.t);
+    fixHands(ev);
     ev.forEach((e, i) => { e.ioi = (i + 1 < ev.length ? ev[i + 1].t : LOOP) - e.t; });
     return { seed, events: ev, written: buildWritten(ev) };
+  }
+
+  // 같은 손이 직전 타격 뒤 moveGap 틱 안에 다른 북으로 옮겨야 하면, 옮기지 않고 치던 북에 머문다.
+  // 루프 끝 → 처음으로 넘어가는 지점까지 보려고 두 번 돈다(첫 바퀴는 직전 루프 역할).
+  function fixHands(ev) {
+    const last = {};
+    for (let pass = 0; pass < 2; pass++) {
+      for (const e of ev) {
+        if (e.stick !== 'R' && e.stick !== 'L') continue;
+        const t = e.t + (pass ? 0 : -LOOP), l = last[e.stick];
+        if (l && e.insts[0] !== l.inst && t - l.t < S.moveGap) e.insts = [l.inst];
+        last[e.stick] = { inst: e.insts[0], t };
+      }
+    }
   }
 
   /* ---------- 기보용 변환: 온셋 간격 → 음표 + 쉼표 ---------- */
@@ -549,7 +564,7 @@
   }
 
   /* ---------- UI 바인딩 ---------- */
-  const REGEN = ['theme', 'len', 'place', 'filler', 'units', 'cells', 'kickDouble', 'rudiments', 'subs', 'kickSub', 'sextCells', 'insts', 'accent', 'lead'];
+  const REGEN = ['theme', 'len', 'place', 'filler', 'units', 'cells', 'kickDouble', 'rudiments', 'subs', 'kickSub', 'sextCells', 'insts', 'moveGap', 'accent', 'lead'];
   const REQUIRED = ['units', 'cells', 'rudiments', 'subs', 'sextCells'];
   const parse = (v) => (v !== '' && !isNaN(v) ? Number(v) : v);
 
